@@ -4,9 +4,13 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.identity.application import (
+    ConfirmEmailVerificationUseCase,
+    ConfirmPasswordResetUseCase,
     LoginUserUseCase,
+    LogoutUseCase,
     RefreshAccessTokenUseCase,
     RegisterUserUseCase,
+    RequestPasswordResetUseCase,
 )
 from backend.modules.identity.application.ports.email_sender import EmailSender
 from backend.modules.identity.infrastructure.email.email_sender_factory import build_email_sender
@@ -16,6 +20,9 @@ from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_e
 )
 from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_email_verification_token_repository import (
     SqlAlchemyEmailVerificationTokenRepository,
+)
+from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_password_reset_token_repository import (
+    SqlAlchemyPasswordResetTokenRepository,
 )
 from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_refresh_token_repository import (
     SqlAlchemyRefreshTokenRepository,
@@ -102,3 +109,37 @@ def get_refresh_access_token_use_case(
         token_service,
         refresh_ttl_days=settings.jwt_refresh_ttl_days,
     )
+
+
+def get_request_password_reset_use_case(
+    session: AsyncSession = Depends(get_db_session),
+    email_sender: EmailSender = Depends(get_email_sender),
+) -> RequestPasswordResetUseCase:
+    user_repo = SqlAlchemyUserRepository(session)
+    reset_token_repo = SqlAlchemyPasswordResetTokenRepository(session)
+    return RequestPasswordResetUseCase(user_repo, reset_token_repo, email_sender)
+
+
+def get_confirm_password_reset_use_case(
+    session: AsyncSession = Depends(get_db_session),
+) -> ConfirmPasswordResetUseCase:
+    user_repo = SqlAlchemyUserRepository(session)
+    reset_token_repo = SqlAlchemyPasswordResetTokenRepository(session)
+    refresh_repo = SqlAlchemyRefreshTokenRepository(session)
+    hasher = BcryptPasswordHasher()
+    return ConfirmPasswordResetUseCase(user_repo, reset_token_repo, refresh_repo, hasher)
+
+
+def get_confirm_email_verification_use_case(
+    session: AsyncSession = Depends(get_db_session),
+) -> ConfirmEmailVerificationUseCase:
+    user_repo = SqlAlchemyUserRepository(session)
+    verification_repo = SqlAlchemyEmailVerificationTokenRepository(session)
+    return ConfirmEmailVerificationUseCase(user_repo, verification_repo)
+
+
+def get_logout_use_case(
+    session: AsyncSession = Depends(get_db_session),
+) -> LogoutUseCase:
+    refresh_repo = SqlAlchemyRefreshTokenRepository(session)
+    return LogoutUseCase(refresh_repo)

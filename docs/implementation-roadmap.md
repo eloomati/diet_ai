@@ -35,7 +35,7 @@ Phase 7  - Diet Generation          DONE — structured multi-day diet plan
                                      stack with Ollama. See the 6-stage log
                                      below, including a real reliability
                                      finding for the small local model.
-Phase 8  - Conversation Lifecycle &  IN PROGRESS (Stages 1-6/8 DONE) —
+Phase 8  - Conversation Lifecycle &  IN PROGRESS (Stages 1-7/8 DONE) —
            Account Recovery          post-Phase-7 gap audit found no DELETE
                                      endpoints anywhere, no route to the
                                      domain's existing Conversation.archive(),
@@ -43,10 +43,11 @@ Phase 8  - Conversation Lifecycle &  IN PROGRESS (Stages 1-6/8 DONE) —
                                      mid-phase to also cover real email
                                      verification at registration (shared
                                      SecureToken generator), an email
-                                     delivery log, and a background retry
-                                     mechanism for failed sends — scope
-                                     expanded from 5 to 8 stages; see the
-                                     breakdown below.
+                                     delivery log, a background retry
+                                     mechanism for failed sends, and (once
+                                     spotted mid-Stage-7) a missing logout
+                                     endpoint — scope expanded from 5 to 8
+                                     stages; see the breakdown below.
 Phase 9+ - Frontend/Testing/Future  NOT STARTED
 ```
 
@@ -1619,32 +1620,87 @@ POST /auth/password-reset/confirm
 POST /auth/verify-email/confirm
 ```
 
-- [ ] `api/schemas/password_reset_schemas.py` — `RequestPasswordResetRequest`
-      (`email`), `ConfirmPasswordResetRequest` (`token`, `new_password` —
-      same strength validation as registration).
-- [ ] `api/schemas/email_verification_schemas.py` —
-      `ConfirmEmailVerificationRequest` (`token`).
-- [ ] `api/dependencies/` — wires `PasswordResetTokenRepository` +
-      `UserRepository` + `EmailSender` into `RequestPasswordResetUseCase`;
-      `PasswordResetTokenRepository` + `UserRepository` +
-      `RefreshTokenRepository` into `ConfirmPasswordResetUseCase`;
-      `EmailVerificationTokenRepository` + `UserRepository` into
-      `ConfirmEmailVerificationUseCase`; updates
-      `get_register_user_use_case` for its two new deps.
-- [ ] `api/routers/auth_router.py` — both password-reset endpoints always
+- [x] `api/schemas/password_reset_schemas.py` — `RequestPasswordResetRequest`
+      (`email`), `PasswordResetRequestedResponse`, `ConfirmPasswordResetRequest`
+      (`token`, `new_password` — same `Field(min_length=8, max_length=128)`
+      as registration, with `PasswordPolicy` enforced inside the use case for
+      actual strength), `PasswordResetConfirmedResponse`.
+- [x] `api/schemas/email_verification_schemas.py` —
+      `ConfirmEmailVerificationRequest` (`token`),
+      `EmailVerificationConfirmedResponse`.
+- [x] `api/dependencies/` — `get_request_password_reset_use_case` wires
+      `PasswordResetTokenRepository` + `UserRepository` + `EmailSender`
+      (via `get_email_sender`) into `RequestPasswordResetUseCase`;
+      `get_confirm_password_reset_use_case` wires `PasswordResetTokenRepository`
+      + `UserRepository` + `RefreshTokenRepository` + `BcryptPasswordHasher`
+      into `ConfirmPasswordResetUseCase`; `get_confirm_email_verification_use_case`
+      wires `EmailVerificationTokenRepository` + `UserRepository` into
+      `ConfirmEmailVerificationUseCase`. (`get_register_user_use_case` already
+      had its two new deps from Stage 4/5 — nothing left to update there.)
+- [x] `api/routers/auth_router.py` — both password-reset endpoints always
       return `200` with a generic body on `request` (never reveals whether
       the email exists); `confirm` endpoints → `AppException(BAD_REQUEST)`
-      on `InvalidPasswordResetTokenError`/`InvalidEmailVerificationTokenError`.
+      on `InvalidPasswordResetTokenError`/`InvalidEmailVerificationTokenError`
+      (bundled with `UserNotFoundError`, since from the caller's perspective a
+      token whose user vanished is indistinguishable from an invalid token).
+- [x] `MeResponse` gained `email_verified: bool` — the natural way to expose
+      the field `ConfirmEmailVerificationUseCase` sets; nothing else surfaced
+      it, and both the API tests and the manual Docker verification below
+      rely on it to observe the flag flipping.
+
+**Added mid-stage per user request — `POST /auth/logout`:** the audit that
+kicked off Phase 8 also missed a logout endpoint. `LogoutCommand`/
+`LogoutUseCase` (`application/use_cases/logout_use_case.py`) revoke the
+given refresh token via the existing `RefreshTokenRepository.revoke()` —
+no new domain/infra needed, just a thin use case over what Stage 1-3
+already built. Idempotent by design: an unknown, garbage, or already-
+revoked/expired token is a silent no-op (200 either way), since the caller
+only cares that the token can no longer be used, which already holds.
+Only revokes the one session's refresh token — not a "log out everywhere"
+(that would need `revoke_all_for_user` + an authenticated caller instead of
+just a bearer refresh token); out of scope unless requested separately.
 
 Exit criteria: full API integration tests — password reset (request-unknown
 -email 200 + no email sent; request-known-email 200 + exactly one email
 sent; confirm-valid-token 200 + old password no longer works + old refresh
-token revoked; confirm-expired/used/garbage-token → 400) and email
-verification (register sends exactly one verification email;
-confirm-valid-token 200 + `user.email_verified` true; confirm-expired/used/
-garbage-token → 400). Verified end-to-end on the real Docker stack: for
-each flow, request/register → fetch the email from Mailhog's API → extract
-the token → confirm → (for reset) log in with the new password.
+token revoked; confirm-garbage-token → 400; confirm-already-used-token →
+400; confirm-weak-new-password → 400 exercising `PasswordPolicy` inside the
+use case, not just the schema's `min_length`) and email verification
+(register sends exactly one verification email; confirm-valid-token 200 +
+`GET /me`'s `email_verified` flips true; confirm-garbage-token → 400;
+confirm-already-used-token → 400) and logout (revokes the token so a
+subsequent refresh 401s; unknown token → 200; calling logout twice → 200
+both times; a second, unrelated session's refresh token survives). Expiry
+specifically isn't re-tested at the API level — it's already covered at the
+unit level (`test_confirm_password_reset_use_case.py`,
+`test_email_verification_token.py`) and the API's only added
+responsibility, mapping the same `Invalid*TokenError` to 400, is already
+exercised identically by the garbage/used-token cases.
+
+**Status: DONE.**
+
+- 21 new tests: `test_password_reset_api.py` (6), `test_email_verification_api.py`
+  (4), `test_logout_use_case.py` (3, fakes-only), `test_logout_api.py` (4, real
+  Postgres via the `client` fixture) — plus the pre-existing 4
+  `test_auth_me_api.py`/`test_auth_api.py` continuing to pass unchanged
+  with the new `email_verified` field added to `MeResponse`.
+- Real-Postgres API tests capture the raw one-time token by overriding only
+  the `get_email_sender` dependency with a shared `FakeEmailSender` per test
+  (everything else — repositories, use cases — stays wired to the real test
+  Postgres via the existing `client` fixture) — a new but narrow pattern:
+  override at the port boundary only, keep persistence real.
+- Full suite: 240 → **257 passed**.
+- Real Docker-stack verification: full round trip for all three flows via
+  curl + Mailhog's HTTP API — registered a user, fetched the verification
+  email, confirmed it, watched `GET /me`'s `email_verified` flip
+  `false → true`, confirmed a second confirm attempt 400s (used token);
+  requested a password reset, fetched the reset email, confirmed with a new
+  password, verified the old password now 401s on login, the new password
+  200s, and the pre-reset refresh token 401s on `/refresh` (revoked, per
+  `ConfirmPasswordResetUseCase`'s existing revoke-all behavior); logged in
+  again, called `/logout`, confirmed the refreshed token now 401s and a
+  second `/logout` call with the same token still returns 200. Cleaned up
+  the test user, its tokens/logs, and the Mailhog inbox afterwards.
 
 ---
 

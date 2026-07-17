@@ -30,3 +30,11 @@ class RefreshTokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: str
+
+
+class LogoutResponse(BaseModel):
+    message: str = "Logged out successfully."
