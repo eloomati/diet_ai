@@ -307,6 +307,8 @@ MongoDB
 
 ---
 
+All endpoints below require `Authorization: Bearer {access_token}`.
+
 ## POST /conversations
 
 Creates a new conversation.
@@ -315,8 +317,8 @@ Creates a new conversation.
 
 ```json
 {
-  "category": "DIET",
-  "title": "High protein breakfasts"
+  "title": "High protein breakfasts",
+  "category": "BREAKFAST"
 }
 ```
 
@@ -332,72 +334,101 @@ Body:
 
 ```json
 {
-  "id": "conversation-id",
-  "category": "DIET",
-  "createdAt": "2026-01-01T10:00:00Z"
+  "conversation_id": "uuid",
+  "title": "High protein breakfasts",
+  "category": "BREAKFAST",
+  "status": "ACTIVE"
 }
 ```
+
+### Errors
+
+401 Unauthorized — missing/invalid token (see auth-runbook.md)
+
+422 Unprocessable Entity — `VALIDATION_ERROR` (invalid `category`, empty `title`)
 
 ---
 
 ## GET /conversations
 
-Returns conversations belonging to authenticated user.
+Returns conversation summaries belonging to the authenticated user (no messages — use `GET /conversations/{id}` for those).
 
 ### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
 
 ```json
 [
   {
-    "id": "conversation-id",
+    "conversation_id": "uuid",
     "title": "High protein breakfasts",
-    "category": "DIET",
-    "updatedAt": "2026-01-01T12:00:00Z"
+    "category": "BREAKFAST",
+    "status": "ACTIVE",
+    "updated_at": "2026-01-01T12:00:00Z"
   }
 ]
 ```
 
 ---
 
-## GET /conversations/{id}
+## GET /conversations/{conversation_id}
 
-Returns conversation history.
+Returns a single conversation with its full message history.
 
 ### Response
 
+Status:
+
+```
+200 OK
+```
+
+Body:
+
 ```json
 {
-  "id": "conversation-id",
+  "conversation_id": "uuid",
   "title": "High protein breakfasts",
-  "category": "DIET",
+  "category": "BREAKFAST",
+  "status": "ACTIVE",
   "messages": [
     {
-      "id": "message-id",
+      "id": "uuid",
       "role": "USER",
       "content": "Create breakfast ideas",
-      "createdAt": "2026-01-01T10:01:00Z"
+      "created_at": "2026-01-01T10:01:00Z"
     },
     {
-      "id": "message-id",
+      "id": "uuid",
       "role": "ASSISTANT",
       "content": "Here are ideas...",
-      "createdAt": "2026-01-01T10:01:05Z"
+      "created_at": "2026-01-01T10:01:05Z"
     }
   ]
 }
 ```
 
+### Errors
+
+404 Not Found — `NOT_FOUND` (conversation doesn't exist, or belongs to another user — both look identical, to avoid leaking existence)
+
 ---
 
-## POST /conversations/{id}/messages
+## POST /conversations/{conversation_id}/messages
 
-Sends user message and generates AI response.
+Appends a user message, generates an AI response (via whichever provider `AI_PROVIDER` selects — see auth-runbook.md-style config in `.env.example`), appends the response, and returns both.
 
 ### Request
 
 ```json
 {
-  "message": "I run 5 times a week. Create high protein breakfasts for 7 days."
+  "content": "I run 5 times a week. Create high protein breakfasts for 7 days."
 }
 ```
 
@@ -413,11 +444,16 @@ Body:
 
 ```json
 {
-  "messageId": "uuid",
-  "answer": "Here is your weekly breakfast plan...",
-  "createdAt": "2026-01-01T10:02:00Z"
+  "conversation_id": "uuid",
+  "user_message_id": "uuid",
+  "assistant_message_id": "uuid",
+  "assistant_content": "Here is your weekly breakfast plan..."
 }
 ```
+
+### Errors
+
+404 Not Found — `NOT_FOUND` (same not-found-vs-not-yours ambiguity as above)
 
 ---
 

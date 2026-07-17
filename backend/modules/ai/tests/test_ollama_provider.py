@@ -44,3 +44,24 @@ async def test_ollama_provider_maps_response_to_ai_response() -> None:
     assert fake_client.last_url == "/api/chat"
     assert fake_client.last_json["model"] == "llama3.2:1b"
     assert fake_client.last_json["messages"][-1] == {"role": "user", "content": "What should I eat?"}
+
+
+@pytest.mark.asyncio
+async def test_ollama_provider_sends_system_prompt_as_first_message() -> None:
+    fake_client = _FakeHttpClient(
+        {"model": "llama3.2:1b", "message": {"content": "..."}, "eval_count": 1}
+    )
+    provider = OllamaProvider(base_url="http://localhost:11434", model="llama3.2:1b", client=fake_client)
+
+    await provider.generate_response(
+        Prompt(
+            question="What should I eat?",
+            category="BREAKFAST",
+            system_prompt="You are a nutrition assistant. Category: BREAKFAST.",
+        )
+    )
+
+    assert fake_client.last_json["messages"][0] == {
+        "role": "system",
+        "content": "You are a nutrition assistant. Category: BREAKFAST.",
+    }

@@ -20,7 +20,7 @@ class ClaudeProvider(LLMProvider):
         response = await self._client.messages.create(
             model=self._model,
             max_tokens=1024,
-            system=self._build_system(prompt),
+            system=prompt.system_prompt,
             messages=self._build_messages(prompt),
         )
         execution_time = time.monotonic() - started_at
@@ -33,14 +33,6 @@ class ClaudeProvider(LLMProvider):
             tokens=response.usage.output_tokens,
             execution_time=execution_time,
         )
-
-    def _build_system(self, prompt: Prompt) -> str:
-        parts = [f"You are a helpful assistant for the category: {prompt.category}."]
-        if prompt.user_profile:
-            parts.append(f"User profile: {prompt.user_profile}")
-        if prompt.system_context:
-            parts.append(prompt.system_context)
-        return "\n".join(parts)
 
     def _build_messages(self, prompt: Prompt) -> list[dict[str, str]]:
         messages = [{"role": turn.role, "content": turn.content} for turn in prompt.conversation_history]

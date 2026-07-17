@@ -1,3 +1,4 @@
+
 import time
 
 import httpx
@@ -41,13 +42,7 @@ class OllamaProvider(LLMProvider):
         )
 
     def _build_messages(self, prompt: Prompt) -> list[dict[str, str]]:
-        system_parts = [f"You are a helpful assistant for the category: {prompt.category}."]
-        if prompt.user_profile:
-            system_parts.append(f"User profile: {prompt.user_profile}")
-        if prompt.system_context:
-            system_parts.append(prompt.system_context)
-
-        messages = [{"role": "system", "content": "\n".join(system_parts)}]
+        messages = [{"role": "system", "content": prompt.system_prompt}]
         messages.extend({"role": turn.role, "content": turn.content} for turn in prompt.conversation_history)
         messages.append({"role": "user", "content": prompt.question})
         return messages

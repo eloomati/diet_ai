@@ -11,6 +11,5 @@ class PromptTurn:
 class Prompt:
     question: str
     category: str
+    system_prompt: str = ""
     conversation_history: tuple[PromptTurn, ...] = field(default_factory=tuple)
-    system_context: str | None = None
-    user_profile: str | None = None

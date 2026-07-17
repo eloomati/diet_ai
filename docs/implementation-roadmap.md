@@ -21,18 +21,21 @@ Phase 2  - Database Setup           DONE (Postgres + Mongo/Beanie both wired; Be
 Phase 3  - Identity Module          DONE (register, login, refresh, me; JWT; unified
                                      error format; real-DB + fake-based tests)
 Phase 4  - User Profile (Nutrition) NOT STARTED (empty skeleton only)
-Phase 5/6 - Conversation + AI       IN PROGRESS — domain, application, Mongo
-                                     persistence, and LLM providers done
-                                     (Stages 1-4: Mock/Claude/Ollama, not
-                                     OpenAI — see Stage 4). API layer + full
-                                     integration tests remain (Stages 5-6)
+Phase 5/6 - Conversation + AI       DONE — chat MVP is functional end-to-end
+                                     (register → login → create conversation →
+                                     send message → AI response → history),
+                                     verified against the real Docker stack.
+                                     Providers: Mock/Claude/Ollama, not OpenAI
+                                     — see Stage 4. Only Stage 6's doc-sync
+                                     spot-check is left open.
 Phase 7+ - Diet Generation/Frontend/Testing/Future  NOT STARTED
 ```
 
-Current milestone: **Conversation + AI ("chat MVP")** — see the detailed
-sub-plan under Phase 5/6 below. Nutrition Profile (Phase 4) is deferred until
-after it, since chatting with the AI doesn't strictly need profile personalization
-for a first version (`Prompt.userProfile` can be added once Nutrition exists).
+**Conversation + AI ("chat MVP") is complete** — see the detailed stage log
+under Phase 5/6 below. Nutrition Profile (Phase 4) is next; it was deferred
+behind this milestone since chatting with the AI doesn't strictly need profile
+personalization for a first version (`Prompt.userProfile` can be added once
+Nutrition exists).
 
 ---
 
@@ -444,8 +447,21 @@ Exit criteria: unit tests for entities/value objects/domain rules, zero infra de
 
 `modules/ai/application/`:
 - [x] `prompt_builder.py` — pure static-method service assembling `Prompt` from
-      a `Conversation` + the new question; `user_profile` still left unset
-      (Nutrition Profile doesn't exist yet).
+      a `Conversation` + the new question. **Revised post-Stage-4**: now builds
+      a real system prompt (not just a bare "helpful assistant" line) —
+      dietetics/fitness framing + a professional-advice disclaimer, plus
+      per-category guidance (`SUPPLEMENTS` gets an explicit caution, `RUNNING`
+      gets endurance-nutrition framing, etc). This also fixed a duplication bug:
+      `ClaudeProvider` and `OllamaProvider` had each independently rebuilt an
+      almost-identical system message from `Prompt.category`/`user_profile`
+      /`system_context` — that's now composed once, in `PromptBuilder`, into a
+      single `Prompt.system_prompt` field both providers just pass through.
+      `build()` already accepts an optional `user_profile: str | None` so
+      Nutrition (Phase 4, not started yet) only needs to add one call-site line
+      in `SendMessageUseCase` once it exists — verified end-to-end against the
+      real Ollama container that the richer prompt changes actual answers
+      (e.g. a `SUPPLEMENTS`-category question about creatine came back with
+      dosing specifics and a "consult a professional" section, not generic text).
 
 `modules/conversation/tests/fakes.py`: `InMemoryConversationRepository`.
 `modules/ai/tests/fakes.py`: `FakeLLMProvider` returning a canned response.
@@ -555,35 +571,57 @@ real network calls in the test suite), switchable via `AI_PROVIDER` only.
 
 ---
 
-## Stage 5 — API layer
+## Stage 5 — API layer — DONE
 
-Endpoints (per docs/api.md):
+Endpoints (per docs/api.md, now matching the actual shipped shape — snake_case,
+not the original aspirational camelCase draft):
 
 ```
 POST /conversations
 GET /conversations
-GET /conversations/{id}
-POST /conversations/{id}/messages
+GET /conversations/{conversation_id}
+POST /conversations/{conversation_id}/messages
 ```
 
-- [ ] `api/schemas/` — request/response models.
-- [ ] `api/dependencies/` — mirrors identity's `auth_dependencies.py` shape.
-- [ ] `api/routers/conversation_router.py` — reuses Identity's
-      `get_current_user` dependency for auth (no new auth mechanism).
-- [ ] Errors raised as `AppException` with proper `ErrorCode`s from the start
+- [x] `api/schemas/conversation_schemas.py` — request/response models.
+      `CreateConversationRequest.category` is typed as the `ConversationCategory`
+      enum directly, so an invalid value is rejected by pydantic (422
+      `VALIDATION_ERROR`) before it ever reaches the use case.
+- [x] `api/dependencies/conversation_dependencies.py` — mirrors identity's
+      `auth_dependencies.py` shape, but simpler: Beanie/Mongo doesn't need a
+      per-request session dependency the way `get_db_session` does for
+      Postgres, so these just construct `MongoConversationRepository()` and
+      `build_llm_provider(get_settings())` directly.
+- [x] `api/routers/conversation_router.py` + top-level `api/router.py`
+      (mirrors identity's nested `router.py` → `routers/auth_router.py` split)
+      — reuses Identity's `get_current_user` dependency for auth (no new auth
+      mechanism).
+- [x] Errors raised as `AppException` with `ErrorCode.NOT_FOUND` from the start
       (no repeat of the "generic HTTPException" gap fixed in Identity).
+      `ConversationNotFoundError` (doesn't exist *or* isn't yours) maps to a
+      single 404 — same "don't leak existence" shape as Identity's login/refresh.
+
+Verified two ways: 8 new API integration tests (register → login → create →
+list → send message → get history → cross-user 404s), and a manual end-to-end
+smoke test against the real running Docker stack (Postgres + Mongo + Ollama) —
+a real `llama3.2:1b`-generated breakfast suggestion came back through the full
+stack, not a mock.
+
+Exit criteria met. Full suite at 98/98 passing.
 
 ---
 
 ## Stage 6 — Tests & docs
 
-- [ ] Fakes-based unit tests (already covered in Stage 2) + real-Mongo
-      integration tests (Stage 3) + full API integration tests (register →
-      login → create conversation → send message → get history), same shape
-      as `test_auth_api.py`.
-- [ ] Update `docs/api.md`, `architecture.md`, `domain-model.md`, and this
-      roadmap's status table as each stage actually lands — don't let this
-      drift the way the Identity docs did before this review.
+- [x] Fakes-based unit tests (Stage 2) + real-Mongo integration tests (Stage 3)
+      + real-provider unit tests with injected fakes (Stage 4) + full API
+      integration tests (Stage 5) are all in place already — Stage 6 is mainly
+      the final docs-sync pass.
+- [x] `docs/api.md` Conversation section rewritten to match the shipped
+      snake_case shape (done during Stage 5 to avoid the drift Identity's docs
+      had before the earlier review).
+- [ ] `architecture.md` and `domain-model.md` — spot-check for any remaining
+      drift once Stage 6 formally starts.
 
 ---
 
@@ -831,9 +869,9 @@ The first complete version is finished when:
 - [x] User can register
 - [x] User can login
 - [ ] User can create nutrition profile
-- [ ] User can start conversation
-- [ ] User can chat with AI
-- [ ] Conversation history is stored
+- [x] User can start conversation
+- [x] User can chat with AI
+- [x] Conversation history is stored
 - [ ] User can generate a simple diet plan
 
 ---

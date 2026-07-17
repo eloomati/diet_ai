@@ -63,6 +63,7 @@ async def test_claude_provider_builds_messages_from_history() -> None:
     prompt = Prompt(
         question="And tomorrow?",
         category="BREAKFAST",
+        system_prompt="You are a nutrition assistant. Category: BREAKFAST.",
         conversation_history=(
             PromptTurn(role="user", content="Hi"),
             PromptTurn(role="assistant", content="Hello, how can I help?"),
@@ -76,4 +77,4 @@ async def test_claude_provider_builds_messages_from_history() -> None:
         {"role": "assistant", "content": "Hello, how can I help?"},
         {"role": "user", "content": "And tomorrow?"},
     ]
-    assert "BREAKFAST" in sent["system"]
+    assert sent["system"] == "You are a nutrition assistant. Category: BREAKFAST."

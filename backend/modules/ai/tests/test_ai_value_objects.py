@@ -5,8 +5,13 @@ def test_prompt_defaults() -> None:
     prompt = Prompt(question="What should I eat?", category="BREAKFAST")
 
     assert prompt.conversation_history == ()
-    assert prompt.system_context is None
-    assert prompt.user_profile is None
+    assert prompt.system_prompt == ""
+
+
+def test_prompt_carries_system_prompt() -> None:
+    prompt = Prompt(question="What should I eat?", category="BREAKFAST", system_prompt="Be concise.")
+
+    assert prompt.system_prompt == "Be concise."
 
 
 def test_prompt_carries_conversation_history() -> None:
