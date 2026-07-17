@@ -1,0 +1,78 @@
+### Auth MVP smoke tests
+### Base URL (zmień jeśli backend działa na innym porcie/hoście)
+@baseUrl = http://localhost:8000
+@apiPrefix = /api/v1/auth
+
+### Dane testowego użytkownika (możesz zmienić)
+@email = demo@example.com
+@password = StrongPass123
+
+### =========================
+### 1) Register
+### =========================
+POST {{baseUrl}}{{apiPrefix}}/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### =========================
+### 2) Login (zapis tokenów do zmiennych)
+### =========================
+# @name login
+POST {{baseUrl}}{{apiPrefix}}/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+> {%
+  client.global.set("access_token", response.body.access_token);
+  client.global.set("refresh_token", response.body.refresh_token);
+%}
+
+### =========================
+### 3) Me (Bearer access token)
+### =========================
+GET {{baseUrl}}{{apiPrefix}}/me
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 4) Refresh (rotacja refresh tokena)
+### =========================
+# @name refresh
+POST {{baseUrl}}{{apiPrefix}}/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{refresh_token}}"
+}
+
+> {%
+  // zapamiętaj token sprzed rotacji pod inną nazwą, zanim go nadpiszemy —
+  // test #6 potrzebuje właśnie TEGO (już zużytego) tokena, nie nowego
+  client.global.set("old_refresh_token", client.global.get("refresh_token"));
+  client.global.set("access_token", response.body.access_token);
+  client.global.set("refresh_token", response.body.refresh_token);
+%}
+
+### =========================
+### 5) Me ponownie po refresh
+### =========================
+GET {{baseUrl}}{{apiPrefix}}/me
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 6) Negatywny test: ponowne użycie starego refresh tokena
+### Oczekiwane: 401 + code INVALID_REFRESH_TOKEN
+### =========================
+POST {{baseUrl}}{{apiPrefix}}/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{old_refresh_token}}"
+}
