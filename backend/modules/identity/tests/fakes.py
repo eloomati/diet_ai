@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from backend.modules.identity.domain.entities.email_log import EmailLog
 from backend.modules.identity.domain.entities.email_verification_token import (
     EmailVerificationToken,
 )
@@ -86,6 +87,22 @@ class InMemoryEmailVerificationTokenRepository:
         return self._by_hash.get(token_hash)
 
 
+class InMemoryEmailLogRepository:
+    def __init__(self) -> None:
+        self.saved: list[EmailLog] = []
+
+    async def save(self, log: EmailLog) -> None:
+        for index, existing in enumerate(self.saved):
+            if existing.id == log.id:
+                self.saved[index] = log
+                return
+        self.saved.append(log)
+
+    async def get_due_for_retry(self, now: datetime, limit: int = 50) -> list[EmailLog]:
+        due = [log for log in self.saved if log.is_due_for_retry(now)]
+        return due[:limit]
+
+
 @dataclass
 class SentEmail:
     to: str
@@ -100,6 +117,18 @@ class FakeEmailSender:
 
     async def send(self, to: str, subject: str, body: str, purpose: str = "") -> None:
         self.sent.append(SentEmail(to=to, subject=subject, body=body, purpose=purpose))
+
+
+class FailingEmailSender:
+    """Always raises — for exercising retry/failure paths without a real inner sender."""
+
+    def __init__(self, error_message: str = "SMTP connection refused") -> None:
+        self.error_message = error_message
+        self.attempts = 0
+
+    async def send(self, to: str, subject: str, body: str, purpose: str = "") -> None:
+        self.attempts += 1
+        raise RuntimeError(self.error_message)
 
 
 class FakePasswordHasher:

@@ -5,6 +5,11 @@ from backend.shared.config.settings import Settings
 
 
 def build_email_sender(settings: Settings) -> EmailSender:
+    """Builds the "base" sender (no logging). Constructed per-request, not a
+    singleton — see LoggingEmailSender, which wraps this with a per-request
+    Postgres session to write EmailLog rows. Unlike the Mongo client or the
+    LLM provider's HTTP client, there is no persistent connection here worth
+    reusing across requests: aiosmtplib opens/closes a connection per send."""
     if settings.email_provider == "mock":
         return MockEmailSender()
 
@@ -16,24 +21,3 @@ def build_email_sender(settings: Settings) -> EmailSender:
         )
 
     raise ValueError(f"Unknown EMAIL_PROVIDER: {settings.email_provider!r} (expected mock|smtp).")
-
-
-# Same singleton-lifecycle shape as ai/infrastructure/provider_factory.py — built once
-# at app startup and reused across requests.
-_email_sender: EmailSender | None = None
-
-
-async def init_email_sender(settings: Settings) -> None:
-    global _email_sender
-    _email_sender = build_email_sender(settings)
-
-
-async def close_email_sender() -> None:
-    global _email_sender
-    _email_sender = None
-
-
-def get_email_sender() -> EmailSender:
-    if _email_sender is None:
-        raise RuntimeError("Email sender not initialized — call init_email_sender() during app startup.")
-    return _email_sender

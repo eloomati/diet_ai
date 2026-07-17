@@ -8,7 +8,12 @@ from backend.modules.identity.application import (
     RefreshAccessTokenUseCase,
     RegisterUserUseCase,
 )
-from backend.modules.identity.infrastructure.email.email_sender_factory import get_email_sender
+from backend.modules.identity.application.ports.email_sender import EmailSender
+from backend.modules.identity.infrastructure.email.email_sender_factory import build_email_sender
+from backend.modules.identity.infrastructure.email.logging_email_sender import LoggingEmailSender
+from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_email_log_repository import (
+    SqlAlchemyEmailLogRepository,
+)
 from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_email_verification_token_repository import (
     SqlAlchemyEmailVerificationTokenRepository,
 )
@@ -43,13 +48,27 @@ def _build_token_service() -> JwtTokenService:
     )
 
 
+def get_email_sender(session: AsyncSession = Depends(get_db_session)) -> EmailSender:
+    # Per-request, not a singleton — LoggingEmailSender needs this request's own
+    # Postgres session to write an EmailLog row (see email_sender_factory.py).
+    settings = get_settings()
+    base_sender = build_email_sender(settings)
+    email_log_repo = SqlAlchemyEmailLogRepository(session)
+    return LoggingEmailSender(
+        base_sender,
+        email_log_repo,
+        max_attempts=settings.email_retry_max_attempts,
+        retry_interval_seconds=settings.email_retry_interval_seconds,
+    )
+
+
 def get_register_user_use_case(
     session: AsyncSession = Depends(get_db_session),
+    email_sender: EmailSender = Depends(get_email_sender),
 ) -> RegisterUserUseCase:
     repo = SqlAlchemyUserRepository(session)
     hasher = BcryptPasswordHasher()
     email_verification_repo = SqlAlchemyEmailVerificationTokenRepository(session)
-    email_sender = get_email_sender()
     return RegisterUserUseCase(repo, hasher, email_verification_repo, email_sender)
 
 

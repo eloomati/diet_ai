@@ -1,3 +1,4 @@
+from .sqlalchemy_email_log_repository import SqlAlchemyEmailLogRepository
 from .sqlalchemy_email_verification_token_repository import (
     SqlAlchemyEmailVerificationTokenRepository,
 )
@@ -10,4 +11,5 @@ __all__ = [
     "SqlAlchemyRefreshTokenRepository",
     "SqlAlchemyPasswordResetTokenRepository",
     "SqlAlchemyEmailVerificationTokenRepository",
+    "SqlAlchemyEmailLogRepository",
 ]

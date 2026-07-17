@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     smtp_port: int = 1025
     smtp_from_address: str = "noreply@dietai.local"
 
+    # Failed-email retry: a background timer retries FAILED email_logs rows
+    email_retry_interval_seconds: int = 180
+    email_retry_max_attempts: int = 10
+    email_retry_batch_limit: int = 50
+
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
     jwt_access_ttl_minutes: int = 15

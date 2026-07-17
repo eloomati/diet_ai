@@ -1,4 +1,11 @@
-from .entities import EmailVerificationToken, PasswordResetToken, RefreshToken, User
+from .entities import (
+    EmailDeliveryStatus,
+    EmailLog,
+    EmailVerificationToken,
+    PasswordResetToken,
+    RefreshToken,
+    User,
+)
 from .events import EmailVerified, PasswordChanged, UserLoggedIn, UserRegistered
 from .exceptions import (
     IdentityDomainError,
@@ -11,6 +18,7 @@ from .exceptions import (
     RefreshTokenRevokedError,
 )
 from .repositories import (
+    EmailLogRepository,
     EmailVerificationTokenRepository,
     PasswordResetTokenRepository,
     UserRepository,
@@ -23,6 +31,8 @@ __all__ = [
     "RefreshToken",
     "PasswordResetToken",
     "EmailVerificationToken",
+    "EmailLog",
+    "EmailDeliveryStatus",
     "Email",
     "PasswordHash",
     "UserStatus",
@@ -33,6 +43,7 @@ __all__ = [
     "UserRepository",
     "PasswordResetTokenRepository",
     "EmailVerificationTokenRepository",
+    "EmailLogRepository",
     "PasswordPolicy",
     "SecureToken",
     "IdentityDomainError",

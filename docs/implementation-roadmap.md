@@ -35,16 +35,18 @@ Phase 7  - Diet Generation          DONE — structured multi-day diet plan
                                      stack with Ollama. See the 6-stage log
                                      below, including a real reliability
                                      finding for the small local model.
-Phase 8  - Conversation Lifecycle &  IN PROGRESS (Stages 1-4/7 DONE) —
+Phase 8  - Conversation Lifecycle &  IN PROGRESS (Stages 1-6/8 DONE) —
            Account Recovery          post-Phase-7 gap audit found no DELETE
                                      endpoints anywhere, no route to the
                                      domain's existing Conversation.archive(),
                                      and no password recovery path. Grew
                                      mid-phase to also cover real email
                                      verification at registration (shared
-                                     SecureToken generator) and an email
-                                     delivery log — scope expanded from 5 to
-                                     7 stages; see the breakdown below.
+                                     SecureToken generator), an email
+                                     delivery log, and a background retry
+                                     mechanism for failed sends — scope
+                                     expanded from 5 to 8 stages; see the
+                                     breakdown below.
 Phase 9+ - Frontend/Testing/Future  NOT STARTED
 ```
 
@@ -1429,19 +1431,21 @@ notes) since `RegisterUserUseCase` needed them immediately — this stage is
 now scoped to just `EmailLog` + the decorator + the DI lifecycle fix.
 
 `modules/identity/domain/`:
-- [ ] `entities/email_log.py` — `EmailLog` (`id`, `to`, `subject`,
+- [x] `entities/email_log.py` — `EmailLog` (`id`, `to`, `subject`,
       `purpose`, `status: EmailDeliveryStatus` (`SENT`/`FAILED`),
       `error_message: str | None`, `created_at`). No body field, by design.
-- [ ] `repositories/email_log_repository.py` — port: `save(log)` only (no
+- [x] `repositories/email_log_repository.py` — port: `save(log)` only (no
       read use case requested yet).
 
 `modules/identity/infrastructure/`:
-- [ ] `persistence/models/email_log_model.py` — new Alembic migration.
-      `email_logs` has **no** FK to `users` — a log entry must survive even
-      if the user record is later deleted, unlike a token which is
-      meaningless without its user.
-- [ ] `persistence/sqlalchemy_email_log_repository.py`.
-- [ ] `infrastructure/email/logging_email_sender.py` — `LoggingEmailSender`
+- [x] `persistence/models/email_log_model.py` — new Alembic migration
+      (`20260718_04_email_logs`, `down_revision =
+      "20260718_03_email_verification"`). `email_logs` has **no** FK to
+      `users` — a log entry must survive even if the user record is later
+      deleted, unlike a token which is meaningless without its user.
+      Indexes on `to` and `purpose`.
+- [x] `persistence/repository/sqlalchemy_email_log_repository.py`.
+- [x] `infrastructure/email/logging_email_sender.py` — `LoggingEmailSender`
       (decorator over any `EmailSender`): calls the wrapped sender, records
       an `EmailLog` (`SENT` on success, `FAILED` with the exception message
       on failure), then re-raises on failure — the existing propagate-to-500
@@ -1470,9 +1474,142 @@ established test convention); `LoggingEmailSender` unit-tested against
 fakes (send success → one `SENT` log row via a fake `EmailLogRepository`;
 inner sender raising → one `FAILED` log row + exception still propagates).
 
+**Status: DONE.**
+
+- `test_logging_email_sender.py` (3 new tests): successful send → logged
+  `SENT` + delegates to inner sender; failed send → logged `FAILED` with
+  `error_message` + exception still re-raises; log row never carries a
+  `body` attribute (asserted directly) — enforcing the "no secrets at
+  rest" rule at the type level, not just by convention.
+- Full suite: 225 → **228 passed**. The architecture correction (singleton
+  → per-request) did not break any existing test, confirming nothing else
+  in the app depended on `EmailSender` being a long-lived singleton.
+- Real Docker-stack verification: rebuilt `backend`
+  (`docker compose up -d --build backend`); `docker compose logs backend`
+  confirmed migration `20260718_03_email_verification ->
+  20260718_04_email_logs` applied cleanly and the app started with no
+  lifespan errors (no more `init_email_sender`/`close_email_sender` calls
+  in the startup/shutdown path).
+- Registered a real user via curl → confirmed via `docker compose exec db
+  psql` a `SENT` row in `email_logs` with `purpose = EMAIL_VERIFICATION`
+  and no body persisted.
+- Verified the `FAILED` path with a one-off in-container script using a
+  `BrokenSender` that raises `RuntimeError`, wrapped in a real
+  `LoggingEmailSender` + `SqlAlchemyEmailLogRepository` — confirmed both
+  the re-raise and the resulting `FAILED` row with the correct
+  `error_message`. Cleaned up all test data afterwards (test user,
+  `email_logs` test rows, Mailhog inbox).
+
 ---
 
-## Stage 6 — Password reset + email verification API
+## Stage 6 — Failed-email retry mechanism
+
+Per user request, added mid-phase after Stage 5: a `FAILED` row in
+`email_logs` is not necessarily final. A background timer retries every 3
+minutes, up to 10 attempts total, before a row is left permanently `FAILED`.
+
+**Design fork resolved with the user**: a literal retry ("resend the exact
+same body") would require persisting the email body — which contradicts
+the hard rule from Stage 2/5 that a raw one-time secret never rests in the
+database. Resolved by **not** persisting the body at all; instead, each
+retry attempt regenerates a *fresh* token (new `PasswordResetToken` /
+`EmailVerificationToken` row, new raw secret) for the same purpose and
+sends that. The `email_logs` row only ever tracks `to`/`subject`/`purpose`/
+`status`/`attempts`/`next_retry_at` — never a secret.
+
+`modules/identity/domain/entities/email_log.py`:
+- [x] `EmailLog` gains `attempts: int = 1` and `next_retry_at: datetime | None`.
+- [x] `record_failed(...)` schedules `next_retry_at = now + retry_interval_seconds`
+      (default 180s = 3min, unless `max_attempts` is 1). Units are seconds
+      throughout (matching `Settings.email_retry_interval_seconds`), not
+      minutes as first sketched here.
+- [x] `is_due_for_retry(now)`, `mark_retry_succeeded()` (→ `SENT`,
+      `next_retry_at = None`), `mark_retry_failed(error, max_attempts,
+      retry_interval_seconds)` (increments `attempts`; schedules the next
+      attempt, or — once `attempts >= max_attempts` — sets `next_retry_at =
+      None` so the row stops being picked up while its `status` stays
+      `FAILED`, matching the requested end state literally).
+
+`modules/identity/domain/repositories/email_log_repository.py`:
+- [x] add `get_due_for_retry(now, limit) -> list[EmailLog]`.
+
+`modules/identity/infrastructure/`:
+- [x] `persistence/models/email_log_model.py` + migration
+      (`20260718_05_email_retry`) — add `attempts`, `next_retry_at` columns.
+- [x] `sqlalchemy_email_log_repository.py` — `save()` becomes get-or-create
+      (mirrors `SqlAlchemyPasswordResetTokenRepository`) so a retry updates
+      the same row instead of inserting a new one; implemented
+      `get_due_for_retry`.
+- [x] `email/email_retry_scheduler.py` — the asyncio background loop (see
+      below).
+
+`modules/identity/application/use_cases/`:
+- [x] `email_retry_strategies.py` — small `EmailRetryStrategy` ABC
+      (`resend(user) -> (subject, body)`, issues+saves a fresh token as a
+      side effect) with `PasswordResetRetryStrategy` and
+      `EmailVerificationRetryStrategy`, keyed by `purpose`. Lives in
+      `application/use_cases/`, not a new `infrastructure/email/retry/`
+      package as first sketched — it only orchestrates domain entities and
+      repository ports (no infra specifics), same shape as any other use
+      case.
+- [x] `retry_failed_emails_use_case.py` — `RetryFailedEmailsUseCase.execute()`
+      fetches due rows, looks the user up by `to` (a deleted/nonexistent
+      user just means retries fail with a clear error until exhausted — no
+      special-casing needed), resolves the purpose's strategy, sends via
+      the **base** `EmailSender` (not `LoggingEmailSender` — this use case
+      manages the existing log row itself; wrapping it again would create
+      a duplicate row per attempt), and updates the original row via
+      `mark_retry_succeeded`/`mark_retry_failed`.
+- [x] `LoggingEmailSender` also takes `max_attempts`/`retry_interval_seconds`
+      now (sourced from `Settings` in `get_email_sender`), so the very
+      first failure's scheduling is consistent with the retry loop's own
+      config, not a second hardcoded default.
+
+`backend/app/main.py` / scheduling:
+- [x] A plain `asyncio` background task (`run_email_retry_loop`) started in
+      `lifespan()` via `asyncio.create_task` (no new dependency — no
+      broker/queue exists in this stack, and one periodic job doesn't
+      justify adding APScheduler/Celery), looping
+      `await asyncio.sleep(settings.email_retry_interval_seconds)` and
+      opening its own short-lived Postgres session per tick via
+      `get_postgres_session()` (it isn't request-scoped); cancelled
+      cleanly on shutdown (`task.cancel()` + awaited under
+      `contextlib.suppress(CancelledError)`).
+- [x] `Settings`: `email_retry_interval_seconds` (180), `email_retry_max_attempts`
+      (10), `email_retry_batch_limit` (50). Same names added to `.env.example`.
+
+**Status: DONE.**
+
+- Domain (`test_email_log_retry.py`, 8 tests): scheduling on first failure,
+  no scheduling when `max_attempts=1`, due/not-due transitions, success
+  clears status+schedule, failure reschedules, exhaustion at
+  `max_attempts` stops scheduling while staying `FAILED`.
+- Application (`test_retry_failed_emails_use_case.py`, 4 tests, fakes
+  only): successful retry → `SENT` + a fresh token row created; repeated
+  failure → reschedules twice then stops at `max_attempts=3` and a further
+  pass is a no-op; nonexistent user → `FAILED` with `"User no longer
+  exists."`; unknown purpose → `FAILED` with a clear "no strategy
+  registered" message.
+- Full suite: 228 → **240 passed**.
+- Real Docker-stack verification: registered a real user (verification
+  email correctly logged `SENT`); manually inserted a `FAILED`
+  `PASSWORD_RESET` row for that user with `next_retry_at` in the past;
+  temporarily set `EMAIL_RETRY_INTERVAL_SECONDS=5` in `docker-compose.yml`
+  and restarted `backend` — the retry loop picked the row up on its next
+  tick, minted a **fresh** `PasswordResetToken` (confirmed a second,
+  new-token reset email arrived in Mailhog, distinct from the original
+  send), and flipped the row to `SENT`. Separately inserted a `FAILED` row
+  for a nonexistent email with `attempts=9`: the next tick pushed it to
+  `attempts=10`, `next_retry_at=NULL`, `error_message='User no longer
+  exists.'`, and a further tick left it untouched — confirming permanent
+  `FAILED` after the limit, exactly as requested. Cleaned up all test
+  rows/users, cleared Mailhog, reverted the temporary interval override in
+  `docker-compose.yml` (confirmed `git diff` is clean) and restarted
+  `backend` on the real 180s interval.
+
+---
+
+## Stage 7 — Password reset + email verification API
 
 Endpoints (per docs/api.md, snake_case):
 
@@ -1511,7 +1648,7 @@ the token → confirm → (for reset) log in with the new password.
 
 ---
 
-## Stage 7 — Tests & docs sync
+## Stage 8 — Tests & docs sync
 
 - [ ] `docs/https/user.http` — add archive/delete steps for conversations
       (or extend `conversation.http`), a password-reset flow section, and
