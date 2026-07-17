@@ -12,7 +12,12 @@ _mongo_client: AsyncMongoClient | None = None
 async def init_mongo(mongo_url: str) -> None:
     """Inicjalizuj MongoDB — będzie to wywołane w lifespan aplikacji."""
     global _mongo_client
-    _mongo_client = AsyncMongoClient(mongo_url)
+    # tz_aware=True: PyMongo returns naive UTC datetimes by default, which
+    # clashes with the rest of the app's convention (datetime.now(UTC)) and
+    # produces inconsistent ISO timestamps (offset-less for values rehydrated
+    # from Mongo, offset-suffixed for values still fresh from the domain
+    # layer) in the same API response.
+    _mongo_client = AsyncMongoClient(mongo_url, tz_aware=True)
 
     # Sprawdź connection
     await _mongo_client.admin.command("ping")

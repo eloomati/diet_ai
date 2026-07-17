@@ -210,46 +210,75 @@ MongoDB
 
 ---
 
+All endpoints below require `Authorization: Bearer {access_token}`.
+
+Enums:
+
+```
+activity_level: LOW | MODERATE | HIGH | VERY_HIGH
+goal:           WEIGHT_LOSS | MUSCLE_GAIN | MAINTENANCE | PERFORMANCE
+diet_type:      STANDARD | VEGETARIAN | VEGAN | KETO | PALEO | GLUTEN_FREE
+```
+
+One profile per user — `POST` on a user who already has one returns `409`.
+
 ## GET /profile
 
-Returns authenticated user's nutrition profile.
-
-Authentication:
-
-Required.
+Returns the authenticated user's nutrition profile.
 
 ### Response
 
+Status:
+
+```
+200 OK
+```
+
+Body:
+
 ```json
 {
-  "id": "uuid",
+  "profile_id": "uuid",
+  "user_id": "uuid",
   "age": 29,
-  "height": 187,
-  "weight": 80,
-  "activityLevel": "HIGH",
+  "height_cm": 187,
+  "weight_kg": 80.0,
+  "activity_level": "HIGH",
   "goal": "MUSCLE_GAIN",
-  "dietType": "VEGETARIAN"
+  "diet_type": "VEGETARIAN",
+  "created_at": "2026-01-01T10:00:00Z",
+  "updated_at": "2026-01-01T10:00:00Z"
 }
+```
+
+Errors:
+
+```
+404 Not Found  code=NOT_FOUND        — user has no profile yet
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/invalid token
 ```
 
 ---
 
 ## POST /profile
 
-Creates nutrition profile.
+Creates the authenticated user's nutrition profile.
 
 ### Request
 
 ```json
 {
   "age": 29,
-  "height": 187,
-  "weight": 80,
-  "activityLevel": "HIGH",
+  "height_cm": 187,
+  "weight_kg": 80,
+  "activity_level": "HIGH",
   "goal": "MUSCLE_GAIN",
-  "dietType": "VEGETARIAN"
+  "diet_type": "VEGETARIAN"
 }
 ```
+
+Validation: `age` 1-120, `height_cm` 50-250, `weight_kg` 20-400 (422
+`VALIDATION_ERROR` otherwise).
 
 ### Response
 
@@ -259,34 +288,44 @@ Status:
 201 Created
 ```
 
-Body:
+Body: same shape as `GET /profile`.
 
-```json
-{
-  "id": "uuid",
-  "createdAt": "2026-01-01T10:00:00Z"
-}
+Errors:
+
+```
+409 Conflict code=CONFLICT — profile already exists for this user
 ```
 
 ---
 
 ## PUT /profile
 
-Updates nutrition profile.
+Partially updates the authenticated user's nutrition profile — only the
+provided fields change, the rest are kept as-is.
 
 ### Request
 
 ```json
 {
-  "weight": 82,
-  "activityLevel": "VERY_HIGH"
+  "weight_kg": 82,
+  "activity_level": "VERY_HIGH"
 }
 ```
 
 ### Response
 
+Status:
+
 ```
 200 OK
+```
+
+Body: same shape as `GET /profile`, with updated fields.
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — user has no profile to update yet
 ```
 
 ---

@@ -20,10 +20,9 @@ Phase 2  - Database Setup           DONE (Postgres + Mongo/Beanie both wired; Be
                                      Nutrition's collections still pending Phase 4)
 Phase 3  - Identity Module          DONE (register, login, refresh, me; JWT; unified
                                      error format; real-DB + fake-based tests)
-Phase 4  - User Profile (Nutrition) Stages 1-5 DONE — profile CRUD + wired into
-                                     the AI prompt, verified end-to-end on the
-                                     real Docker stack. Only Stage 6 (docs/http
-                                     sync) is left open.
+Phase 4  - User Profile (Nutrition) DONE — profile CRUD wired into the AI
+                                     prompt, verified end-to-end on the real
+                                     Docker stack, docs/http fully synced.
 Phase 5/6 - Conversation + AI       DONE — chat MVP is functional end-to-end
                                      (register → login → create conversation →
                                      send message → AI response → history),
@@ -35,11 +34,10 @@ Phase 7+ - Diet Generation/Frontend/Testing/Future  NOT STARTED
 ```
 
 **Conversation + AI ("chat MVP") is complete** — see the detailed stage log
-under Phase 5/6 below. **Nutrition Profile (Phase 4) is now also complete
-through Stage 5** — profile CRUD exists and `SendMessageUseCase` folds
-`profile.as_prompt_text()` into the AI prompt when one exists, verified
-end-to-end against the real Docker stack (Ollama). Only Stage 6 (docs/http
-sync) remains before both phases are fully closed out.
+under Phase 5/6 below. **Nutrition Profile (Phase 4) is now also complete** —
+profile CRUD exists, `SendMessageUseCase` folds `profile.as_prompt_text()`
+into the AI prompt when one exists, and docs/`.http` files are synced to the
+shipped contract. Both milestones are fully closed out; Phase 7+ is next.
 
 ---
 
@@ -439,14 +437,41 @@ end-to-end on the real Docker stack too (create → get → update → duplicate
 
 ---
 
-## Stage 6 — Tests & docs sync
+## Stage 6 — Tests & docs sync — DONE
 
-- [ ] `docs/https/nutrition.http` (same style as `user.http`/`conversation.http`).
-- [ ] `docs/api.md` Nutrition Profile section rewritten to the shipped
-      snake_case shape (done alongside Stage 4, not deferred, per the lesson
-      from Identity's docs drift).
-- [ ] `architecture.md`/`domain-model.md` spot-check once the module is real.
-- [ ] Roadmap status table updated.
+- [x] `docs/https/nutrition.http` — same style as `user.http`/`conversation.http`
+      (register → login → get-before-create 404 → create → get → duplicate
+      409 → update → invalid-age 422 → no-token 401 → second-user isolation
+      404 → Stage 5 check: send a message and confirm the profile reaches the
+      AI). All 12 steps replayed manually against the real Docker stack and
+      matched their documented expected status codes.
+- [x] `docs/api.md` Nutrition Profile section rewritten to the shipped
+      snake_case shape (real field names, enum value lists, actual error
+      codes per endpoint) — the previous draft still had camelCase
+      `height`/`weight`/`activityLevel` fields that were never shipped.
+- [x] `architecture.md` — Nutrition Module section updated: marked
+      `NutritionProfile` implemented (vs. `DietPlan`/`Meal` still future),
+      documented the AI wiring from Stage 5, fixed the stale ASCII diagram
+      that still said "OpenAI Provider / Local Model" instead of
+      Claude/Ollama, and removed a leftover "Nutrition should adopt Beanie
+      once its phase starts" note (it already has).
+- [x] `domain-model.md` — `NutritionProfile`/`DietGoal` sections updated to
+      the real field names (`height_cm`/`weight_kg`, not bare
+      `height`/`weight`) and real enum values (`WEIGHT_LOSS`, not
+      `WeightLoss`), plus the actual validation ranges and unique-per-user rule.
+- [x] **Bug found and fixed while replaying `nutrition.http`**: `GET /profile`
+      right after `POST /profile` returned `created_at`/`updated_at` with no
+      UTC offset (e.g. `2026-07-17T19:53:38.983000`), while a value fresh
+      from `update()` had one (`...+00:00`) — inconsistent ISO 8601
+      timestamps in the same response depending on whether the value round-
+      tripped through Mongo. Root cause: PyMongo returns naive UTC datetimes
+      by default, clashing with the rest of the app's `datetime.now(UTC)`
+      convention. Fixed centrally in `shared/database/mongo.py` by passing
+      `tz_aware=True` to `AsyncMongoClient` — benefits Conversation's
+      timestamps too, not just Nutrition's. Verified via full pytest
+      (144/144) and a live re-check on the Docker stack (both timestamps now
+      consistently carry `+00:00`).
+- [x] Roadmap status table updated (this file).
 
 ---
 
