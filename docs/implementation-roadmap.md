@@ -415,27 +415,41 @@ Exit criteria: unit tests for entities/value objects/domain rules, zero infra de
 
 ---
 
-## Stage 2 — Application (use cases, tested against in-memory fakes)
+## Stage 2 — Application (use cases, tested against in-memory fakes) — DONE
 
 `modules/conversation/application/`:
-- [ ] `ports/` — re-export domain repository port + a `PromptBuilderPort` if useful.
-- [ ] `use_cases/create_conversation_use_case.py`
-- [ ] `use_cases/send_message_use_case.py` — loads conversation, appends user
-      `Message`, builds a `Prompt` from history + category + question, calls
+- [x] `use_cases/create_conversation_use_case.py`
+- [x] `use_cases/send_message_use_case.py` — builds the `Prompt` from history
+      *before* appending the new user `Message` (avoids duplicating the current
+      question inside `conversation_history`), calls
       `LLMProvider.generate_response`, appends assistant `Message`, saves, returns.
-- [ ] `use_cases/get_conversation_history_use_case.py`
-- [ ] `dto/` — commands/results per use case (same shape as Identity's `dto/`).
+- [x] `use_cases/get_conversation_history_use_case.py`
+- [x] `use_cases/list_conversations_use_case.py` — added beyond the original
+      list; needed to back `GET /conversations` (list) separately from
+      `GET /conversations/{id}` (single, with full message history) in Stage 5.
+- [x] `dto/` — commands/results per use case (same shape as Identity's `dto/`).
+      Deviation from the original plan: skipped a `ports/` re-export package —
+      Identity's own use cases import `UserRepository` straight from `domain`,
+      not from an application-level re-export, so conversation use cases do the
+      same for `ConversationRepository`. No `PromptBuilderPort` either —
+      `PromptBuilder` is a stateless static-method service (same shape as
+      Identity's `PasswordPolicy`), not an external system needing an
+      abstraction.
+- [x] Ownership check: `SendMessageUseCase`/`GetConversationHistoryUseCase` both
+      raise `ConversationNotFoundError` for a conversation that doesn't exist
+      *or* doesn't belong to the requesting user (same "don't leak existence"
+      shape as Identity's login/refresh error handling).
 
 `modules/ai/application/`:
-- [ ] `prompt_builder.py` — pure function/service assembling `Prompt` from a
-      `Conversation` + latest user message (+ optional nutrition profile later).
+- [x] `prompt_builder.py` — pure static-method service assembling `Prompt` from
+      a `Conversation` + the new question; `user_profile` still left unset
+      (Nutrition Profile doesn't exist yet).
 
 `modules/conversation/tests/fakes.py`: `InMemoryConversationRepository`.
-`modules/ai/tests/fakes.py` (or alongside conversation fakes): `FakeLLMProvider`
-returning a canned/deterministic response — exactly the identity module's
-`fakes.py` pattern, so use cases are tested fully before Mongo/OpenAI exist.
+`modules/ai/tests/fakes.py`: `FakeLLMProvider` returning a canned response.
 
 Exit criteria: use case tests pass against fakes only, no real DB/HTTP.
+12 tests added, full suite at 82/82 passing.
 
 ---
 
