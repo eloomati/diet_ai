@@ -353,23 +353,25 @@ Exit criteria: use case tests pass against fakes only, no real DB/HTTP.
 
 ---
 
-## Stage 3 — Infrastructure: Mongo persistence (Beanie)
+## Stage 3 — Infrastructure: Mongo persistence (Beanie) — DONE
 
-- [ ] `infrastructure/documents/nutrition_profile_document.py` — Beanie
+- [x] `infrastructure/documents/nutrition_profile_document.py` — Beanie
       `Document`, `Settings.name = "nutrition_profiles"` (matches
       domain-model.md's persistence mapping), **unique index on `user_id`** —
       the DB-level backstop for "one profile per user" alongside the
       application-layer check.
-- [ ] `infrastructure/mappers/nutrition_profile_mapper.py` — Document ↔ domain,
+- [x] `infrastructure/mappers/nutrition_profile_mapper.py` — Document ↔ domain,
       `domain_events=[]` on rehydration (same reasoning as `UserMapper`/`ConversationMapper`).
-- [ ] `infrastructure/repository/mongo_nutrition_profile_repository.py`.
-- [ ] Register `NutritionProfileDocument` in `main.py`'s
+- [x] `infrastructure/repository/mongo_nutrition_profile_repository.py`.
+- [x] Register `NutritionProfileDocument` in `main.py`'s
       `init_beanie_documents([ConversationDocument, NutritionProfileDocument])`.
 
 Exit criteria: repository-level tests against the real ephemeral Mongo
 (`docker-compose.test.yml`, same isolation as Conversation's Stage 3),
 including a test that the unique index actually rejects a second profile for
-the same user at the DB level.
+the same user at the DB level. Verified on the real dev Mongo too
+(`unique: true` on `ix_nutrition_profiles_user_id`). 4 tests added, full
+suite at 132/132 passing.
 
 ---
 
