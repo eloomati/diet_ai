@@ -30,7 +30,9 @@ Phase 5/6 - Conversation + AI       DONE — chat MVP is functional end-to-end
                                      Providers: Mock/Claude/Ollama, not OpenAI
                                      — see Stage 4. Only Stage 6's doc-sync
                                      spot-check is left open.
-Phase 7+ - Diet Generation/Frontend/Testing/Future  NOT STARTED
+Phase 7  - Diet Generation          IN PROGRESS — Stage 1 (domain) DONE,
+                                     see the staged breakdown below.
+Phase 8+ - Frontend/Testing/Future  NOT STARTED
 ```
 
 **Conversation + AI ("chat MVP") is complete** — see the detailed stage log
@@ -759,64 +761,189 @@ User can:
 
 Goal:
 
-Generate personalized diets.
+Generate a personalized, structured multi-day diet plan (days → meals →
+name/calories/protein/carbs/fat) using AI, seeded from the user's
+`NutritionProfile` (goal, diet_type, activity_level) plus optional free-text
+requirements (e.g. "high protein breakfasts", "vegetarian").
 
-Module:
+Module: `nutrition` (domain/application/persistence/API) + `ai` (provider
+extension). Database: MongoDB (Beanie, same setup as `NutritionProfile`).
 
-Nutrition
+**Key design decision** (confirmed with user): unlike the free-text chat
+flow, a diet plan must come back as reliable structured JSON, not prose to
+parse client-side — the tiny local Ollama model (`llama3.2:1b`) especially
+cannot be trusted to emit clean JSON on its own. `LLMProvider` gains a second
+method, `generate_structured_response(prompt, schema) -> dict`, alongside
+the existing free-text `generate_response`:
+- `ClaudeProvider` — native structured outputs (`output_config.format` with
+  a `json_schema`), via the official `anthropic` SDK — guarantees valid JSON
+  matching the schema.
+- `OllamaProvider` — Ollama's `format` request field (JSON mode) plus
+  Pydantic validation on our side, with **one retry** (re-prompt including
+  the validation error) if the first response doesn't validate — no
+  schema-level guarantee at the Ollama layer, so validation must happen
+  client-side.
+- `MockLLMProvider` — returns a small canned structured dict matching
+  whatever schema shape the test expects, for fakes-based unit tests.
 
----
-
-## Domain
-
-Create:
-
-```
-DietPlan
-
-DietDay
-
-Meal
-```
-
----
-
-## Application
-
-Create:
-
-```
-GenerateDietPlanUseCase
-```
+Split into stages the same way as Phase 4 — Domain → Application →
+AI-provider extension → Mongo persistence → API → Tests/docs.
 
 ---
 
-Example:
+## Stage 1 — Domain — DONE
 
-User:
+`modules/nutrition/domain/`:
+- [x] `entities/diet_plan.py` — `DietPlan` aggregate root: `id`, `user_id`,
+      `goal`, `diet_type`, `duration_days`, `requirements` (`tuple[str, ...]`,
+      optional free-text hints), `days` (`tuple[DietDay, ...]`), `created_at`.
+      `create()` validates `duration_days` is in a sane bounded range
+      (1–14) and `days` actually has `duration_days` entries — same
+      create()-time validation pattern as `NutritionProfile`.
+- [x] `value_objects/diet_day.py` — `DietDay`: `day_number` (1-indexed),
+      `meals` (`tuple[Meal, ...]`).
+- [x] `value_objects/meal.py` — `Meal`: `name`, `calories`, `protein`,
+      `carbohydrates`, `fat` (all non-negative numbers, enforced in
+      `DietPlan.create()`).
+- [x] `exceptions/diet_plan_domain_errors.py` — `InvalidDietPlanError`
+      (subclasses the existing `NutritionDomainError`), covering bad
+      `duration_days`, day-count mismatch, and negative macros.
+- [x] `repositories/diet_plan_repository.py` — port: `get_by_id(plan_id) ->
+      DietPlan | None`, `list_by_user_id(user_id) -> list[DietPlan]`,
+      `save(plan) -> None`. Unlike `NutritionProfile`, a user can have many
+      diet plans — no unique-per-user constraint, no `update()` method (a
+      plan is generated fresh each time, not edited in place).
+
+`modules/ai/domain/`:
+- [x] `ports/llm_provider.py` — added
+      `generate_structured_response(self, prompt: Prompt, schema: dict) ->
+      dict` to `LLMProvider`. **Deviation from the original draft**: made it
+      a concrete method with a `NotImplementedError` default body rather
+      than `@abstractmethod` — an `@abstractmethod` would have broken
+      instantiation of every existing provider (`MockLLMProvider`,
+      `ClaudeProvider`, `OllamaProvider`, `FakeLLMProvider`) before Stage 3
+      implements it there, which would have left the full suite red for two
+      stages. This is an intentional "optional capability" port method, the
+      same shape Python's `ABC` uses for mixin-style default behavior —
+      Stage 3 overrides it in each real provider.
+
+Exit criteria: unit tests for `DietPlan`/`DietDay`/`Meal` validation rules,
+zero infra deps. 7 tests added (`test_diet_plan_entity.py`), full suite at
+151/151 passing.
+
+---
+
+## Stage 2 — Application
+
+`modules/nutrition/application/`:
+- [ ] `dto/generate_diet_plan_dto.py` — `GenerateDietPlanCommand` (`user_id`,
+      `duration_days`, `requirements: list[str] | None`),
+      `DietPlanResult`/`DietPlanSummaryResult` (`from_domain()` classmethods,
+      mirroring `NutritionProfileResult`).
+- [ ] `use_cases/generate_diet_plan_use_case.py` — looks up the caller's
+      `NutritionProfile` (required this time, unlike chat — no profile means
+      no personalization basis, so raise a domain-level "profile required"
+      error, not a silent generic plan), builds a structured prompt via a new
+      `DietPlanPromptBuilder` (in `ai/application/`, mirroring
+      `PromptBuilder`'s shape but emitting a JSON-schema-oriented system
+      prompt + the fixed schema dict), calls
+      `LLMProvider.generate_structured_response`, maps the returned dict into
+      `DietPlan.create(...)`, saves, returns `DietPlanResult`.
+- [ ] `use_cases/list_diet_plans_use_case.py`, `get_diet_plan_use_case.py`
+      (ownership check — 404 for another user's plan, same
+      don't-leak-existence shape as Conversation/Nutrition).
+- [ ] `tests/fakes.py` — `InMemoryDietPlanRepository`; extend
+      `ai/tests/fakes.py`'s `FakeLLMProvider` with a
+      `generate_structured_response` implementation (returns a canned dict,
+      captures the schema/prompt it received like `last_prompt` does).
+
+Exit criteria: use case tests pass against fakes only, no real DB/HTTP —
+including a test that no-profile raises before ever calling the LLM.
+
+---
+
+## Stage 3 — AI provider extension (real structured output)
+
+- [ ] `ai/infrastructure/anthropic/claude_provider.py` —
+      `generate_structured_response` using `output_config: {"format":
+      {"type": "json_schema", "schema": schema}}` on `messages.create()`,
+      parses the guaranteed-valid JSON text block.
+- [ ] `ai/infrastructure/ollama/ollama_provider.py` —
+      `generate_structured_response` sends `"format": "json"` in the
+      `/api/chat` request body, `json.loads()`s the response, validates
+      against a Pydantic model built from the schema; on a validation
+      failure, retries **once** with the validation error appended to the
+      prompt, then raises a clear error if the retry also fails (fail loud,
+      matching the project's existing `AI_PROVIDER` misconfiguration
+      philosophy — no silent fallback to a malformed plan).
+- [ ] `ai/infrastructure/providers/mock_llm_provider.py` —
+      `generate_structured_response` returns a small deterministic canned
+      plan dict.
+
+Exit criteria: provider-level tests (mirroring
+`test_claude_provider.py`/`test_ollama_provider.py`) verifying the JSON-mode
+request shape and the Ollama retry-once behavior; full suite green.
+
+---
+
+## Stage 4 — Infrastructure: Mongo persistence (Beanie)
+
+- [ ] `infrastructure/documents/diet_plan_document.py` — Beanie `Document`,
+      `Settings.name = "diet_plans"`, index on `user_id` (not unique — many
+      plans per user).
+- [ ] `infrastructure/mappers/diet_plan_mapper.py` — Document ↔ domain.
+- [ ] `infrastructure/repository/mongo_diet_plan_repository.py`.
+- [ ] Register `DietPlanDocument` in `main.py`'s `init_beanie_documents([...,
+      DietPlanDocument])`.
+
+Exit criteria: repository-level tests against the real ephemeral Mongo test
+stack, same isolation pattern as `NutritionProfileDocument`'s Stage 3.
+
+---
+
+## Stage 5 — API layer
+
+Endpoints (per docs/api.md, updated to snake_case):
 
 ```
-I run 5 times a week.
-Create high protein breakfasts for 7 days.
+POST /diet-plans/generate
+GET  /diet-plans
+GET  /diet-plans/{diet_plan_id}
 ```
 
-System:
+- [ ] `api/schemas/diet_plan_schemas.py` — `GenerateDietPlanRequest`
+      (`duration_days: int = Field(ge=1, le=14)`, `requirements:
+      list[str] | None`), `DietPlanResponse`/`DietPlanSummaryResponse`
+      (`from_result()` classmethods).
+- [ ] `api/dependencies/diet_plan_dependencies.py` — wires
+      `NutritionProfileRepository` + `DietPlanRepository` + `LLMProvider`
+      into `GenerateDietPlanUseCase`, mirroring `SendMessageUseCase`'s
+      cross-module DI shape from Phase 5/6 Stage 5.
+- [ ] `api/routers/diet_plan_router.py` — `POST` → `AppException(NOT_FOUND)`
+      if the caller has no nutrition profile yet (or a distinct code if the
+      roadmap review decides a profile-required error deserves its own
+      `ErrorCode`); `GET /diet-plans/{id}` → `AppException(NOT_FOUND)` for a
+      nonexistent or non-owned plan.
 
-```
-Nutrition Profile
+Exit criteria: full API integration tests (generate → list → get →
+get-nonexistent 404 → generate-without-profile 404/error), same shape as
+`test_nutrition_api.py`. Verified end-to-end on the real Docker stack with
+Ollama, confirming the generated plan is valid structured JSON with exactly
+`duration_days` days.
 
-+
+---
 
-Conversation Context
+## Stage 6 — Tests & docs sync
 
-+
-
-AI
-
-↓
-
-Diet Plan
-```
+- [ ] `docs/https/diet-plan.http`.
+- [ ] `docs/api.md` Diet Plan API section rewritten to the shipped
+      snake_case shape (the current draft already sketches the right
+      contract shape but uses camelCase — align field names, add real error
+      codes).
+- [ ] `architecture.md`/`domain-model.md` spot-check — `DietPlan`/`DietDay`/
+      `Meal` marked implemented; note the `LLMProvider.
+      generate_structured_response` addition in the AI Module section.
+- [ ] Roadmap status table updated.
 
 ---
 
