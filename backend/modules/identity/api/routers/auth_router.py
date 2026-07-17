@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from backend.modules.identity.api.dependencies import (
+    get_current_user,
     get_login_user_use_case,
     get_refresh_access_token_use_case,
     get_register_user_use_case,
@@ -8,6 +9,7 @@ from backend.modules.identity.api.dependencies import (
 from backend.modules.identity.api.schemas import (
     LoginRequest,
     LoginResponse,
+    MeResponse,
     RefreshTokenRequest,
     RefreshTokenResponse,
     RegisterRequest,
@@ -28,6 +30,7 @@ from backend.modules.identity.application import (
 from backend.modules.identity.domain import (
     InactiveUserAuthenticationError,
     InvalidPasswordError,
+    User,
 )
 
 router = APIRouter(prefix="/auth", tags=["identity-auth"])
@@ -93,3 +96,12 @@ async def refresh(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token") from exc
     except InactiveUserAuthenticationError as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+
+
+@router.get("/me", response_model=MeResponse, status_code=status.HTTP_200_OK)
+async def me(current_user: User = Depends(get_current_user)) -> MeResponse:
+    return MeResponse(
+        user_id=str(current_user.id),
+        email=current_user.email.value,
+        status=current_user.status.value,
+    )

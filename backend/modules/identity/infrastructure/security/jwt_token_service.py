@@ -1,5 +1,4 @@
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
 
 import jwt
 
@@ -35,7 +34,6 @@ class JwtTokenService(TokenService):
         payload = {
             "sub": user_id,
             "type": "refresh",
-            "jti": str(uuid4()),
             "iat": int(now.timestamp()),
             "exp": int((now + timedelta(days=self._refresh_ttl_days)).timestamp()),
         }
@@ -45,4 +43,10 @@ class JwtTokenService(TokenService):
         payload = jwt.decode(token, self._secret_key, algorithms=[self._algorithm])
         if payload.get("type") != "refresh":
             raise ValueError("Token is not a refresh token")
+        return payload
+
+    def decode_access_token(self, token: str) -> dict:
+        payload = jwt.decode(token, self._secret_key, algorithms=[self._algorithm])
+        if payload.get("type") != "access":
+            raise ValueError("Token is not an access token")
         return payload

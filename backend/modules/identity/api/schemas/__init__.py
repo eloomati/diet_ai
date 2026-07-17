@@ -6,6 +6,7 @@ from .auth_schemas import (
     RegisterRequest,
     RegisterResponse,
 )
+from .me_schemas import MeResponse
 
 __all__ = [
     "RegisterRequest",
@@ -14,4 +15,5 @@ __all__ = [
     "LoginResponse",
     "RefreshTokenRequest",
     "RefreshTokenResponse",
+    "MeResponse",
 ]

@@ -13,3 +13,7 @@ class TokenService(ABC):
     @abstractmethod
     def decode_refresh_token(self, token: str) -> dict:
         raise NotImplementedError
+
+    @abstractmethod
+    def decode_access_token(self, token: str) -> dict:
+        raise NotImplementedError
