@@ -380,30 +380,38 @@ before touching real infrastructure, real-infra integration tests last).
 
 ---
 
-## Stage 1 — Domain (no DB, no HTTP, unit-testable in isolation)
+## Stage 1 — Domain (no DB, no HTTP, unit-testable in isolation) — DONE
 
 `modules/conversation/domain/`:
-- [ ] `entities/conversation.py` — `Conversation` aggregate: `id`, `user_id`, `title`,
+- [x] `entities/conversation.py` — `Conversation` aggregate: `id`, `user_id`, `title`,
       `category`, `status`, `created_at`, `updated_at`; rule: archived conversations
       reject new messages (mirrors `User.assert_can_authenticate` style guard).
-- [ ] `entities/message.py` — `Message` entity: `id`, `role` (`USER`/`ASSISTANT`/`SYSTEM`),
+- [x] `entities/message.py` — `Message` entity: `id`, `role` (`USER`/`ASSISTANT`/`SYSTEM`),
       `content`, `created_at`, `token_usage`; immutable after creation.
-- [ ] `value_objects/conversation_category.py` — closed enum, guides/steers the
+- [x] `value_objects/conversation_category.py` — closed enum, guides/steers the
       conversation (used in the `Prompt` sent to the AI): `GENERAL`, `DIET`,
       `BREAKFAST`, `FITNESS`, `RUNNING`, `GYM`, `HEALTH`, `SUPPLEMENTS`. Plain
       enum on purpose (not a dynamic/CRUD-managed entity) — adding a category
       later is a one-line code change + PR, matches docs/api.md's category list.
-- [ ] `exceptions/conversation_domain_errors.py` — e.g. `ArchivedConversationError`.
-- [ ] `repositories/conversation_repository.py` — port (ABC), no implementation yet.
+- [x] `exceptions/conversation_domain_errors.py` — e.g. `ArchivedConversationError`.
+- [x] `repositories/conversation_repository.py` — port (ABC), no implementation yet.
+- [x] `value_objects/conversation_status.py`, `value_objects/message_role.py`,
+      `events/conversation_events.py` (`ConversationCreated`, `MessageAdded`) —
+      added beyond the original list, mirroring Identity's `UserStatus` +
+      `user_events.py` pattern.
 
 `modules/ai/domain/`:
-- [ ] `ports/llm_provider.py` — `LLMProvider` ABC: `generate_response(prompt: Prompt) -> AIResponse`.
-- [ ] `value_objects/prompt.py` — `Prompt` (`system_context`, `conversation_history`,
+- [x] `ports/llm_provider.py` — `LLMProvider` ABC: `generate_response(prompt: Prompt) -> AIResponse`.
+- [x] `value_objects/prompt.py` — `Prompt` (`system_context`, `conversation_history`,
       `category`, `question`; `user_profile` left as `None`/optional for now —
-      wired once Nutrition Profile exists).
-- [ ] `value_objects/ai_response.py` — `AIResponse` (`content`, `model`, `tokens`, `execution_time`).
+      wired once Nutrition Profile exists). `category` is a plain `str`, not
+      `ConversationCategory`, to keep the `ai` domain decoupled from `conversation`
+      — the application-layer `PromptBuilder` (Stage 2) converts the enum.
+- [x] `value_objects/ai_response.py` — `AIResponse` (`content`, `model`, `tokens`, `execution_time`).
 
 Exit criteria: unit tests for entities/value objects/domain rules, zero infra deps.
+10 tests added (`test_conversation_entity.py`, `test_message_entity.py`,
+`test_ai_value_objects.py`), full suite at 70/70 passing.
 
 ---
 
