@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     use_mock_ai: bool = True
     openai_api_key: str | None = None
 
+    jwt_secret_key: str = "dev-secret-change-me"
+    jwt_algorithm: str = "HS256"
+    jwt_access_ttl_minutes: int = 15
+    jwt_refresh_ttl_days: int = 7
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
