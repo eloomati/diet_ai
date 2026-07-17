@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -13,23 +14,22 @@ from backend.shared.providers import create_di_container
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup and Shutdown events."""
+    """Startup and shutdown events."""
     settings = get_settings()
 
-    # === Startup ===
     try:
         await init_postgres(settings.postgres_url)
-        await init_mongo(settings.mongo_url)
+        if not settings.testing:
+            await init_mongo(settings.mongo_url)
     except Exception as e:
-        import logging
         logging.error(f"Failed to initialize databases: {e}")
         raise
 
     yield
 
-    # === Shutdown ===
     await close_postgres()
-    await close_mongo()
+    if not settings.testing:
+        await close_mongo()
 
 
 def create_app() -> FastAPI:
@@ -43,7 +43,6 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # DI Container
     di_container = create_di_container(use_mock_ai=settings.use_mock_ai)
     app.state.di_container = di_container
 

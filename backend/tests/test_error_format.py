@@ -12,12 +12,15 @@ def test_error_format_contains_code_message_timestamp() -> None:
         raise RuntimeError("boom")
 
     app.include_router(router, prefix="/api/v1")
-    client = TestClient(app, raise_server_exceptions=False)
 
-    response = client.get("/api/v1/_raise")
-    body = response.json()
+    # Ensure lifespan/middleware/handlers are consistently active in tests.
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get("/api/v1/_raise")
 
     assert response.status_code == 500
+    assert response.headers.get("content-type", "").startswith("application/json")
+
+    body = response.json()
     assert body["code"] == "INTERNAL_ERROR"
     assert "message" in body
     assert "timestamp" in body

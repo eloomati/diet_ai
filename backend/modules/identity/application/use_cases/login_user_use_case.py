@@ -21,11 +21,13 @@ class LoginUserUseCase:
         refresh_token_repository: RefreshTokenRepository,
         password_hasher: PasswordHasher,
         token_service: TokenService,
+        refresh_ttl_days: int = 7,
     ) -> None:
         self._user_repository = user_repository
         self._refresh_token_repository = refresh_token_repository
         self._password_hasher = password_hasher
         self._token_service = token_service
+        self._refresh_ttl_days = refresh_ttl_days
 
     async def execute(self, command: LoginUserCommand) -> LoginUserResult:
         email = Email(command.email)
@@ -52,7 +54,7 @@ class LoginUserUseCase:
         refresh_entity = RefreshToken.issue(
             user_id=user.id,
             token_hash=refresh_token,
-            expires_at=datetime.now(UTC) + timedelta(days=7),
+            expires_at=datetime.now(UTC) + timedelta(days=self._refresh_ttl_days),
         )
         await self._refresh_token_repository.save(refresh_entity)
 

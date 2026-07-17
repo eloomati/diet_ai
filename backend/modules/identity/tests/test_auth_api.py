@@ -1,94 +1,81 @@
-import os
+import uuid
 
 from fastapi.testclient import TestClient
 
-from backend.app.main import app
-from backend.modules.identity.api.dependencies.auth_dependencies import (
-    get_login_user_use_case,
-    get_register_user_use_case,
-)
-from backend.modules.identity.application import LoginUserUseCase, RegisterUserUseCase
-from backend.modules.identity.tests.fakes import (
-    FakePasswordHasher,
-    FakeTokenService,
-    InMemoryRefreshTokenRepository,
-    InMemoryUserRepository,
-)
+
+def unique_email(prefix: str) -> str:
+    return f"{prefix}.{uuid.uuid4().hex[:10]}@example.com"
 
 
-def _build_test_client() -> TestClient:
-    user_repo = InMemoryUserRepository()
-    refresh_repo = InMemoryRefreshTokenRepository()
-    hasher = FakePasswordHasher()
-    tokens = FakeTokenService()
-
-    def _override_register_uc() -> RegisterUserUseCase:
-        return RegisterUserUseCase(user_repo, hasher)
-
-    def _override_login_uc() -> LoginUserUseCase:
-        return LoginUserUseCase(user_repo, refresh_repo, hasher, tokens)
-
-    app.dependency_overrides[get_register_user_use_case] = _override_register_uc
-    app.dependency_overrides[get_login_user_use_case] = _override_login_uc
-    return TestClient(app)
+def test_register_returns_201(client: TestClient) -> None:
+    email = unique_email("first.user")
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123"},
+    )
+    assert response.status_code == 201
+    body = response.json()
+    assert body["email"] == email
+    assert body["user_id"]
 
 
-def _cleanup_overrides() -> None:
-    app.dependency_overrides.clear()
+def test_register_duplicate_email_returns_409(client: TestClient) -> None:
+    email = unique_email("dup.user")
+    payload = {"email": email, "password": "StrongPass123"}
+
+    first = client.post("/api/v1/auth/register", json=payload)
+    second = client.post("/api/v1/auth/register", json=payload)
+
+    assert first.status_code == 201
+    assert second.status_code == 409
 
 
-def test_register_then_login_flow() -> None:
-    os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-32-chars-minimum!!")
-    client = _build_test_client()
-    try:
-        register_response = client.post(
-            "/api/v1/auth/register",
-            json={"email": "api.user@example.com", "password": "StrongPass123"},
-        )
-        assert register_response.status_code in (200, 201)
+def test_login_success_returns_200(client: TestClient) -> None:
+    email = unique_email("login.user")
 
-        login_response = client.post(
-            "/api/v1/auth/login",
-            json={"email": "api.user@example.com", "password": "StrongPass123"},
-        )
-        assert login_response.status_code == 200
-        body = login_response.json()
+    register = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123"},
+    )
+    assert register.status_code == 201
 
-        assert "access_token" in body
-        assert "refresh_token" in body
-        assert body["token_type"] == "bearer"
-    finally:
-        _cleanup_overrides()
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": "StrongPass123"},
+    )
+    assert login.status_code == 200
+    body = login.json()
+    assert "access_token" in body
+    assert "refresh_token" in body
+    assert body["token_type"] == "bearer"
 
 
-def test_login_wrong_password_returns_401() -> None:
-    os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-32-chars-minimum!!")
-    client = _build_test_client()
-    try:
-        client.post(
-            "/api/v1/auth/register",
-            json={"email": "wrong.pass@example.com", "password": "StrongPass123"},
-        )
+def test_login_bad_credentials_returns_401(client: TestClient) -> None:
+    email = unique_email("bad.creds")
 
-        login_response = client.post(
-            "/api/v1/auth/login",
-            json={"email": "wrong.pass@example.com", "password": "WrongPass123"},
-        )
-        assert login_response.status_code == 401
-    finally:
-        _cleanup_overrides()
+    register = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123"},
+    )
+    assert register.status_code == 201
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": "WrongPass123"},
+    )
+    assert login.status_code == 401
 
 
-def test_register_existing_email_returns_409() -> None:
-    os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-32-chars-minimum!!")
-    client = _build_test_client()
-    try:
-        payload = {"email": "dup.api@example.com", "password": "StrongPass123"}
+def test_register_validation_returns_422_for_short_password(client: TestClient) -> None:
+    email = unique_email("short.pass")
+    response = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "123"},
+    )
+    assert response.status_code == 422
 
-        r1 = client.post("/api/v1/auth/register", json=payload)
-        assert r1.status_code in (200, 201)
 
-        r2 = client.post("/api/v1/auth/register", json=payload)
-        assert r2.status_code == 409
-    finally:
-        _cleanup_overrides()
+def test_login_validation_returns_422_for_missing_fields(client: TestClient) -> None:
+    email = unique_email("missing.pass")
+    response = client.post("/api/v1/auth/login", json={"email": email})
+    assert response.status_code == 422

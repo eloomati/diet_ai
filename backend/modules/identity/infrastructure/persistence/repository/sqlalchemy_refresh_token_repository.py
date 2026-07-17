@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from uuid import UUID
 
 from sqlalchemy import select
@@ -32,6 +33,7 @@ class SqlAlchemyRefreshTokenRepository(RefreshTokenRepository):
         stmt = select(RefreshTokenModel).where(
             RefreshTokenModel.token_hash == token_hash,
             RefreshTokenModel.revoked.is_(False),
+            RefreshTokenModel.expires_at > datetime.now(UTC),
         )
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()

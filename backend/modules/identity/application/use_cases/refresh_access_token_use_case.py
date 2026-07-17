@@ -21,10 +21,12 @@ class RefreshAccessTokenUseCase:
         user_repository: UserRepository,
         refresh_token_repository: RefreshTokenRepository,
         token_service: TokenService,
+        refresh_ttl_days: int = 7,
     ) -> None:
         self._user_repository = user_repository
         self._refresh_token_repository = refresh_token_repository
         self._token_service = token_service
+        self._refresh_ttl_days = refresh_ttl_days
 
     async def execute(self, command: RefreshTokenCommand) -> RefreshTokenResult:
         try:
@@ -50,7 +52,7 @@ class RefreshAccessTokenUseCase:
         new_refresh = RefreshToken.issue(
             user_id=user.id,
             token_hash=new_refresh_raw,
-            expires_at=datetime.now(UTC) + timedelta(days=7),
+            expires_at=datetime.now(UTC) + timedelta(days=self._refresh_ttl_days),
         )
         await self._refresh_token_repository.save(new_refresh)
 

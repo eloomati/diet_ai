@@ -1,6 +1,8 @@
 import logging
 import sys
 
+from .filters import RequestIdFilter
+
 
 def setup_logging(level: str = "INFO") -> None:
     root = logging.getLogger()
@@ -17,8 +19,7 @@ def setup_logging(level: str = "INFO") -> None:
     )
     handler.setFormatter(formatter)
 
+    # Important: attach filter to handler so every emitted record gets request_id,
+    # including third-party loggers like httpx/httpcore.
+    handler.addFilter(RequestIdFilter())
     root.addHandler(handler)
-
-    # Inject request_id from contextvar into every log record.
-    from .filters import RequestIdFilter
-    root.addFilter(RequestIdFilter())

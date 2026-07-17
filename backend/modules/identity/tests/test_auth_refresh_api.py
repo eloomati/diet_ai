@@ -84,3 +84,29 @@ def test_refresh_with_invalid_token_returns_401() -> None:
         assert response.status_code == 401
     finally:
         _cleanup_overrides()
+
+
+def test_refresh_reuse_old_token_after_rotation_returns_401() -> None:
+    os.environ.setdefault("JWT_SECRET_KEY", "test-jwt-secret-key-32-chars-minimum!!")
+    client = _build_test_client()
+    try:
+        reg = client.post(
+            "/api/v1/auth/register",
+            json={"email": "rotate.user@example.com", "password": "StrongPass123"},
+        )
+        assert reg.status_code == 201
+
+        login = client.post(
+            "/api/v1/auth/login",
+            json={"email": "rotate.user@example.com", "password": "StrongPass123"},
+        )
+        assert login.status_code == 200
+        first_refresh = login.json()["refresh_token"]
+
+        first_rotate = client.post("/api/v1/auth/refresh", json={"refresh_token": first_refresh})
+        assert first_rotate.status_code == 200
+
+        reused = client.post("/api/v1/auth/refresh", json={"refresh_token": first_refresh})
+        assert reused.status_code == 401
+    finally:
+        _cleanup_overrides()

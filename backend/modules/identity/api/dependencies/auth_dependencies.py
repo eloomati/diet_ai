@@ -21,7 +21,12 @@ from backend.shared.database.postgres import get_postgres_session
 
 async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
     async with get_postgres_session() as session:
-        yield session
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
 
 
 def _build_token_service() -> JwtTokenService:
@@ -45,17 +50,30 @@ def get_register_user_use_case(
 def get_login_user_use_case(
     session: AsyncSession = Depends(get_db_session),
 ) -> LoginUserUseCase:
+    settings = get_settings()
     user_repo = SqlAlchemyUserRepository(session)
     refresh_repo = SqlAlchemyRefreshTokenRepository(session)
     hasher = BcryptPasswordHasher()
     token_service = _build_token_service()
-    return LoginUserUseCase(user_repo, refresh_repo, hasher, token_service)
+    return LoginUserUseCase(
+        user_repo,
+        refresh_repo,
+        hasher,
+        token_service,
+        refresh_ttl_days=settings.jwt_refresh_ttl_days,
+    )
 
 
 def get_refresh_access_token_use_case(
     session: AsyncSession = Depends(get_db_session),
 ) -> RefreshAccessTokenUseCase:
+    settings = get_settings()
     user_repo = SqlAlchemyUserRepository(session)
     refresh_repo = SqlAlchemyRefreshTokenRepository(session)
     token_service = _build_token_service()
-    return RefreshAccessTokenUseCase(user_repo, refresh_repo, token_service)
+    return RefreshAccessTokenUseCase(
+        user_repo,
+        refresh_repo,
+        token_service,
+        refresh_ttl_days=settings.jwt_refresh_ttl_days,
+    )

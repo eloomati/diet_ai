@@ -1,6 +1,6 @@
 from functools import lru_cache
-import os
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,6 +10,8 @@ class Settings(BaseSettings):
     app_debug: bool = True
     api_prefix: str = "/api/v1"
     log_level: str = "INFO"
+
+    testing: bool = False
 
     # Database
     postgres_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/diet_ai"
@@ -31,10 +33,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    def __init__(self, **data):
-        super().__init__(**data)
-        if os.getenv("TESTING") or self.app_env == "test":
+    @model_validator(mode="after")
+    def _disable_debug_when_testing(self) -> "Settings":
+        if self.testing or self.app_env == "test":
             self.app_debug = False
+        return self
 
 
 @lru_cache(maxsize=1)
