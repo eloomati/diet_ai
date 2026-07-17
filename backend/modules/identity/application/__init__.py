@@ -1,17 +1,21 @@
 from .dto import (
+    ConfirmPasswordResetCommand,
     LoginUserCommand,
     LoginUserResult,
     RegisterUserCommand,
     RegisterUserResult,
     RefreshTokenCommand,
-    RefreshTokenResult
+    RefreshTokenResult,
+    RequestPasswordResetCommand,
 )
-from .ports import PasswordHasher, TokenService
+from .ports import EmailSender, PasswordHasher, RefreshTokenRepository, TokenService
 from .use_cases import (
+    ConfirmPasswordResetUseCase,
     IdentityApplicationError,
     InvalidCredentialsError,
     LoginUserUseCase,
     RegisterUserUseCase,
+    RequestPasswordResetUseCase,
     UserAlreadyExistsError,
     UserNotFoundError,
     InvalidRefreshTokenError,
@@ -23,12 +27,22 @@ __all__ = [
     "RegisterUserResult",
     "LoginUserCommand",
     "LoginUserResult",
+    "RefreshTokenCommand",
+    "RefreshTokenResult",
+    "RequestPasswordResetCommand",
+    "ConfirmPasswordResetCommand",
     "PasswordHasher",
     "TokenService",
+    "RefreshTokenRepository",
+    "EmailSender",
     "RegisterUserUseCase",
     "LoginUserUseCase",
     "IdentityApplicationError",
     "UserAlreadyExistsError",
     "InvalidCredentialsError",
     "UserNotFoundError",
+    "InvalidRefreshTokenError",
+    "RefreshAccessTokenUseCase",
+    "RequestPasswordResetUseCase",
+    "ConfirmPasswordResetUseCase",
 ]

@@ -14,3 +14,9 @@ class UserRegistered:
 class UserLoggedIn:
     user_id: UUID
     occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass(frozen=True, slots=True)
+class PasswordChanged:
+    user_id: UUID
+    occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))

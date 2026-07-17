@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from backend.modules.identity.domain.entities.password_reset_token import PasswordResetToken
 from backend.modules.identity.domain.entities.refresh_token import RefreshToken
 from backend.modules.identity.domain.entities.user import User
 from backend.modules.identity.domain.value_objects.email import Email
@@ -53,6 +54,37 @@ class InMemoryRefreshTokenRepository:
             if token.id == token_id:
                 token.revoke()
                 return
+
+    async def revoke_all_for_user(self, user_id: UUID) -> None:
+        for token in self._by_hash.values():
+            if token.user_id == user_id:
+                token.revoke()
+
+
+class InMemoryPasswordResetTokenRepository:
+    def __init__(self) -> None:
+        self._by_hash: dict[str, PasswordResetToken] = {}
+
+    async def save(self, token: PasswordResetToken) -> None:
+        self._by_hash[token.token_hash] = token
+
+    async def get_by_token_hash(self, token_hash: str) -> PasswordResetToken | None:
+        return self._by_hash.get(token_hash)
+
+
+@dataclass
+class SentEmail:
+    to: str
+    subject: str
+    body: str
+
+
+class FakeEmailSender:
+    def __init__(self) -> None:
+        self.sent: list[SentEmail] = []
+
+    async def send(self, to: str, subject: str, body: str) -> None:
+        self.sent.append(SentEmail(to=to, subject=subject, body=body))
 
 
 class FakePasswordHasher:

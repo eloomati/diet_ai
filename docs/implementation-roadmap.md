@@ -1175,10 +1175,10 @@ Verified end-to-end against the real Docker stack: create → archive
 
 ---
 
-## Stage 2 — Password reset: domain + application
+## Stage 2 — Password reset: domain + application — DONE
 
 `modules/identity/domain/`:
-- [ ] `entities/password_reset_token.py` — `PasswordResetToken`: `id`,
+- [x] `entities/password_reset_token.py` — `PasswordResetToken`: `id`,
       `user_id`, `token_hash`, `expires_at`, `used` (bool), `created_at`.
       Mirrors `RefreshToken`'s shape, but **the token is actually hashed at
       rest this time** (`hashlib.sha256`) — the existing `RefreshToken`
@@ -1187,45 +1187,65 @@ Verified end-to-end against the real Docker stack: create → archive
       and single-use but still a bearer credential mailed in plaintext, so
       hashing it at rest is the correct default for new code, not an
       inconsistency to "match" the older shortcut.
-      Methods: `issue()` (classmethod, generates + hashes), `is_expired()`,
+      `issue(user_id, ttl_minutes=30)` is a classmethod returning
+      `(token, raw_token)` — the raw secret (`secrets.token_urlsafe(32)`)
+      exists only transiently to be emailed; only its SHA-256 hash is ever
+      persisted. Also: `hash_token()` (static), `is_expired()`,
       `is_valid()` (`not used and not is_expired()`), `mark_used()`.
-- [ ] `exceptions/password_reset_domain_errors.py` —
-      `InvalidPasswordResetTokenError`.
-- [ ] `repositories/password_reset_token_repository.py` — port:
+- [x] `InvalidPasswordResetTokenError` — added to the existing
+      `identity_domain_errors.py` (this module keeps all domain errors in
+      one file already, unlike nutrition's per-aggregate split — followed
+      identity's own convention rather than nutrition's).
+- [x] `repositories/password_reset_token_repository.py` — port:
       `save(token)`, `get_by_token_hash(hash) -> PasswordResetToken | None`.
+- [x] `User.change_password(new_password_hash)` + new `PasswordChanged`
+      domain event — added to keep password mutation encapsulated in the
+      entity (matching `deactivate()`/`block()`/`activate()`'s shape)
+      rather than the use case reaching in and setting
+      `user.password_hash` directly.
+- [x] `RefreshTokenRepository.revoke_all_for_user(user_id)` — added as a
+      **concrete method with a `NotImplementedError` default**, not
+      `@abstractmethod` — same reasoning as `LLMProvider.
+      generate_structured_response` in Phase 7 Stage 1: an `@abstractmethod`
+      would have broken the existing `SqlAlchemyRefreshTokenRepository`'s
+      instantiation (used by every register/login/refresh request) before
+      Stage 3 implements it for real. `InMemoryRefreshTokenRepository`
+      (fake) got a real implementation now since `ConfirmPasswordResetUseCase`'s
+      own tests need to exercise it.
 
 `modules/identity/application/`:
-- [ ] `ports/email_sender.py` — `EmailSender` ABC: `async send(self, to:
+- [x] `ports/email_sender.py` — `EmailSender` ABC: `async send(self, to:
       str, subject: str, body: str) -> None`. Placed alongside the existing
-      `ports/token_service.py`, same reasoning (identity-scoped port,
-      promote to `shared/` later if a second module needs it — YAGNI over
-      speculative reuse).
-- [ ] `use_cases/request_password_reset_use_case.py` — looks up the user by
+      `ports/token_service.py` (identity-scoped port; promote to `shared/`
+      later if a second module needs it — YAGNI over speculative reuse).
+- [x] `use_cases/request_password_reset_use_case.py` — looks up the user by
       email; **always returns success regardless of whether the email
-      exists** (same don't-leak-existence principle as login/refresh error
-      handling, applied to email enumeration this time) — if found, issues
-      a `PasswordResetToken` (expiry: 30 minutes), saves it, and sends an
-      email via `EmailSender` containing the raw (unhashed) token. If not
-      found, does nothing but still returns success.
-- [ ] `use_cases/confirm_password_reset_use_case.py` — hashes the incoming
+      exists or is even well-formed** (same don't-leak-existence principle
+      as login/refresh error handling, extended to email enumeration and to
+      malformed-email input) — if found, issues a `PasswordResetToken`
+      (30-minute expiry), saves it, and sends an email via `EmailSender`
+      containing the raw token. If not found (or malformed), does nothing.
+- [x] `use_cases/confirm_password_reset_use_case.py` — hashes the incoming
       token, looks it up, validates `is_valid()` (raises
-      `InvalidPasswordResetTokenError` — mapped to 400, not 404, so as not
-      to leak whether *some* token exists vs this one being expired/used),
-      re-validates the new password via the existing `PasswordPolicy`,
-      updates the user's password hash, marks the token used, and
-      **revokes all of the user's active refresh tokens** (forces
-      re-login everywhere — standard security practice after a credential
-      reset; needs a new `revoke_all_for_user(user_id)` on
-      `RefreshTokenRepository`, which doesn't exist yet).
-- [ ] `tests/fakes.py` — `InMemoryPasswordResetTokenRepository`,
-      `FakeEmailSender` (captures sent emails in a list for assertions,
-      same shape as `FakeLLMProvider` capturing `last_prompt`).
+      `InvalidPasswordResetTokenError`, intended to map to 400 at the API
+      layer in Stage 4 — not 404, so as not to leak whether *some* token
+      exists vs this one being expired/used), re-validates the new password
+      via the existing `PasswordPolicy`, calls `user.change_password(...)`,
+      marks the token used, and **revokes all of the user's active refresh
+      tokens** via the new `revoke_all_for_user`.
+- [x] `tests/fakes.py` — `InMemoryPasswordResetTokenRepository`,
+      `FakeEmailSender` (captures sent emails — `to`/`subject`/`body` — in a
+      `sent` list for assertions, same shape as `FakeLLMProvider` capturing
+      `last_prompt`), `InMemoryRefreshTokenRepository.revoke_all_for_user`.
 
-Exit criteria: use case tests against fakes only — request-for-unknown-email
-still returns success and sends no email, request-for-known-email sends
-exactly one email containing a token, confirm-with-valid-token succeeds and
-revokes refresh tokens, confirm-with-expired/used/garbage-token raises,
-confirm changes the password (verified via the existing password hasher).
+Exit criteria: use case tests against fakes only — 17 tests added across
+`test_password_reset_token.py` (entity rules), `test_user_entity.py`
+(`change_password` addition), `test_request_password_reset_use_case.py`
+(unknown/malformed email → no email sent, known email → exactly one email
+with a valid token), `test_confirm_password_reset_use_case.py`
+(valid-token success + password changed + refresh tokens revoked,
+unknown/expired/already-used token → raises, weak new password → raises).
+Full suite at 210/210 passing.
 
 ---
 

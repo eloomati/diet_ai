@@ -20,3 +20,7 @@ class InactiveUserAuthenticationError(IdentityDomainError):
 
 class RefreshTokenRevokedError(IdentityDomainError):
     pass
+
+
+class InvalidPasswordResetTokenError(IdentityDomainError):
+    pass

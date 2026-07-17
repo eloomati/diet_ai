@@ -1,3 +1,4 @@
+from .confirm_password_reset_use_case import ConfirmPasswordResetUseCase
 from .exceptions import (
     IdentityApplicationError,
     InvalidCredentialsError,
@@ -8,6 +9,7 @@ from .exceptions import (
 from .login_user_use_case import LoginUserUseCase
 from .register_user_use_case import RegisterUserUseCase
 from .refresh_access_token_use_case import RefreshAccessTokenUseCase
+from .request_password_reset_use_case import RequestPasswordResetUseCase
 
 __all__ = [
     "RegisterUserUseCase",
@@ -18,4 +20,6 @@ __all__ = [
     "UserNotFoundError",
     "RefreshAccessTokenUseCase",
     "InvalidRefreshTokenError",
+    "RequestPasswordResetUseCase",
+    "ConfirmPasswordResetUseCase",
 ]

@@ -2,7 +2,11 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from backend.modules.identity.domain.events.user_events import UserLoggedIn, UserRegistered
+from backend.modules.identity.domain.events.user_events import (
+    PasswordChanged,
+    UserLoggedIn,
+    UserRegistered,
+)
 from backend.modules.identity.domain.exceptions.identity_domain_errors import (
     InactiveUserAuthenticationError,
 )
@@ -58,3 +62,8 @@ class User:
     def activate(self) -> None:
         self.status = UserStatus.ACTIVE
         self.updated_at = datetime.now(UTC)
+
+    def change_password(self, new_password_hash: PasswordHash) -> None:
+        self.password_hash = new_password_hash
+        self.updated_at = datetime.now(UTC)
+        self.domain_events.append(PasswordChanged(user_id=self.id))

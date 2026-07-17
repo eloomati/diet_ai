@@ -4,6 +4,7 @@ from .identity_domain_errors import (
     InvalidEmailError,
     InvalidPasswordError,
     InvalidPasswordHashError,
+    InvalidPasswordResetTokenError,
     RefreshTokenRevokedError,
 )
 
@@ -14,4 +15,5 @@ __all__ = [
     "InvalidPasswordHashError",
     "InactiveUserAuthenticationError",
     "RefreshTokenRevokedError",
+    "InvalidPasswordResetTokenError",
 ]
