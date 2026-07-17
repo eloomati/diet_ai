@@ -20,11 +20,15 @@ class _FakeHttpClient:
         self._payload = payload
         self.last_url: str | None = None
         self.last_json: dict = {}
+        self.closed = False
 
     async def post(self, url: str, json: dict):
         self.last_url = url
         self.last_json = json
         return _FakeHttpResponse(self._payload)
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 @pytest.mark.asyncio
@@ -65,3 +69,13 @@ async def test_ollama_provider_sends_system_prompt_as_first_message() -> None:
         "role": "system",
         "content": "You are a nutrition assistant. Category: BREAKFAST.",
     }
+
+
+@pytest.mark.asyncio
+async def test_ollama_provider_aclose_closes_underlying_client() -> None:
+    fake_client = _FakeHttpClient({"model": "llama3.2:1b", "message": {"content": "..."}, "eval_count": 1})
+    provider = OllamaProvider(base_url="http://localhost:11434", model="llama3.2:1b", client=fake_client)
+
+    await provider.aclose()
+
+    assert fake_client.closed is True

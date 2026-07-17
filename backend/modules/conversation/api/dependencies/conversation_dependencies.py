@@ -1,7 +1,7 @@
 from fastapi import Depends
 
 from backend.modules.ai.domain import LLMProvider
-from backend.modules.ai.infrastructure.provider_factory import build_llm_provider
+from backend.modules.ai.infrastructure.provider_factory import get_llm_provider
 from backend.modules.conversation.application import (
     CreateConversationUseCase,
     GetConversationHistoryUseCase,
@@ -12,15 +12,10 @@ from backend.modules.conversation.domain import ConversationRepository
 from backend.modules.conversation.infrastructure.repository.mongo_conversation_repository import (
     MongoConversationRepository,
 )
-from backend.shared.config import get_settings
 
 
 def get_conversation_repository() -> ConversationRepository:
     return MongoConversationRepository()
-
-
-def get_llm_provider() -> LLMProvider:
-    return build_llm_provider(get_settings())
 
 
 def get_create_conversation_use_case(

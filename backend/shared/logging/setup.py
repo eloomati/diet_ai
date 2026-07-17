@@ -23,3 +23,12 @@ def setup_logging(level: str = "INFO") -> None:
     # including third-party loggers like httpx/httpcore.
     handler.addFilter(RequestIdFilter())
     root.addHandler(handler)
+
+    # Uvicorn configures "uvicorn"/"uvicorn.access" with their own handlers and
+    # propagate=False (see uvicorn.config.LOGGING_CONFIG) — without this, their
+    # formatter has no timestamp and they never reach our handler above, so
+    # lines like "Waiting for application startup." print bare, undated.
+    for logger_name in ("uvicorn", "uvicorn.access"):
+        uvicorn_logger = logging.getLogger(logger_name)
+        uvicorn_logger.handlers.clear()
+        uvicorn_logger.propagate = True

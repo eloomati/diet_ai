@@ -35,6 +35,10 @@ class _FakeMessagesResource:
 class _FakeAnthropicClient:
     def __init__(self, response: _FakeMessage) -> None:
         self.messages = _FakeMessagesResource(response)
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
 
 
 @pytest.mark.asyncio
@@ -78,3 +82,13 @@ async def test_claude_provider_builds_messages_from_history() -> None:
         {"role": "user", "content": "And tomorrow?"},
     ]
     assert sent["system"] == "You are a nutrition assistant. Category: BREAKFAST."
+
+
+@pytest.mark.asyncio
+async def test_claude_provider_aclose_closes_underlying_client() -> None:
+    fake_client = _FakeAnthropicClient(_FakeMessage(text="...", model="claude-opus-4-8", output_tokens=1))
+    provider = ClaudeProvider(api_key="test-key", client=fake_client)
+
+    await provider.aclose()
+
+    assert fake_client.closed is True

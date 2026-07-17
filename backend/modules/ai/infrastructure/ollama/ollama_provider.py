@@ -46,3 +46,6 @@ class OllamaProvider(LLMProvider):
         messages.extend({"role": turn.role, "content": turn.content} for turn in prompt.conversation_history)
         messages.append({"role": "user", "content": prompt.question})
         return messages
+
+    async def aclose(self) -> None:
+        await self._client.aclose()

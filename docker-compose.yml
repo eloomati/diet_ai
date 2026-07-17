@@ -93,7 +93,14 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
-    command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload --timeout-graceful-shutdown 30
+    # Slightly above --timeout-graceful-shutdown above, so Compose doesn't
+    # SIGKILL before uvicorn's own graceful window has a chance to finish.
+    # Note: this drains normal in-flight requests, but a request blocked on a
+    # slow external call (e.g. an AI provider) can still be cut — uvicorn
+    # closes active connections on shutdown rather than waiting on arbitrary
+    # external I/O, which is standard ASGI-server behavior, not fixable here.
+    stop_grace_period: 35s
     restart: unless-stopped
 
 volumes:
