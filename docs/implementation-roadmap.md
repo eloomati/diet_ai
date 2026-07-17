@@ -35,7 +35,16 @@ Phase 7  - Diet Generation          DONE — structured multi-day diet plan
                                      stack with Ollama. See the 6-stage log
                                      below, including a real reliability
                                      finding for the small local model.
-Phase 8+ - Frontend/Testing/Future  NOT STARTED
+Phase 8  - Conversation Lifecycle &  IN PROGRESS — post-Phase-7 gap audit
+           Account Recovery          found no DELETE endpoints anywhere,
+                                     no route to the domain's existing
+                                     Conversation.archive(), and no password
+                                     recovery path. Scope: conversation
+                                     delete+archive, and password reset with
+                                     real SMTP delivery via a new Mailhog
+                                     dev container. See the 5-stage
+                                     breakdown below.
+Phase 9+ - Frontend/Testing/Future  NOT STARTED
 ```
 
 **Phases 3 through 7 are complete** — Identity, Nutrition Profile,
@@ -1088,7 +1097,230 @@ inspection.
 
 ---
 
-# Phase 8 - Frontend
+# Phase 8 - Conversation Lifecycle & Account Recovery
+
+Goal:
+
+Before starting the frontend, close the most important user-facing gaps
+found in a post-Phase-7 audit of the existing API: no `DELETE` endpoint
+exists anywhere in the app, conversations can be archived in the domain
+(`Conversation.archive()`, `ConversationStatus.ARCHIVED`) but there's no
+route to reach it, and there is no password-recovery path at all — a user
+who forgets their password is permanently locked out. Building a frontend
+against an API with these gaps would mean redoing frontend calls later, so
+this phase closes them first.
+
+Scope, per user decision:
+- **Conversation delete + archive** — `DELETE /conversations/{id}` (hard
+  delete) and an endpoint to reach the existing `archive()` domain method.
+- **Password reset** — with **real SMTP email delivery** (not a token
+  returned in the response, and not just logged) — a **Mailhog** container
+  is added to the dev stack so reset emails are genuinely sent and
+  inspectable via its web UI, without needing real SMTP credentials.
+
+Modules touched: `conversation` (new endpoints on an existing aggregate) and
+`identity` (new `PasswordResetToken` aggregate + a new cross-cutting email
+capability).
+
+---
+
+## Stage 1 — Conversation delete + archive (all layers) — DONE
+
+Small enough to do as one stage — no new aggregate, `Conversation.archive()`
+already existed in the domain (Phase 5/6 Stage 1); this only added the
+missing routes and a repository-level delete.
+
+`modules/conversation/`:
+- [x] `domain/repositories/conversation_repository.py` — added
+      `delete(conversation_id) -> None` to the `ConversationRepository` port.
+- [x] `application/use_cases/archive_conversation_use_case.py` — loads by id,
+      ownership check (`ConversationNotFoundError` for missing/non-owned,
+      same don't-leak-existence shape as every other use case in this repo),
+      calls `conversation.archive()`, saves, returns the updated
+      conversation (reuses `GetConversationHistoryResult`'s shape rather
+      than a near-duplicate DTO).
+- [x] `application/use_cases/delete_conversation_use_case.py` — same
+      ownership check, then `repository.delete(id)`.
+- [x] `infrastructure/repository/mongo_conversation_repository.py` — added
+      `delete()` (fetch by id, `.delete()` on the document if found).
+- [x] `api/routers/conversation_router.py` —
+      `POST /conversations/{conversation_id}/archive` (200, returns the
+      updated conversation) and `DELETE /conversations/{conversation_id}`
+      (204 No Content). Both 404 for missing/non-owned.
+- [x] `tests/fakes.py` — `InMemoryConversationRepository.delete()`.
+
+**Real bug found and fixed while testing this stage**: `SendMessageUseCase`
+already raised `ArchivedConversationError` when messaging an archived
+conversation (domain rule from Phase 5/6), but `conversation_router.py`'s
+`send_message` endpoint only ever caught `ConversationNotFoundError` — the
+archived-conversation path had no route to actually reach it until *this*
+stage added the archive endpoint, so the gap was invisible until now. An
+archived conversation's message attempt was falling through to the generic
+`Exception` handler as an unintended 500. Fixed by catching
+`ArchivedConversationError` → `409 Conflict` (`ErrorCode.CONFLICT`) — a
+proper "action not allowed in the resource's current state" response
+instead of an internal-error leak. Caught by the new
+`test_archived_conversation_rejects_new_messages_via_api` test failing
+against a real 500 before the fix.
+
+Exit criteria: unit tests (fakes) for both use cases (including
+already-archived / sending a message to an archived conversation still
+raises `ArchivedConversationError` at the use-case layer, and now maps to
+409 at the API layer — see the bug above), API integration tests (archive
+→ verify status → delete → verify 404 on subsequent get, ownership checks
+for both endpoints), Mongo repository-level delete tests against the real
+ephemeral test stack. 16 tests added, full suite at 193/193 passing.
+Verified end-to-end against the real Docker stack: create → archive
+(200, status `ARCHIVED`) → send message (409) → delete (204) → get (404).
+
+---
+
+## Stage 2 — Password reset: domain + application
+
+`modules/identity/domain/`:
+- [ ] `entities/password_reset_token.py` — `PasswordResetToken`: `id`,
+      `user_id`, `token_hash`, `expires_at`, `used` (bool), `created_at`.
+      Mirrors `RefreshToken`'s shape, but **the token is actually hashed at
+      rest this time** (`hashlib.sha256`) — the existing `RefreshToken`
+      stores the raw JWT in `token_hash` (a known, documented simplification
+      in `refresh_access_token_use_case.py`); a reset token is short-lived
+      and single-use but still a bearer credential mailed in plaintext, so
+      hashing it at rest is the correct default for new code, not an
+      inconsistency to "match" the older shortcut.
+      Methods: `issue()` (classmethod, generates + hashes), `is_expired()`,
+      `is_valid()` (`not used and not is_expired()`), `mark_used()`.
+- [ ] `exceptions/password_reset_domain_errors.py` —
+      `InvalidPasswordResetTokenError`.
+- [ ] `repositories/password_reset_token_repository.py` — port:
+      `save(token)`, `get_by_token_hash(hash) -> PasswordResetToken | None`.
+
+`modules/identity/application/`:
+- [ ] `ports/email_sender.py` — `EmailSender` ABC: `async send(self, to:
+      str, subject: str, body: str) -> None`. Placed alongside the existing
+      `ports/token_service.py`, same reasoning (identity-scoped port,
+      promote to `shared/` later if a second module needs it — YAGNI over
+      speculative reuse).
+- [ ] `use_cases/request_password_reset_use_case.py` — looks up the user by
+      email; **always returns success regardless of whether the email
+      exists** (same don't-leak-existence principle as login/refresh error
+      handling, applied to email enumeration this time) — if found, issues
+      a `PasswordResetToken` (expiry: 30 minutes), saves it, and sends an
+      email via `EmailSender` containing the raw (unhashed) token. If not
+      found, does nothing but still returns success.
+- [ ] `use_cases/confirm_password_reset_use_case.py` — hashes the incoming
+      token, looks it up, validates `is_valid()` (raises
+      `InvalidPasswordResetTokenError` — mapped to 400, not 404, so as not
+      to leak whether *some* token exists vs this one being expired/used),
+      re-validates the new password via the existing `PasswordPolicy`,
+      updates the user's password hash, marks the token used, and
+      **revokes all of the user's active refresh tokens** (forces
+      re-login everywhere — standard security practice after a credential
+      reset; needs a new `revoke_all_for_user(user_id)` on
+      `RefreshTokenRepository`, which doesn't exist yet).
+- [ ] `tests/fakes.py` — `InMemoryPasswordResetTokenRepository`,
+      `FakeEmailSender` (captures sent emails in a list for assertions,
+      same shape as `FakeLLMProvider` capturing `last_prompt`).
+
+Exit criteria: use case tests against fakes only — request-for-unknown-email
+still returns success and sends no email, request-for-known-email sends
+exactly one email containing a token, confirm-with-valid-token succeeds and
+revokes refresh tokens, confirm-with-expired/used/garbage-token raises,
+confirm changes the password (verified via the existing password hasher).
+
+---
+
+## Stage 3 — Password reset: infrastructure (Postgres + email)
+
+`modules/identity/infrastructure/`:
+- [ ] `persistence/models/password_reset_token_model.py` — SQLAlchemy model,
+      `password_reset_tokens` table, index on `token_hash` (unique) and
+      `user_id`.
+- [ ] Alembic migration — new table.
+- [ ] `persistence/sqlalchemy_password_reset_token_repository.py`.
+- [ ] `persistence/sqlalchemy_refresh_token_repository.py` — add
+      `revoke_all_for_user(user_id)`.
+- [ ] `infrastructure/email/smtp_email_sender.py` — `SmtpEmailSender` using
+      `aiosmtplib` (async, matches the rest of the codebase's async I/O;
+      no heavier framework like `fastapi-mail` needed for a single
+      plain-text send).
+- [ ] `infrastructure/email/mock_email_sender.py` — `MockEmailSender`,
+      captures sent emails in memory; used when `EMAIL_PROVIDER=mock`
+      (the default — mirrors `AI_PROVIDER`'s mock-by-default design so the
+      test suite and quick local runs never need a real SMTP server).
+- [ ] `infrastructure/email/email_sender_factory.py` —
+      `build_email_sender(settings)` / `init_email_sender` /
+      `close_email_sender` / `get_email_sender`, same singleton-lifecycle
+      shape as `ai/infrastructure/provider_factory.py`; wired into
+      `main.py`'s lifespan.
+- [ ] `shared/config/settings.py` — `email_provider: str = "mock"`,
+      `smtp_host`, `smtp_port`, `smtp_from_address`.
+- [ ] `docker-compose.yml` — new `mailhog` service (SMTP catcher +
+      web UI, no real credentials needed); `backend` gets
+      `EMAIL_PROVIDER=smtp`, `SMTP_HOST=mailhog`, `SMTP_PORT=1025`,
+      `SMTP_FROM_ADDRESS=noreply@dietai.local`, and depends on `mailhog`.
+- [ ] `requirements.txt` — add `aiosmtplib`.
+
+Exit criteria: repository tests against the real ephemeral Postgres test
+stack (save/get round-trip, hash lookup, `revoke_all_for_user`); verified
+end-to-end against the real dev stack: sent a real email through
+`SmtpEmailSender` → `mailhog` and confirmed it via Mailhog's HTTP API
+(`GET http://localhost:8025/api/v2/messages`).
+
+---
+
+## Stage 4 — Password reset: API
+
+Endpoints (per docs/api.md, snake_case):
+
+```
+POST /auth/password-reset/request
+POST /auth/password-reset/confirm
+```
+
+- [ ] `api/schemas/password_reset_schemas.py` — `RequestPasswordResetRequest`
+      (`email`), `ConfirmPasswordResetRequest` (`token`, `new_password` —
+      same strength validation as registration).
+- [ ] `api/dependencies/password_reset_dependencies.py` — wires
+      `PasswordResetTokenRepository` + `UserRepository` + `EmailSender` into
+      `RequestPasswordResetUseCase`; `PasswordResetTokenRepository` +
+      `UserRepository` + `RefreshTokenRepository` into
+      `ConfirmPasswordResetUseCase`.
+- [ ] `api/routers/auth_router.py` — both endpoints always return `200`
+      with a generic body on `request` (never reveals whether the email
+      exists); `confirm` → `AppException(BAD_REQUEST)` (or a dedicated
+      `ErrorCode` if the review decides it's worth one) on
+      `InvalidPasswordResetTokenError`.
+
+Exit criteria: full API integration tests (request-unknown-email 200 +
+no email sent; request-known-email 200 + exactly one email sent via
+`FakeEmailSender`/`MockEmailSender`; confirm-valid-token 200 + old
+password no longer works + old refresh token revoked; confirm-expired/
+used/garbage-token → 400). Verified end-to-end on the real Docker stack:
+request → fetch the email from Mailhog's API → extract the token →
+confirm → log in with the new password.
+
+---
+
+## Stage 5 — Tests & docs sync
+
+- [ ] `docs/https/user.http` — add archive/delete steps for conversations
+      (or extend `conversation.http`) and a new password-reset flow
+      section (request → read token from Mailhog manually → confirm →
+      login with new password).
+- [ ] `docs/api.md` — new endpoints documented (Conversation archive/delete,
+      both password-reset endpoints).
+- [ ] `docs/architecture.md` — note the new `PasswordResetToken` aggregate,
+      the `EmailSender` port/Mailhog addition, and the
+      `revoke-all-refresh-tokens-on-reset` behavior.
+- [ ] `docs/domain-model.md` — `PasswordResetToken` entity documented.
+- [ ] `docs/auth-runbook.md` — extended with the password-reset flow.
+- [ ] `README.md` — mention the `mailhog` service and its web UI
+      (http://localhost:8025) in the Getting Started service table.
+- [ ] Roadmap status table updated.
+
+---
+
+# Phase 9 - Frontend
 
 Goal:
 
@@ -1134,7 +1366,7 @@ Supplements
 
 ---
 
-# Phase 9 - Testing
+# Phase 10 - Testing
 
 Goal:
 
@@ -1187,7 +1419,7 @@ Receive AI Response
 
 ---
 
-# Phase 10 - Future Improvements
+# Phase 11 - Future Improvements
 
 Only after MVP.
 

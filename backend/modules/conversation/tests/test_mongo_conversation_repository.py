@@ -82,6 +82,23 @@ async def test_list_by_user_returns_only_own_conversations(repository: MongoConv
 
 
 @pytest.mark.asyncio
+async def test_delete_removes_conversation(repository: MongoConversationRepository) -> None:
+    conversation = Conversation.create(
+        user_id=uuid4(), title="To delete", category=ConversationCategory.GENERAL
+    )
+    await repository.save(conversation)
+
+    await repository.delete(conversation.id)
+
+    assert await repository.get_by_id(conversation.id) is None
+
+
+@pytest.mark.asyncio
+async def test_delete_unknown_id_is_a_no_op(repository: MongoConversationRepository) -> None:
+    await repository.delete(uuid4())
+
+
+@pytest.mark.asyncio
 async def test_user_id_index_is_created(repository: MongoConversationRepository) -> None:
     collection = ConversationDocument.get_pymongo_collection()
 

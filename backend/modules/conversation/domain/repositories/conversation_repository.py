@@ -16,3 +16,7 @@ class ConversationRepository(ABC):
     @abstractmethod
     async def save(self, conversation: Conversation) -> None:
         raise NotImplementedError
+
+    @abstractmethod
+    async def delete(self, conversation_id: UUID) -> None:
+        raise NotImplementedError
