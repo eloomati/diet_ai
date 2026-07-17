@@ -11,6 +11,8 @@ from backend.modules.conversation.application import (
     SendMessageUseCase,
 )
 from backend.modules.conversation.tests.fakes import InMemoryConversationRepository
+from backend.modules.nutrition.domain import ActivityLevel, DietGoal, DietType, NutritionProfile
+from backend.modules.nutrition.tests.fakes import InMemoryNutritionProfileRepository
 
 
 async def _create_conversation(repo: InMemoryConversationRepository, user_id: UUID) -> UUID:
@@ -27,7 +29,7 @@ async def test_send_message_returns_ai_response() -> None:
     user_id = uuid4()
     conversation_id = await _create_conversation(repo, user_id)
 
-    use_case = SendMessageUseCase(repo, llm)
+    use_case = SendMessageUseCase(repo, llm, InMemoryNutritionProfileRepository())
     result = await use_case.execute(
         SendMessageCommand(
             conversation_id=conversation_id,
@@ -47,7 +49,7 @@ async def test_send_message_persists_both_messages() -> None:
     user_id = uuid4()
     conversation_id = await _create_conversation(repo, user_id)
 
-    await SendMessageUseCase(repo, llm).execute(
+    await SendMessageUseCase(repo, llm, InMemoryNutritionProfileRepository()).execute(
         SendMessageCommand(conversation_id=conversation_id, user_id=user_id, content="Hi")
     )
 
@@ -61,7 +63,7 @@ async def test_send_message_persists_both_messages() -> None:
 async def test_send_message_to_unknown_conversation_raises() -> None:
     repo = InMemoryConversationRepository()
     llm = FakeLLMProvider()
-    use_case = SendMessageUseCase(repo, llm)
+    use_case = SendMessageUseCase(repo, llm, InMemoryNutritionProfileRepository())
 
     with pytest.raises(ConversationNotFoundError):
         await use_case.execute(
@@ -76,8 +78,51 @@ async def test_send_message_from_non_owner_raises() -> None:
     owner_id = uuid4()
     conversation_id = await _create_conversation(repo, owner_id)
 
-    use_case = SendMessageUseCase(repo, llm)
+    use_case = SendMessageUseCase(repo, llm, InMemoryNutritionProfileRepository())
     with pytest.raises(ConversationNotFoundError):
         await use_case.execute(
             SendMessageCommand(conversation_id=conversation_id, user_id=uuid4(), content="Hi")
         )
+
+
+@pytest.mark.asyncio
+async def test_send_message_includes_nutrition_profile_in_prompt() -> None:
+    repo = InMemoryConversationRepository()
+    llm = FakeLLMProvider(canned_response="Eat more protein.")
+    profile_repo = InMemoryNutritionProfileRepository()
+    user_id = uuid4()
+    conversation_id = await _create_conversation(repo, user_id)
+    profile = NutritionProfile.create(
+        user_id=user_id,
+        age=29,
+        height_cm=187,
+        weight_kg=80,
+        activity_level=ActivityLevel.HIGH,
+        goal=DietGoal.MUSCLE_GAIN,
+        diet_type=DietType.VEGETARIAN,
+    )
+    await profile_repo.save(profile)
+
+    use_case = SendMessageUseCase(repo, llm, profile_repo)
+    await use_case.execute(
+        SendMessageCommand(conversation_id=conversation_id, user_id=user_id, content="What should I eat?")
+    )
+
+    assert llm.last_prompt is not None
+    assert profile.as_prompt_text() in llm.last_prompt.system_prompt
+
+
+@pytest.mark.asyncio
+async def test_send_message_without_nutrition_profile_still_works() -> None:
+    repo = InMemoryConversationRepository()
+    llm = FakeLLMProvider(canned_response="Eat balanced meals.")
+    user_id = uuid4()
+    conversation_id = await _create_conversation(repo, user_id)
+
+    use_case = SendMessageUseCase(repo, llm, InMemoryNutritionProfileRepository())
+    result = await use_case.execute(
+        SendMessageCommand(conversation_id=conversation_id, user_id=user_id, content="What should I eat?")
+    )
+
+    assert result.assistant_content == "Eat balanced meals."
+    assert llm.last_prompt is not None

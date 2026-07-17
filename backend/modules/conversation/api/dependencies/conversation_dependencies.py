@@ -12,10 +12,18 @@ from backend.modules.conversation.domain import ConversationRepository
 from backend.modules.conversation.infrastructure.repository.mongo_conversation_repository import (
     MongoConversationRepository,
 )
+from backend.modules.nutrition.domain import NutritionProfileRepository
+from backend.modules.nutrition.infrastructure.repository.mongo_nutrition_profile_repository import (
+    MongoNutritionProfileRepository,
+)
 
 
 def get_conversation_repository() -> ConversationRepository:
     return MongoConversationRepository()
+
+
+def get_nutrition_profile_repository() -> NutritionProfileRepository:
+    return MongoNutritionProfileRepository()
 
 
 def get_create_conversation_use_case(
@@ -39,5 +47,6 @@ def get_conversation_history_use_case(
 def get_send_message_use_case(
     repository: ConversationRepository = Depends(get_conversation_repository),
     llm_provider: LLMProvider = Depends(get_llm_provider),
+    nutrition_profile_repository: NutritionProfileRepository = Depends(get_nutrition_profile_repository),
 ) -> SendMessageUseCase:
-    return SendMessageUseCase(repository, llm_provider)
+    return SendMessageUseCase(repository, llm_provider, nutrition_profile_repository)

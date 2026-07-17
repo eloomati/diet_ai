@@ -220,7 +220,7 @@ Infrastructure implements interfaces defined by the application/domain layer.
 
                          |
 
-              OpenAI Provider / Local Model
+                Claude Provider / Ollama (local)
 ```
 
 ---
@@ -279,8 +279,8 @@ Technology:
   PyMongo's native async client (`pymongo.AsyncMongoClient`), not Motor: Beanie 2.x
   requires it (MongoDB deprecated Motor in favor of PyMongo's own async API, and
   Beanie 2.x calls a driver-metadata hook that only exists on the new client).
-  Nutrition should adopt the same Beanie setup once its phase starts, to keep
-  Mongo access consistent across modules.
+  Nutrition (see below) uses the same Beanie setup, so Mongo access is
+  consistent across both modules.
 
 Main entities:
 
@@ -298,24 +298,36 @@ Responsible for nutrition-related business logic.
 
 Responsibilities:
 
-- nutrition profile,
-- user goals,
-- diet generation,
-- meal recommendations.
+- nutrition profile (implemented),
+- user goals (implemented, part of the profile),
+- diet generation (future — see `Phase 7+` in implementation-roadmap.md),
+- meal recommendations (future).
 
 Database:
 
-MongoDB
+MongoDB (Beanie, same client/setup as Conversation — see above).
+
+Technology:
+
+- Beanie ODM, `nutrition_profiles` collection with a unique index on
+  `user_id` (one profile per user, enforced at the DB layer).
 
 Main entities:
 
 ```
-NutritionProfile
+NutritionProfile   — implemented: age, height_cm, weight_kg, activity_level,
+                     goal, diet_type
 
-DietPlan
+DietPlan           — future (Phase 7+)
 
-Meal
+Meal               — future (Phase 7+)
 ```
+
+Status: `NutritionProfile` CRUD (`GET`/`POST`/`PUT /profile`) is implemented
+and wired into the AI module — `SendMessageUseCase` looks up the caller's
+profile and folds `NutritionProfile.as_prompt_text()` into the system prompt
+via `PromptBuilder`, so chat responses are personalized when a profile
+exists (chatting still works fine with no profile set).
 
 ---
 

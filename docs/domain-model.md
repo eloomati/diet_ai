@@ -312,7 +312,7 @@ SYSTEM
 
 ## NutritionProfile
 
-Aggregate Root.
+Aggregate Root. Implemented in `modules/nutrition/domain/entities/nutrition_profile.py`.
 
 Represents user nutrition information.
 
@@ -325,50 +325,69 @@ NutritionProfile
 
 id
 
-userId
+user_id
 
 age
 
-height
+height_cm
 
-weight
+weight_kg
 
-activityLevel
+activity_level
 
 goal
 
-dietType
+diet_type
+
+created_at
+
+updated_at
 ```
+
+Field names spell out units (`height_cm`, `weight_kg`) rather than bare
+`height`/`weight` — cheap insurance against metric/imperial mixups on health
+data.
+
+`as_prompt_text()` renders the profile as a plain-string summary, consumed by
+`ai.PromptBuilder` when composing the AI system prompt (see Conversation
+Domain / AI Module in architecture.md) — decoupled from the `ai` module the
+same way `Message.role` stays a plain value rather than a shared type.
 
 ---
 
 ## NutritionProfile Rules
 
-Examples:
-
-- profile belongs to one user,
-- weight and height must have valid values,
-- goals define diet recommendations.
+- profile belongs to one user — enforced by a unique index on `user_id` at
+  the persistence layer (one profile per user; `POST` a second time is a 409,
+  not a silent overwrite — use `PUT` to update).
+- `age` must be between 1 and 120.
+- `height_cm` must be between 50 and 250.
+- `weight_kg` must be between 20 and 400.
+- Validation runs both on `create()` and on `update()` (a partial update
+  re-validates the merged result, not just the changed fields).
 
 ---
 
 # DietGoal
 
-Value Object.
+Value Object. Implemented in `modules/nutrition/domain/value_objects/diet_goal.py`.
 
 Represents user's nutrition objective.
 
-Examples:
+Values:
 
 ```
-WeightLoss
+WEIGHT_LOSS
 
-MuscleGain
+MUSCLE_GAIN
 
-Maintenance
+MAINTENANCE
 
-Performance
+PERFORMANCE
 ```
+
+Sibling value objects: `ActivityLevel` (`LOW | MODERATE | HIGH | VERY_HIGH`)
+and `DietType` (`STANDARD | VEGETARIAN | VEGAN | KETO | PALEO | GLUTEN_FREE`).
 
 ---
 

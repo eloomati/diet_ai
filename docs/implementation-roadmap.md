@@ -20,7 +20,9 @@ Phase 2  - Database Setup           DONE (Postgres + Mongo/Beanie both wired; Be
                                      Nutrition's collections still pending Phase 4)
 Phase 3  - Identity Module          DONE (register, login, refresh, me; JWT; unified
                                      error format; real-DB + fake-based tests)
-Phase 4  - User Profile (Nutrition) NOT STARTED (empty skeleton only)
+Phase 4  - User Profile (Nutrition) DONE — profile CRUD wired into the AI
+                                     prompt, verified end-to-end on the real
+                                     Docker stack, docs/http fully synced.
 Phase 5/6 - Conversation + AI       DONE — chat MVP is functional end-to-end
                                      (register → login → create conversation →
                                      send message → AI response → history),
@@ -32,10 +34,10 @@ Phase 7+ - Diet Generation/Frontend/Testing/Future  NOT STARTED
 ```
 
 **Conversation + AI ("chat MVP") is complete** — see the detailed stage log
-under Phase 5/6 below. Nutrition Profile (Phase 4) is next; it was deferred
-behind this milestone since chatting with the AI doesn't strictly need profile
-personalization for a first version (`Prompt.userProfile` can be added once
-Nutrition exists).
+under Phase 5/6 below. **Nutrition Profile (Phase 4) is now also complete** —
+profile CRUD exists, `SendMessageUseCase` folds `profile.as_prompt_text()`
+into the AI prompt when one exists, and docs/`.http` files are synced to the
+shipped contract. Both milestones are fully closed out; Phase 7+ is next.
 
 ---
 
@@ -285,73 +287,191 @@ ephemeral Dockerized Postgres instead of the dev database (see
 
 ---
 
-# Phase 4 - User Profile
+# Phase 4 - User Profile (Nutrition)
 
 Goal:
 
-Create nutrition-related user information.
+Create nutrition-related user information — and, unlike the original sparse
+draft below, actually **wire it into the AI prompt**, since that's the whole
+reason this was deferred behind the chat MVP: `PromptBuilder.build()` already
+accepts an optional `user_profile: str | None` (added in Stage 2/4 of Phase
+5/6) specifically for this moment.
 
-Module:
+Module: `nutrition`. Database: MongoDB (Beanie, same setup as Conversation).
 
-Nutrition
-
-Database:
-
-MongoDB
-
----
-
-## Domain
-
-Create:
-
-```
-NutritionProfile
-```
-
-Fields:
-
-```
-age
-
-height
-
-weight
-
-activityLevel
-
-goal
-
-dietType
-```
+Split into stages the same way as Phase 5/6 — Domain → Application →
+Infrastructure → API → wire into AI → Tests/docs — each independently
+reviewable, following the roadmap's own Development Rule.
 
 ---
 
-## Application
+## Stage 1 — Domain — DONE
 
-Create:
+`modules/nutrition/domain/`:
+- [x] `entities/nutrition_profile.py` — `NutritionProfile` aggregate root:
+      `id`, `user_id`, `age`, `height_cm`, `weight_kg`, `activity_level`,
+      `goal`, `diet_type`, `created_at`, `updated_at`. Field names spell out
+      units (`height_cm`, `weight_kg`) rather than the doc's bare
+      `height`/`weight` — cheap insurance against metric/imperial mixups on
+      health data.
+- [x] `value_objects/activity_level.py` — enum: `LOW`, `MODERATE`, `HIGH`, `VERY_HIGH`.
+- [x] `value_objects/diet_goal.py` — enum (from domain-model.md's `DietGoal`):
+      `WEIGHT_LOSS`, `MUSCLE_GAIN`, `MAINTENANCE`, `PERFORMANCE`.
+- [x] `value_objects/diet_type.py` — enum: `STANDARD`, `VEGETARIAN`, `VEGAN`,
+      `KETO`, `PALEO`, `GLUTEN_FREE`.
+- [x] `exceptions/nutrition_domain_errors.py` — `NutritionDomainError`,
+      `InvalidNutritionProfileError` — enforces domain-model.md's "weight and
+      height must have valid values" rule (sane bounded ranges, not just "not
+      negative") at `create()`/`update()` time, same shape as Identity's
+      `PasswordPolicy`-raises-on-`create()` pattern.
+- [x] `repositories/nutrition_profile_repository.py` — port: `get_by_user_id`,
+      `save`. One profile per user — enforced here at the repository/DB layer
+      (Stage 3 unique index), not by a numeric identity check.
+- [x] `NutritionProfile.as_prompt_text()` — a plain-string summary method,
+      decoupled from the `ai` module (same reasoning as `Prompt.category`
+      being a `str`, not an enum, to keep `ai` domain-independent).
 
-```
-CreateNutritionProfileUseCase
-
-UpdateNutritionProfileUseCase
-
-GetNutritionProfileUseCase
-```
+Exit criteria: unit tests for the entity's validation rules and value objects,
+zero infra deps. 10 tests added, full suite at 121/121 passing.
 
 ---
 
-## API
+## Stage 2 — Application — DONE
 
-Endpoints:
+`modules/nutrition/application/`:
+- [x] `dto/` — commands/results per use case.
+- [x] `use_cases/create_nutrition_profile_use_case.py` — rejects a second
+      profile for the same user (`NutritionProfileAlreadyExistsError`) —
+      creating twice should be a 409, not a silent overwrite; use `PUT` to update.
+- [x] `use_cases/update_nutrition_profile_use_case.py` — partial update
+      (only provided fields change), re-validates the merged result.
+- [x] `use_cases/get_nutrition_profile_use_case.py` — raises
+      `NutritionProfileNotFoundError` if the user never created one.
+- [x] `tests/fakes.py` — `InMemoryNutritionProfileRepository`, same shape as
+      Identity's/Conversation's.
+
+Exit criteria: use case tests pass against fakes only, no real DB/HTTP.
+7 tests added, full suite at 128/128 passing.
+
+---
+
+## Stage 3 — Infrastructure: Mongo persistence (Beanie) — DONE
+
+- [x] `infrastructure/documents/nutrition_profile_document.py` — Beanie
+      `Document`, `Settings.name = "nutrition_profiles"` (matches
+      domain-model.md's persistence mapping), **unique index on `user_id`** —
+      the DB-level backstop for "one profile per user" alongside the
+      application-layer check.
+- [x] `infrastructure/mappers/nutrition_profile_mapper.py` — Document ↔ domain,
+      `domain_events=[]` on rehydration (same reasoning as `UserMapper`/`ConversationMapper`).
+- [x] `infrastructure/repository/mongo_nutrition_profile_repository.py`.
+- [x] Register `NutritionProfileDocument` in `main.py`'s
+      `init_beanie_documents([ConversationDocument, NutritionProfileDocument])`.
+
+Exit criteria: repository-level tests against the real ephemeral Mongo
+(`docker-compose.test.yml`, same isolation as Conversation's Stage 3),
+including a test that the unique index actually rejects a second profile for
+the same user at the DB level. Verified on the real dev Mongo too
+(`unique: true` on `ix_nutrition_profiles_user_id`). 4 tests added, full
+suite at 132/132 passing.
+
+---
+
+## Stage 4 — API layer — DONE
+
+Endpoints (per docs/api.md, updated to snake_case to match the rest of the API):
 
 ```
 GET /profile
-
 POST /profile
-
 PUT /profile
 ```
+
+- [x] `api/schemas/nutrition_schemas.py` — enums typed directly on the request
+      model, same as Conversation's `category` (invalid value → 422
+      `VALIDATION_ERROR` before it reaches the use case).
+- [x] `api/dependencies/nutrition_dependencies.py` — mirrors Conversation's shape.
+- [x] `api/routers/nutrition_router.py` + top-level `api/router.py` — reuses
+      `get_current_user`. `POST` → `AppException(CONFLICT)` on duplicate;
+      `GET`/`PUT` → `AppException(NOT_FOUND)` if no profile exists yet.
+
+Exit criteria: full API integration tests (create → get → update → duplicate
+create rejected → get-without-profile 404), same shape as `test_auth_api.py`.
+**Deviation from the original draft**: endpoints are `/profile` with no
+`/nutrition` segment (matches docs/api.md's documented contract) — the
+pre-scaffolded `nutrition/api/router.py` had a stray `prefix="/nutrition"`
+from Phase 1's skeleton that would have produced `/api/v1/nutrition/profile`
+instead; removed it. 10 tests added, full suite at 142/142 passing. Verified
+end-to-end on the real Docker stack too (create → get → update → duplicate 409).
+
+---
+
+## Stage 5 — Wire into the AI prompt (the actual point of this phase) — DONE
+
+- [x] `SendMessageUseCase` gains a `NutritionProfileRepository` dependency,
+      looks up the requesting user's profile (if any — chatting must still
+      work with no profile set), and passes
+      `user_profile=profile.as_prompt_text()` into `PromptBuilder.build()`.
+- [x] `conversation_dependencies.get_send_message_use_case` wires the new
+      repository dependency (`get_nutrition_profile_repository`) alongside the
+      existing conversation repo + LLM provider — cross-module DI, `conversation`
+      depends on `nutrition`'s domain port + Mongo implementation directly
+      (one-directional; `nutrition` has no knowledge of `conversation`).
+- [x] `FakeLLMProvider` (ai module test double) gained a `last_prompt` attribute
+      so tests can assert on the exact composed `Prompt` a use case produced,
+      not just the canned response.
+- [x] Tests: `test_send_message_includes_nutrition_profile_in_prompt` (profile
+      text appears in `Prompt.system_prompt` when one exists) and
+      `test_send_message_without_nutrition_profile_still_works` (no profile ⇒
+      still succeeds, no crash) — both exercised through the real
+      `SendMessageUseCase`, not `PromptBuilder` directly. 2 tests added, full
+      suite at 144/144 passing.
+- [x] Manual end-to-end smoke test against the real Docker stack (Ollama):
+      created a profile (`VEGAN`, `WEIGHT_LOSS`, `LOW` activity), asked "What
+      should I eat for dinner tonight?" in a `DIET` conversation — the model's
+      answer was fully vegan (tempeh + roasted vegetables, no animal products
+      or dairy anywhere), confirming the profile actually reaches the prompt.
+      Repeated with a fresh user with **no** profile — request still succeeded
+      (HTTP 201) with a generic (non-personalized) answer, confirming the
+      optional-profile path doesn't break the base flow.
+
+---
+
+## Stage 6 — Tests & docs sync — DONE
+
+- [x] `docs/https/nutrition.http` — same style as `user.http`/`conversation.http`
+      (register → login → get-before-create 404 → create → get → duplicate
+      409 → update → invalid-age 422 → no-token 401 → second-user isolation
+      404 → Stage 5 check: send a message and confirm the profile reaches the
+      AI). All 12 steps replayed manually against the real Docker stack and
+      matched their documented expected status codes.
+- [x] `docs/api.md` Nutrition Profile section rewritten to the shipped
+      snake_case shape (real field names, enum value lists, actual error
+      codes per endpoint) — the previous draft still had camelCase
+      `height`/`weight`/`activityLevel` fields that were never shipped.
+- [x] `architecture.md` — Nutrition Module section updated: marked
+      `NutritionProfile` implemented (vs. `DietPlan`/`Meal` still future),
+      documented the AI wiring from Stage 5, fixed the stale ASCII diagram
+      that still said "OpenAI Provider / Local Model" instead of
+      Claude/Ollama, and removed a leftover "Nutrition should adopt Beanie
+      once its phase starts" note (it already has).
+- [x] `domain-model.md` — `NutritionProfile`/`DietGoal` sections updated to
+      the real field names (`height_cm`/`weight_kg`, not bare
+      `height`/`weight`) and real enum values (`WEIGHT_LOSS`, not
+      `WeightLoss`), plus the actual validation ranges and unique-per-user rule.
+- [x] **Bug found and fixed while replaying `nutrition.http`**: `GET /profile`
+      right after `POST /profile` returned `created_at`/`updated_at` with no
+      UTC offset (e.g. `2026-07-17T19:53:38.983000`), while a value fresh
+      from `update()` had one (`...+00:00`) — inconsistent ISO 8601
+      timestamps in the same response depending on whether the value round-
+      tripped through Mongo. Root cause: PyMongo returns naive UTC datetimes
+      by default, clashing with the rest of the app's `datetime.now(UTC)`
+      convention. Fixed centrally in `shared/database/mongo.py` by passing
+      `tz_aware=True` to `AsyncMongoClient` — benefits Conversation's
+      timestamps too, not just Nutrition's. Verified via full pytest
+      (144/144) and a live re-check on the Docker stack (both timestamps now
+      consistently carry `+00:00`).
+- [x] Roadmap status table updated (this file).
 
 ---
 
