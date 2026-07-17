@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +9,7 @@ from backend.modules.identity.domain import User
 from backend.modules.identity.infrastructure.persistence.repository import SqlAlchemyUserRepository
 from backend.modules.identity.infrastructure.security import JwtTokenService
 from backend.shared.config import get_settings
+from backend.shared.exceptions import AppException, ErrorCode
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -28,7 +29,11 @@ async def get_current_user(
     session: AsyncSession = Depends(get_db_session),
 ) -> User:
     if not credentials:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing bearer token")
+        raise AppException(
+            code=ErrorCode.INVALID_ACCESS_TOKEN,
+            message="Missing bearer token",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
 
     token = credentials.credentials
     token_service = _build_token_service()
@@ -37,16 +42,28 @@ async def get_current_user(
         payload = token_service.decode_access_token(token)
         user_id = payload["sub"]
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid access token") from exc
+        raise AppException(
+            code=ErrorCode.INVALID_ACCESS_TOKEN,
+            message="Invalid access token",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        ) from exc
 
     repo = SqlAlchemyUserRepository(session)
     user = await repo.get_by_id(UUID(user_id))
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+        raise AppException(
+            code=ErrorCode.INVALID_ACCESS_TOKEN,
+            message="User not found",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
 
     try:
         user.assert_can_authenticate()
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is not active") from exc
+        raise AppException(
+            code=ErrorCode.INACTIVE_USER,
+            message="User is not active",
+            status_code=status.HTTP_403_FORBIDDEN,
+        ) from exc
 
     return user

@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from uuid import uuid4
 
 import jwt
 
@@ -34,6 +35,7 @@ class JwtTokenService(TokenService):
         payload = {
             "sub": user_id,
             "type": "refresh",
+            "jti": str(uuid4()),
             "iat": int(now.timestamp()),
             "exp": int((now + timedelta(days=self._refresh_ttl_days)).timestamp()),
         }

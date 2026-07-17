@@ -1,0 +1,19 @@
+services:
+  db-test:
+    image: postgres:16-alpine
+    container_name: diet_ai_db_test
+    environment:
+      POSTGRES_DB: diet_ai_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    # tmpfs instead of a named volume: data lives only as long as the
+    # container does, so there is nothing to clean up between test runs.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d diet_ai_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
