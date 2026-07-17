@@ -334,21 +334,22 @@ zero infra deps. 10 tests added, full suite at 121/121 passing.
 
 ---
 
-## Stage 2 — Application
+## Stage 2 — Application — DONE
 
 `modules/nutrition/application/`:
-- [ ] `dto/` — commands/results per use case.
-- [ ] `use_cases/create_nutrition_profile_use_case.py` — rejects a second
+- [x] `dto/` — commands/results per use case.
+- [x] `use_cases/create_nutrition_profile_use_case.py` — rejects a second
       profile for the same user (`NutritionProfileAlreadyExistsError`) —
       creating twice should be a 409, not a silent overwrite; use `PUT` to update.
-- [ ] `use_cases/update_nutrition_profile_use_case.py` — partial update
+- [x] `use_cases/update_nutrition_profile_use_case.py` — partial update
       (only provided fields change), re-validates the merged result.
-- [ ] `use_cases/get_nutrition_profile_use_case.py` — raises
+- [x] `use_cases/get_nutrition_profile_use_case.py` — raises
       `NutritionProfileNotFoundError` if the user never created one.
-- [ ] `tests/fakes.py` — `InMemoryNutritionProfileRepository`, same shape as
+- [x] `tests/fakes.py` — `InMemoryNutritionProfileRepository`, same shape as
       Identity's/Conversation's.
 
 Exit criteria: use case tests pass against fakes only, no real DB/HTTP.
+7 tests added, full suite at 128/128 passing.
 
 ---
 
