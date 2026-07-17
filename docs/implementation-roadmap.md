@@ -375,7 +375,7 @@ suite at 132/132 passing.
 
 ---
 
-## Stage 4 — API layer
+## Stage 4 — API layer — DONE
 
 Endpoints (per docs/api.md, updated to snake_case to match the rest of the API):
 
@@ -385,16 +385,22 @@ POST /profile
 PUT /profile
 ```
 
-- [ ] `api/schemas/nutrition_schemas.py` — enums typed directly on the request
+- [x] `api/schemas/nutrition_schemas.py` — enums typed directly on the request
       model, same as Conversation's `category` (invalid value → 422
       `VALIDATION_ERROR` before it reaches the use case).
-- [ ] `api/dependencies/nutrition_dependencies.py` — mirrors Conversation's shape.
-- [ ] `api/routers/nutrition_router.py` + top-level `api/router.py` — reuses
+- [x] `api/dependencies/nutrition_dependencies.py` — mirrors Conversation's shape.
+- [x] `api/routers/nutrition_router.py` + top-level `api/router.py` — reuses
       `get_current_user`. `POST` → `AppException(CONFLICT)` on duplicate;
       `GET`/`PUT` → `AppException(NOT_FOUND)` if no profile exists yet.
 
 Exit criteria: full API integration tests (create → get → update → duplicate
 create rejected → get-without-profile 404), same shape as `test_auth_api.py`.
+**Deviation from the original draft**: endpoints are `/profile` with no
+`/nutrition` segment (matches docs/api.md's documented contract) — the
+pre-scaffolded `nutrition/api/router.py` had a stray `prefix="/nutrition"`
+from Phase 1's skeleton that would have produced `/api/v1/nutrition/profile`
+instead; removed it. 10 tests added, full suite at 142/142 passing. Verified
+end-to-end on the real Docker stack too (create → get → update → duplicate 409).
 
 ---
 
