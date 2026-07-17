@@ -26,3 +26,8 @@ class MongoConversationRepository(ConversationRepository):
     async def save(self, conversation: Conversation) -> None:
         document = ConversationMapper.to_document(conversation)
         await document.save()
+
+    async def delete(self, conversation_id: UUID) -> None:
+        document = await ConversationDocument.get(conversation_id)
+        if document is not None:
+            await document.delete()

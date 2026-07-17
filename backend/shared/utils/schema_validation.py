@@ -1,8 +1,9 @@
 from pydantic import BaseModel, ConfigDict, create_model
 
-# Ollama's local models have no native structured-output guarantee (unlike Claude's
-# output_config.format), so responses are validated on our side. This converts the
-# subset of JSON Schema our own prompt builders emit (object/array/string/integer/
+# Born from Ollama's structured-output need (local models have no native
+# structured-output guarantee, unlike Claude's output_config.format, so responses
+# are validated on our side) but the conversion itself is generic: it turns the
+# subset of JSON Schema our prompt builders emit (object/array/string/integer/
 # number, properties, required, additionalProperties) into a Pydantic model — not a
 # general-purpose JSON Schema implementation.
 

@@ -148,3 +148,102 @@ def test_cannot_send_message_to_other_users_conversation(client: TestClient) -> 
     )
 
     assert response.status_code == 404
+
+
+def test_archive_conversation_returns_200_and_updates_status(client: TestClient) -> None:
+    token = _register_and_login(client, "convo.archive")
+    created = client.post(
+        "/api/v1/conversations",
+        json={"title": "To archive", "category": "GENERAL"},
+        headers=_auth_headers(token),
+    ).json()
+
+    response = client.post(
+        f"/api/v1/conversations/{created['conversation_id']}/archive",
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ARCHIVED"
+
+
+def test_archived_conversation_rejects_new_messages_via_api(client: TestClient) -> None:
+    token = _register_and_login(client, "convo.archivedmsg")
+    created = client.post(
+        "/api/v1/conversations",
+        json={"title": "To archive", "category": "GENERAL"},
+        headers=_auth_headers(token),
+    ).json()
+    client.post(f"/api/v1/conversations/{created['conversation_id']}/archive", headers=_auth_headers(token))
+
+    response = client.post(
+        f"/api/v1/conversations/{created['conversation_id']}/messages",
+        json={"content": "Hi"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "CONFLICT"
+
+
+def test_cannot_archive_other_users_conversation(client: TestClient) -> None:
+    token_owner = _register_and_login(client, "convo.archowner")
+    token_other = _register_and_login(client, "convo.archother")
+    created = client.post(
+        "/api/v1/conversations",
+        json={"title": "Private", "category": "GENERAL"},
+        headers=_auth_headers(token_owner),
+    ).json()
+
+    response = client.post(
+        f"/api/v1/conversations/{created['conversation_id']}/archive",
+        headers=_auth_headers(token_other),
+    )
+
+    assert response.status_code == 404
+
+
+def test_delete_conversation_returns_204_and_removes_it(client: TestClient) -> None:
+    token = _register_and_login(client, "convo.delete")
+    created = client.post(
+        "/api/v1/conversations",
+        json={"title": "To delete", "category": "GENERAL"},
+        headers=_auth_headers(token),
+    ).json()
+
+    response = client.delete(
+        f"/api/v1/conversations/{created['conversation_id']}", headers=_auth_headers(token)
+    )
+    assert response.status_code == 204
+
+    follow_up = client.get(
+        f"/api/v1/conversations/{created['conversation_id']}", headers=_auth_headers(token)
+    )
+    assert follow_up.status_code == 404
+
+
+def test_cannot_delete_other_users_conversation(client: TestClient) -> None:
+    token_owner = _register_and_login(client, "convo.delowner")
+    token_other = _register_and_login(client, "convo.delother")
+    created = client.post(
+        "/api/v1/conversations",
+        json={"title": "Private", "category": "GENERAL"},
+        headers=_auth_headers(token_owner),
+    ).json()
+
+    response = client.delete(
+        f"/api/v1/conversations/{created['conversation_id']}", headers=_auth_headers(token_other)
+    )
+
+    assert response.status_code == 404
+
+
+def test_delete_unknown_conversation_returns_404(client: TestClient) -> None:
+    token = _register_and_login(client, "convo.delunknown")
+
+    response = client.delete(
+        "/api/v1/conversations/00000000-0000-0000-0000-000000000000",
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 404

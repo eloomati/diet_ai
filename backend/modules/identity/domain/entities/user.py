@@ -2,7 +2,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
-from backend.modules.identity.domain.events.user_events import UserLoggedIn, UserRegistered
+from backend.modules.identity.domain.events.user_events import (
+    EmailVerified,
+    PasswordChanged,
+    UserLoggedIn,
+    UserRegistered,
+)
 from backend.modules.identity.domain.exceptions.identity_domain_errors import (
     InactiveUserAuthenticationError,
 )
@@ -17,6 +22,7 @@ class User:
     email: Email
     password_hash: PasswordHash
     status: UserStatus = UserStatus.ACTIVE
+    email_verified: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     domain_events: list[object] = field(default_factory=list)
@@ -58,3 +64,13 @@ class User:
     def activate(self) -> None:
         self.status = UserStatus.ACTIVE
         self.updated_at = datetime.now(UTC)
+
+    def change_password(self, new_password_hash: PasswordHash) -> None:
+        self.password_hash = new_password_hash
+        self.updated_at = datetime.now(UTC)
+        self.domain_events.append(PasswordChanged(user_id=self.id))
+
+    def mark_email_verified(self) -> None:
+        self.email_verified = True
+        self.updated_at = datetime.now(UTC)
+        self.domain_events.append(EmailVerified(user_id=self.id))

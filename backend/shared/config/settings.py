@@ -24,6 +24,17 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2:1b"
 
+    # Email — provider selection: "mock" | "smtp"
+    email_provider: str = "mock"
+    smtp_host: str = "localhost"
+    smtp_port: int = 1025
+    smtp_from_address: str = "noreply@dietai.local"
+
+    # Failed-email retry: a background timer retries FAILED email_logs rows
+    email_retry_interval_seconds: int = 180
+    email_retry_max_attempts: int = 10
+    email_retry_batch_limit: int = 50
+
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
     jwt_access_ttl_minutes: int = 15

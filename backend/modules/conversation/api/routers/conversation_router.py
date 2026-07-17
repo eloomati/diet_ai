@@ -3,8 +3,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 
 from backend.modules.conversation.api.dependencies import (
+    get_archive_conversation_use_case,
     get_conversation_history_use_case,
     get_create_conversation_use_case,
+    get_delete_conversation_use_case,
     get_list_conversations_use_case,
     get_send_message_use_case,
 )
@@ -18,9 +20,13 @@ from backend.modules.conversation.api.schemas import (
     SendMessageResponse,
 )
 from backend.modules.conversation.application import (
+    ArchiveConversationCommand,
+    ArchiveConversationUseCase,
     ConversationNotFoundError,
     CreateConversationCommand,
     CreateConversationUseCase,
+    DeleteConversationCommand,
+    DeleteConversationUseCase,
     GetConversationHistoryQuery,
     GetConversationHistoryUseCase,
     ListConversationsQuery,
@@ -28,6 +34,7 @@ from backend.modules.conversation.application import (
     SendMessageCommand,
     SendMessageUseCase,
 )
+from backend.modules.conversation.domain import ArchivedConversationError
 from backend.modules.identity.api.dependencies import get_current_user
 from backend.modules.identity.domain import User
 from backend.shared.exceptions import AppException, ErrorCode
@@ -135,6 +142,12 @@ async def send_message(
             message="Conversation not found.",
             status_code=status.HTTP_404_NOT_FOUND,
         ) from exc
+    except ArchivedConversationError as exc:
+        raise AppException(
+            code=ErrorCode.CONFLICT,
+            message=str(exc),
+            status_code=status.HTTP_409_CONFLICT,
+        ) from exc
 
     return SendMessageResponse(
         conversation_id=result.conversation_id,
@@ -142,3 +155,59 @@ async def send_message(
         assistant_message_id=result.assistant_message_id,
         assistant_content=result.assistant_content,
     )
+
+
+@router.post(
+    "/{conversation_id}/archive",
+    response_model=ConversationHistoryResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def archive_conversation(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    use_case: ArchiveConversationUseCase = Depends(get_archive_conversation_use_case),
+) -> ConversationHistoryResponse:
+    try:
+        result = await use_case.execute(
+            ArchiveConversationCommand(conversation_id=conversation_id, user_id=current_user.id)
+        )
+    except ConversationNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message="Conversation not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+    return ConversationHistoryResponse(
+        conversation_id=result.conversation_id,
+        title=result.title,
+        category=result.category,
+        status=result.status,
+        messages=[
+            MessageResponse(
+                id=message.id,
+                role=message.role,
+                content=message.content,
+                created_at=message.created_at,
+            )
+            for message in result.messages
+        ],
+    )
+
+
+@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation(
+    conversation_id: UUID,
+    current_user: User = Depends(get_current_user),
+    use_case: DeleteConversationUseCase = Depends(get_delete_conversation_use_case),
+) -> None:
+    try:
+        await use_case.execute(
+            DeleteConversationCommand(conversation_id=conversation_id, user_id=current_user.id)
+        )
+    except ConversationNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message="Conversation not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc

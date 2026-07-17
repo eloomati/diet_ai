@@ -1,4 +1,6 @@
+from .archive_conversation_dto import ArchiveConversationCommand
 from .create_conversation_dto import CreateConversationCommand, CreateConversationResult
+from .delete_conversation_dto import DeleteConversationCommand
 from .get_conversation_history_dto import (
     GetConversationHistoryQuery,
     GetConversationHistoryResult,
@@ -17,4 +19,6 @@ __all__ = [
     "MessageView",
     "ListConversationsQuery",
     "ConversationSummary",
+    "ArchiveConversationCommand",
+    "DeleteConversationCommand",
 ]

@@ -186,6 +186,34 @@ Responsible for:
 
 Infrastructure implements interfaces defined by the application/domain layer.
 
+### Shared Kernel (`backend/shared/`)
+
+Cross-cutting code with **no dependency on any single module's domain** —
+config, database session factories, the exception/error-response
+machinery, request-ID middleware, logging setup, and (Phase 8) two new
+small packages:
+
+- `shared/security/` — `SecureToken` (see Identity Module above) and
+  `hash_password`/`verify_password` (plain bcrypt wrappers). Identity's own
+  `BcryptPasswordHasher` still lives in identity's infrastructure layer and
+  delegates to these — it implements identity's own `PasswordHasher` port,
+  so the class itself can't move to `shared` without creating a
+  shared-depends-on-module dependency in the wrong direction; only the
+  dependency-free primitive underneath it moved.
+- `shared/utils/` — `build_model_from_schema`/`build_example_from_schema`
+  (JSON-Schema-subset → Pydantic model conversion), moved here from the AI
+  module's Ollama integration once it became clear the functions have zero
+  coupling to `Prompt`/`AIResponse` or anything Ollama-specific — they only
+  ever touched `dict`/`type[BaseModel]`.
+
+The dependency direction only ever goes one way: a module may depend on
+`shared/`, `shared/` never depends on a module. That's the test applied
+before moving anything here — a `domain/services/` file that reaches into
+a module's own entities or exceptions stays in that module, no matter how
+generic its logic looks on the surface (e.g. identity's `PasswordPolicy`
+looks like a generic string-validation helper, but it raises identity's
+own `InvalidPasswordError` directly, so it stays put).
+
 ---
 
 # 6. High Level Architecture
@@ -233,10 +261,14 @@ Responsible for user identity and access management.
 
 Responsibilities:
 
-- registration,
+- registration (with an email verification token issued and sent on sign-up),
 - authentication,
 - JWT handling,
 - refresh tokens,
+- logout (single-session refresh token revocation),
+- password reset,
+- email verification,
+- email delivery logging + retry for failed sends,
 - user account management.
 
 Database:
@@ -251,10 +283,91 @@ Technology:
 Main entities:
 
 ```
-User
+User                     — gained email_verified: bool (Phase 8)
 
 RefreshToken
+
+PasswordResetToken       — Phase 8: 30 min TTL, single use
+
+EmailVerificationToken   — Phase 8: 24h TTL, single use
+
+EmailLog                 — Phase 8: audit trail for every send attempt
+                            (metadata + delivery status only — never the
+                            email body, see below)
 ```
+
+### Secure one-time tokens (password reset & email verification)
+
+Both `PasswordResetToken` and `EmailVerificationToken` follow the same
+shape: mint a random opaque secret (`secrets.token_urlsafe(32)`), persist
+only its SHA-256 hash, hand the raw secret to the caller exactly once (in
+the email body) and never again. This generation/hashing logic is
+identical for both token types, so it's factored into a single shared
+class, `SecureToken` (`generate() -> (raw, hash)`, `hash(raw) -> hash`) —
+see "Shared Kernel" below for where it actually lives.
+
+`ConfirmPasswordResetUseCase` additionally calls
+`RefreshTokenRepository.revoke_all_for_user()` after a successful reset —
+every other session is forced to re-authenticate, standard practice after
+a credential change. Email verification does **not** gate login:
+`LoginUserUseCase` is untouched by `email_verified` — this is a deliberate
+scope boundary, not an oversight; verifying email is tracked but not
+enforced.
+
+### EmailSender, Mailhog, and the delivery log
+
+`EmailSender` (`application/ports/email_sender.py`) is a port with two
+implementations — `MockEmailSender` (default, `EMAIL_PROVIDER=mock`, an
+in-memory list, used in tests) and `SmtpEmailSender` (`EMAIL_PROVIDER=smtp`,
+real `aiosmtplib` delivery). Local dev points `SmtpEmailSender` at a
+Mailhog container (`docker-compose.yml`'s `mailhog` service, SMTP on 1025,
+web UI + HTTP API on 8025) — a local SMTP catcher, not a real mail
+provider; nothing is ever sent externally in dev.
+
+`EmailSender.send(to, subject, body, purpose)` takes a `purpose` string
+(`"PASSWORD_RESET"` / `"EMAIL_VERIFICATION"`) used only for the audit log
+below, not for routing.
+
+Every send attempt is wrapped by `LoggingEmailSender` (decorator over the
+base sender) which records an `EmailLog` row — `SENT` on success, `FAILED`
+with the exception message on failure — then re-raises on failure so the
+existing propagate-to-500 behavior for a broken send is unchanged, just
+now audited. **The email body is deliberately never persisted** — a
+reset/verification email carries a raw one-time secret in its body, and
+persisting it would defeat the entire point of only ever storing a hash
+(see "Secure one-time tokens" above). `email_logs` has no FK to `users` —
+a log entry must outlive the user it was sent to.
+
+`EmailSender`/`LoggingEmailSender` are constructed **per request**, not as
+an app-lifetime singleton like `LLMProvider` or the Mongo client — despite
+following the same "swappable provider behind a port" pattern. The
+difference: `LoggingEmailSender` needs a request-scoped Postgres session to
+write its `EmailLog` row, matching every other Postgres-backed repository
+in this module, and `aiosmtplib` was already observed to open/close a
+connection per `send()` call, so there was never a real resource worth
+pooling across requests.
+
+### Failed-email retry
+
+A `FAILED` `EmailLog` row isn't necessarily final. A background `asyncio`
+task (`infrastructure/email/email_retry_scheduler.py`, started via
+`asyncio.create_task` in `main.py`'s `lifespan()`, no broker/queue library
+added — a single periodic job doesn't justify one) polls every
+`EMAIL_RETRY_INTERVAL_SECONDS` (default 180s) for rows due a retry, up to
+`EMAIL_RETRY_MAX_ATTEMPTS` (default 10) attempts, after which the row stays
+permanently `FAILED`.
+
+Retrying does **not** resend the original body (there isn't one persisted
+to resend — see above). Instead, `RetryFailedEmailsUseCase` looks the user
+up again by `to` and asks a purpose-keyed `EmailRetryStrategy`
+(`PasswordResetRetryStrategy` / `EmailVerificationRetryStrategy`) to mint
+and persist a **brand-new** token for the same purpose, then sends that.
+This preserves the "never persist a secret" invariant even under retry,
+at the cost of the user needing to use the newest email if more than one
+attempt was made. The retry use case sends via the **base** `EmailSender`,
+not `LoggingEmailSender` — it owns updating the existing `EmailLog` row
+itself (`attempts`, `next_retry_at`), so wrapping it again would create a
+duplicate row per attempt instead of tracking the original one.
 
 ---
 
@@ -267,7 +380,10 @@ Responsibilities:
 - creating conversations,
 - storing messages,
 - maintaining chat history,
-- communication workflow with AI.
+- communication workflow with AI,
+- archiving conversations (Phase 8 — a conversation's existing
+  `Conversation.archive()` domain method had no API route before this),
+- deleting conversations (Phase 8).
 
 Database:
 
@@ -285,10 +401,16 @@ Technology:
 Main entities:
 
 ```
-Conversation
+Conversation   — status: ACTIVE | ARCHIVED
 
 Message
 ```
+
+`POST /conversations/{id}/archive` sets `status = ARCHIVED`: still readable
+via `GET`, but `POST .../messages` on an archived conversation now raises
+`ArchivedConversationError` → `409 Conflict`. `DELETE /conversations/{id}`
+is a hard delete of the conversation and its full message history — no
+soft-delete flag, no undo.
 
 ---
 

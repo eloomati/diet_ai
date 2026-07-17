@@ -37,14 +37,15 @@ cd diet_ai
 docker compose up -d --build
 ```
 
-This builds the backend image and starts four containers:
+This builds the backend image and starts five containers:
 
-| Service   | Container         | Port  | Purpose                                             |
-|-----------|--------------------|-------|------------------------------------------------------|
-| `backend` | `diet_ai_backend`  | 8000  | FastAPI application                                  |
-| `db`      | `diet_ai_db`       | 5432  | PostgreSQL — Identity module                         |
-| `mongo`   | `diet_ai_mongo`    | 27017 | MongoDB — Conversation + Nutrition modules           |
-| `ollama`  | `diet_ai_ollama`   | 11434 | Local LLM — powers chat + diet-plan generation by default |
+| Service   | Container         | Port        | Purpose                                             |
+|-----------|--------------------|-------------|------------------------------------------------------|
+| `backend` | `diet_ai_backend`  | 8000        | FastAPI application                                  |
+| `db`      | `diet_ai_db`       | 5432        | PostgreSQL — Identity module                         |
+| `mongo`   | `diet_ai_mongo`    | 27017       | MongoDB — Conversation + Nutrition modules           |
+| `ollama`  | `diet_ai_ollama`   | 11434       | Local LLM — powers chat + diet-plan generation by default |
+| `mailhog` | `diet_ai_mailhog`  | 1025 / 8025 | Local SMTP catcher — password-reset/verification emails land here, not a real inbox. Web UI at http://localhost:8025 |
 
 **First start takes a few minutes** — two things happen automatically, no action needed:
 
@@ -73,10 +74,14 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
 
 | File | Covers |
 |---|---|
-| `docs/https/user.http` | register → login → refresh → `/me` |
-| `docs/https/conversation.http` | create a conversation → chat with the AI → view history |
+| `docs/https/user.http` | register → login → refresh → logout → `/me`, plus email verification and password reset (reads the raw token straight out of Mailhog's API — no manual copy/paste) |
+| `docs/https/conversation.http` | create a conversation → chat with the AI → view history → archive → delete |
 | `docs/https/nutrition.http` | create/get/update a nutrition profile |
 | `docs/https/diet-plan.http` | generate a structured multi-day diet plan (needs a nutrition profile first) |
+
+The email-related steps in `user.http` need `EMAIL_PROVIDER=smtp` (the
+`docker-compose.yml` default) so mail actually lands in Mailhog — see the
+service table above.
 
 Or use `curl`/Swagger directly — the full request/response contract is documented in `docs/api.md`.
 
@@ -180,10 +185,11 @@ docker compose down -v    # stop containers AND delete volumes — fresh start n
 Allow users to:
 
 - register and authenticate
+- recover access via password reset and verify their email address
 - manage a personal nutrition profile
 - chat with AI for personalized nutrition advice
 - generate personalized, structured multi-day diet plans
-- browse conversation history
+- browse, archive, and delete conversation history
 - receive context-aware responses (chat and diet plans both use the user's nutrition profile)
 - generate nutrition reports (future)
 
@@ -201,6 +207,7 @@ Allow users to:
 | Nutrition Profile | ✅ |
 | Conversation + AI chat | ✅ |
 | Diet Plan Generation | ✅ |
+| Conversation Lifecycle & Account Recovery (archive/delete, logout, password reset, email verification) | ✅ |
 | Frontend | ⏳ |
 | Reporting | ⏳ |
 
@@ -356,7 +363,7 @@ diet_ai/
 ├── docker/                # entrypoint.sh (waits for Postgres, runs migrations, then execs uvicorn)
 │
 ├── Dockerfile
-├── docker-compose.yml       # dev stack: db, mongo, ollama, backend
+├── docker-compose.yml       # dev stack: db, mongo, ollama, mailhog, backend
 ├── docker-compose.test.yml  # ephemeral test stack, auto-managed by conftest.py
 ├── conftest.py
 ├── pytest.ini
@@ -375,7 +382,7 @@ backend/
 │
 ├── app/            # FastAPI app factory, lifespan, top-level router
 ├── modules/        # one folder per business module (see below)
-├── shared/         # cross-module infra: config, database clients, logging, exceptions, middleware
+├── shared/         # cross-module infra: config, database clients, logging, exceptions, middleware, security, utils
 ├── tests/          # shared/root-level tests (e.g. error format)
 ├── alembic/        # PostgreSQL migrations
 └── alembic.ini

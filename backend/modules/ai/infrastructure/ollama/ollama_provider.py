@@ -6,10 +6,7 @@ import httpx
 from pydantic import ValidationError
 
 from backend.modules.ai.domain import AIResponse, LLMProvider, Prompt
-from backend.modules.ai.infrastructure.ollama.schema_validation import (
-    build_example_from_schema,
-    build_model_from_schema,
-)
+from backend.shared.utils import build_example_from_schema, build_model_from_schema
 
 
 class OllamaProvider(LLMProvider):

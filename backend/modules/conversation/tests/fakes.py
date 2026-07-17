@@ -15,3 +15,6 @@ class InMemoryConversationRepository:
 
     async def save(self, conversation: Conversation) -> None:
         self._by_id[conversation.id] = conversation
+
+    async def delete(self, conversation_id: UUID) -> None:
+        self._by_id.pop(conversation_id, None)

@@ -8,6 +8,9 @@ from sqlalchemy import engine_from_config, pool
 
 from backend.shared.database.postgres import Base
 from backend.modules.identity.infrastructure.persistence.models import (
+    EmailLogModel,
+    EmailVerificationTokenModel,
+    PasswordResetTokenModel,
     RefreshTokenModel,
     UserModel,
 )

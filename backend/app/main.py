@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import logging
 from contextlib import asynccontextmanager
 
@@ -6,6 +8,7 @@ from fastapi import FastAPI
 from backend.app.api_router import api_router
 from backend.modules.ai.infrastructure import close_llm_provider, init_llm_provider
 from backend.modules.conversation.infrastructure.documents import ConversationDocument
+from backend.modules.identity.infrastructure.email.email_retry_scheduler import run_email_retry_loop
 from backend.modules.nutrition.infrastructure.documents import DietPlanDocument, NutritionProfileDocument
 from backend.shared.config import get_settings
 from backend.shared.database import (
@@ -34,7 +37,13 @@ async def lifespan(app: FastAPI):
         logging.error(f"Failed to initialize databases: {e}")
         raise
 
+    email_retry_task = asyncio.create_task(run_email_retry_loop(settings))
+
     yield
+
+    email_retry_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await email_retry_task
 
     await close_postgres()
     await close_mongo()

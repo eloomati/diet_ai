@@ -179,6 +179,8 @@ passwordHash
 
 status
 
+emailVerified
+
 createdAt
 
 updatedAt
@@ -192,7 +194,9 @@ Business rules:
 
 - email must be unique,
 - password cannot be stored as plain text,
-- inactive users cannot authenticate.
+- inactive users cannot authenticate,
+- `emailVerified` is tracked but does not gate authentication — a
+  deliberate scope boundary (Phase 8), not an oversight.
 
 ---
 
@@ -219,6 +223,126 @@ createdAt
 
 revoked
 ```
+
+---
+
+## PasswordResetToken
+
+Entity. (Phase 8)
+
+A single-use, time-limited credential that authorizes exactly one password
+change.
+
+Example:
+
+```
+PasswordResetToken
+
+id
+
+userId
+
+tokenHash
+
+expiresAt
+
+used
+
+createdAt
+```
+
+Rules:
+
+- `issue()` mints a random opaque secret (`secrets.token_urlsafe(32)`) and
+  returns it alongside the entity — the entity itself only ever stores the
+  secret's SHA-256 hash (`tokenHash`), never the plaintext,
+- TTL defaults to 30 minutes,
+- `is_valid()` is false once `used` or once `expiresAt` has passed,
+- a successful confirm calls `mark_used()` **and** revokes every refresh
+  token belonging to the user (see `RefreshToken` above) — a password
+  change forces re-login everywhere.
+
+---
+
+## EmailVerificationToken
+
+Entity. (Phase 8)
+
+Same shape and secret-generation mechanism as `PasswordResetToken` (both
+delegate to the shared `SecureToken` service — see `docs/architecture.md`),
+issued at registration instead of on a reset request.
+
+Example:
+
+```
+EmailVerificationToken
+
+id
+
+userId
+
+tokenHash
+
+expiresAt
+
+used
+
+createdAt
+```
+
+Rules:
+
+- TTL defaults to 24 hours — verification is far less time-sensitive than
+  a password reset,
+- confirming sets `User.emailVerified = true` but does **not** change
+  anything about the user's ability to log in.
+
+---
+
+## EmailLog
+
+Entity. (Phase 8)
+
+An audit trail of every email the application attempted to send —
+metadata and delivery status only.
+
+Example:
+
+```
+EmailLog
+
+id
+
+to
+
+subject
+
+purpose
+
+status        — SENT | FAILED
+
+attempts
+
+nextRetryAt
+
+errorMessage
+
+createdAt
+```
+
+Rules:
+
+- **the email body is never stored** — a reset/verification email carries
+  a raw one-time secret in its body, and this entity's entire purpose
+  (auditing) would otherwise defeat the "never persist the secret" rule
+  that `PasswordResetToken`/`EmailVerificationToken` are built around,
+- no foreign key to `User` — a log entry must survive the deletion of the
+  user it was sent to,
+- a `FAILED` row is retried up to `EMAIL_RETRY_MAX_ATTEMPTS` times (default
+  10, every `EMAIL_RETRY_INTERVAL_SECONDS` = 180s) by re-minting a fresh
+  token of the same purpose (never resending the original, unstored,
+  body) — once exhausted, `nextRetryAt` is cleared and the row stays
+  `FAILED` permanently.
 
 ---
 
@@ -597,6 +721,10 @@ UserRegistered
 
 UserLoggedIn
 
+PasswordChanged
+
+EmailVerified
+
 ProfileCreated
 
 ProfileUpdated
@@ -664,6 +792,12 @@ Identity context:
 users
 
 refresh_tokens
+
+password_reset_tokens
+
+email_verification_tokens
+
+email_logs
 ```
 
 ---
