@@ -393,9 +393,9 @@ and `DietType` (`STANDARD | VEGETARIAN | VEGAN | KETO | PALEO | GLUTEN_FREE`).
 
 # DietPlan
 
-Aggregate Root.
+Aggregate Root. Implemented in `modules/nutrition/domain/entities/diet_plan.py`.
 
-Represents an AI-generated diet plan.
+Represents an AI-generated, structured multi-day diet plan.
 
 Example:
 
@@ -404,22 +404,44 @@ DietPlan
 
 id
 
-userId
+user_id
 
-goal
+goal            — copied from the user's NutritionProfile at generation time
 
-duration
+diet_type       — copied from the user's NutritionProfile at generation time
 
-createdAt
+duration_days
 
-days
+requirements    — tuple of free-text hints supplied at generation time
+
+days            — tuple of DietDay
+
+created_at
 ```
+
+A plan is immutable once generated — there is no `update()`; regenerating
+produces a new `DietPlan` (a user can have many). `create()` validates
+`duration_days` is between 1 and 14, that `days` has exactly that many
+entries, and that no meal has a negative macro value.
+
+---
+
+## DietPlan Rules
+
+- `goal`/`diet_type` are not supplied by the caller — they come from the
+  user's existing `NutritionProfile`; generating a plan without one first
+  is rejected (mirrors `SendMessageUseCase`'s optional-profile personalization,
+  except here a profile is *required*, not optional — a diet plan has no
+  sensible default goal to fall back to).
+- `len(days)` must equal `duration_days` exactly.
+- No `Meal` may have a negative `calories`/`protein`/`carbohydrates`/`fat`.
 
 ---
 
 # DietDay
 
-Entity.
+Value Object (embedded in `DietPlan`, no identity of its own).
+`modules/nutrition/domain/value_objects/diet_day.py`.
 
 Represents one day of a diet plan.
 
@@ -428,18 +450,19 @@ Example:
 ```
 DietDay
 
-date
+day_number     — 1-indexed
 
-meals
+meals          — tuple of Meal
 ```
 
 ---
 
 # Meal
 
-Entity.
+Value Object (embedded in `DietDay`, no identity of its own).
+`modules/nutrition/domain/value_objects/meal.py`.
 
-Represents a single meal.
+Represents a single meal within a day.
 
 Example:
 
@@ -448,8 +471,6 @@ Meal
 
 name
 
-description
-
 calories
 
 protein
@@ -457,29 +478,11 @@ protein
 carbohydrates
 
 fat
-
-ingredients
 ```
 
----
-
-# Ingredient
-
-Value Object.
-
-Example:
-
-```
-Ingredient
-
-name
-
-amount
-
-unit
-```
-
-Ingredient does not have its own identity.
+No `description`/`ingredients` fields — kept to exactly what the AI
+generates and what the API surfaces; not modeled as a nested `Ingredient`
+value object (deferred — see Future Extensions).
 
 ---
 

@@ -16,8 +16,8 @@ Each phase should result in a working part of the system.
 Phase 0  - Project Bootstrap        DONE
 Phase 1  - Architecture Skeleton    DONE (module folders + hexagonal layout scaffolded)
 Phase 2  - Database Setup           DONE (Postgres + Mongo/Beanie both wired; Beanie
-                                     currently only registers Conversation's document —
-                                     Nutrition's collections still pending Phase 4)
+                                     registers Conversation, NutritionProfile, and
+                                     DietPlan documents)
 Phase 3  - Identity Module          DONE (register, login, refresh, me; JWT; unified
                                      error format; real-DB + fake-based tests)
 Phase 4  - User Profile (Nutrition) DONE — profile CRUD wired into the AI
@@ -27,17 +27,23 @@ Phase 5/6 - Conversation + AI       DONE — chat MVP is functional end-to-end
                                      (register → login → create conversation →
                                      send message → AI response → history),
                                      verified against the real Docker stack.
-                                     Providers: Mock/Claude/Ollama, not OpenAI
-                                     — see Stage 4. Only Stage 6's doc-sync
-                                     spot-check is left open.
-Phase 7+ - Diet Generation/Frontend/Testing/Future  NOT STARTED
+                                     Providers: Mock/Claude/Ollama, not OpenAI.
+Phase 7  - Diet Generation          DONE — structured multi-day diet plan
+                                     generation (POST /diet-plans/generate,
+                                     GET /diet-plans, GET /diet-plans/{id}),
+                                     verified end-to-end on the real Docker
+                                     stack with Ollama. See the 6-stage log
+                                     below, including a real reliability
+                                     finding for the small local model.
+Phase 8+ - Frontend/Testing/Future  NOT STARTED
 ```
 
-**Conversation + AI ("chat MVP") is complete** — see the detailed stage log
-under Phase 5/6 below. **Nutrition Profile (Phase 4) is now also complete** —
-profile CRUD exists, `SendMessageUseCase` folds `profile.as_prompt_text()`
-into the AI prompt when one exists, and docs/`.http` files are synced to the
-shipped contract. Both milestones are fully closed out; Phase 7+ is next.
+**Phases 3 through 7 are complete** — Identity, Nutrition Profile,
+Conversation + AI chat, and Diet Plan generation all work end-to-end against
+the real Docker stack, with docs (`architecture.md`, `domain-model.md`,
+`api.md`, `docs/https/*.http`) and `README.md` synced to match. Phase 8+
+(Frontend, broader Reporting) is next — see that section below for the
+sparse original draft, not yet split into stages.
 
 ---
 
@@ -759,64 +765,326 @@ User can:
 
 Goal:
 
-Generate personalized diets.
+Generate a personalized, structured multi-day diet plan (days → meals →
+name/calories/protein/carbs/fat) using AI, seeded from the user's
+`NutritionProfile` (goal, diet_type, activity_level) plus optional free-text
+requirements (e.g. "high protein breakfasts", "vegetarian").
 
-Module:
+Module: `nutrition` (domain/application/persistence/API) + `ai` (provider
+extension). Database: MongoDB (Beanie, same setup as `NutritionProfile`).
 
-Nutrition
+**Key design decision** (confirmed with user): unlike the free-text chat
+flow, a diet plan must come back as reliable structured JSON, not prose to
+parse client-side — the tiny local Ollama model (`llama3.2:1b`) especially
+cannot be trusted to emit clean JSON on its own. `LLMProvider` gains a second
+method, `generate_structured_response(prompt, schema) -> dict`, alongside
+the existing free-text `generate_response`:
+- `ClaudeProvider` — native structured outputs (`output_config.format` with
+  a `json_schema`), via the official `anthropic` SDK — guarantees valid JSON
+  matching the schema.
+- `OllamaProvider` — Ollama's `format` request field (JSON mode) plus
+  Pydantic validation on our side, with **one retry** (re-prompt including
+  the validation error) if the first response doesn't validate — no
+  schema-level guarantee at the Ollama layer, so validation must happen
+  client-side.
+- `MockLLMProvider` — returns a small canned structured dict matching
+  whatever schema shape the test expects, for fakes-based unit tests.
 
----
-
-## Domain
-
-Create:
-
-```
-DietPlan
-
-DietDay
-
-Meal
-```
-
----
-
-## Application
-
-Create:
-
-```
-GenerateDietPlanUseCase
-```
+Split into stages the same way as Phase 4 — Domain → Application →
+AI-provider extension → Mongo persistence → API → Tests/docs.
 
 ---
 
-Example:
+## Stage 1 — Domain — DONE
 
-User:
+`modules/nutrition/domain/`:
+- [x] `entities/diet_plan.py` — `DietPlan` aggregate root: `id`, `user_id`,
+      `goal`, `diet_type`, `duration_days`, `requirements` (`tuple[str, ...]`,
+      optional free-text hints), `days` (`tuple[DietDay, ...]`), `created_at`.
+      `create()` validates `duration_days` is in a sane bounded range
+      (1–14) and `days` actually has `duration_days` entries — same
+      create()-time validation pattern as `NutritionProfile`.
+- [x] `value_objects/diet_day.py` — `DietDay`: `day_number` (1-indexed),
+      `meals` (`tuple[Meal, ...]`).
+- [x] `value_objects/meal.py` — `Meal`: `name`, `calories`, `protein`,
+      `carbohydrates`, `fat` (all non-negative numbers, enforced in
+      `DietPlan.create()`).
+- [x] `exceptions/diet_plan_domain_errors.py` — `InvalidDietPlanError`
+      (subclasses the existing `NutritionDomainError`), covering bad
+      `duration_days`, day-count mismatch, and negative macros.
+- [x] `repositories/diet_plan_repository.py` — port: `get_by_id(plan_id) ->
+      DietPlan | None`, `list_by_user_id(user_id) -> list[DietPlan]`,
+      `save(plan) -> None`. Unlike `NutritionProfile`, a user can have many
+      diet plans — no unique-per-user constraint, no `update()` method (a
+      plan is generated fresh each time, not edited in place).
+
+`modules/ai/domain/`:
+- [x] `ports/llm_provider.py` — added
+      `generate_structured_response(self, prompt: Prompt, schema: dict) ->
+      dict` to `LLMProvider`. **Deviation from the original draft**: made it
+      a concrete method with a `NotImplementedError` default body rather
+      than `@abstractmethod` — an `@abstractmethod` would have broken
+      instantiation of every existing provider (`MockLLMProvider`,
+      `ClaudeProvider`, `OllamaProvider`, `FakeLLMProvider`) before Stage 3
+      implements it there, which would have left the full suite red for two
+      stages. This is an intentional "optional capability" port method, the
+      same shape Python's `ABC` uses for mixin-style default behavior —
+      Stage 3 overrides it in each real provider.
+
+Exit criteria: unit tests for `DietPlan`/`DietDay`/`Meal` validation rules,
+zero infra deps. 7 tests added (`test_diet_plan_entity.py`), full suite at
+151/151 passing.
+
+---
+
+## Stage 2 — Application — DONE
+
+`modules/nutrition/application/`:
+- [x] `dto/diet_plan_dto.py` — `GenerateDietPlanCommand` (`user_id`,
+      `duration_days`, `requirements: tuple[str, ...] | None`),
+      `ListDietPlansQuery`, `GetDietPlanQuery`, `MealResult`/`DietDayResult`/
+      `DietPlanResult`/`DietPlanSummaryResult` (`from_domain()` classmethods,
+      mirroring `NutritionProfileResult`).
+- [x] `use_cases/generate_diet_plan_use_case.py` — looks up the caller's
+      `NutritionProfile` and **reuses the existing
+      `NutritionProfileNotFoundError`** when it's missing (deliberate reuse,
+      not a new error type — "you need a profile before generating a plan"
+      is the same shape as "you need a profile before chatting gets
+      personalized", and it already maps to 404 at the API layer). Builds a
+      structured prompt via the new `DietPlanPromptBuilder` (in
+      `ai/application/`), calls `LLMProvider.generate_structured_response`,
+      maps the returned dict into `DietPlan.create(...)`, saves, returns
+      `DietPlanResult`.
+- [x] `use_cases/list_diet_plans_use_case.py`, `get_diet_plan_use_case.py` —
+      new `DietPlanNotFoundError` for the get-by-id case (ownership check —
+      404 for another user's plan, same don't-leak-existence shape as
+      Conversation/Nutrition).
+- [x] `ai/application/diet_plan_prompt_builder.py` — `DietPlanPromptBuilder`:
+      `build()` composes the question + a dietitian-framed system prompt;
+      `build_schema()` returns the JSON schema passed to
+      `generate_structured_response`. **Deliberately no `minItems`/`maxItems`
+      on the `days` array** — Claude's structured-output schema support
+      excludes complex array constraints, so the exact day count is
+      enforced by `DietPlan.create()` after parsing instead.
+- [x] `tests/fakes.py` — `InMemoryDietPlanRepository`; extended
+      `ai/tests/fakes.py`'s `FakeLLMProvider` with
+      `generate_structured_response` (takes an explicit
+      `canned_structured_response` dict per test, captures `last_prompt` +
+      `last_schema`).
+
+Exit criteria: use case tests pass against fakes only, no real DB/HTTP —
+including a test that no-profile raises before ever calling the LLM
+(`test_generate_diet_plan_without_profile_raises`). 12 tests added
+(`test_generate_diet_plan_use_case.py`, `test_diet_plan_query_use_cases.py`),
+full suite at 159/159 passing.
+
+---
+
+## Stage 3 — AI provider extension (real structured output) — DONE
+
+- [x] `ai/infrastructure/anthropic/claude_provider.py` —
+      `generate_structured_response` using `output_config: {"format":
+      {"type": "json_schema", "schema": schema}}` on `messages.create()`,
+      parses the guaranteed-valid JSON text block. Not exercised against the
+      real Claude API in this environment (no `ANTHROPIC_API_KEY`
+      configured in dev) — verified structurally via fakes (correct
+      `output_config` shape, correct JSON parsing), same level of
+      verification the original `ClaudeProvider.generate_response` got.
+- [x] `ai/infrastructure/ollama/ollama_provider.py` —
+      `generate_structured_response` sends `"format": "json"` in the
+      `/api/chat` request body, `json.loads()`s the response, validates
+      against a Pydantic model built from the schema (new
+      `ollama/schema_validation.py`: converts the JSON-Schema subset our own
+      prompt builders emit — object/array/string/integer/number/boolean,
+      `required`, `additionalProperties` — into a dynamic Pydantic model via
+      `create_model`). On a validation failure, retries **once** with the
+      validation error appended to the prompt, then raises a `RuntimeError`
+      if the retry also fails (fail loud — no silent fallback to a
+      malformed plan, matching the project's existing `AI_PROVIDER`
+      misconfiguration philosophy).
+- [x] `ai/infrastructure/providers/mock_llm_provider.py` —
+      `generate_structured_response` parses the requested day count out of
+      `Prompt.question` (`DietPlanPromptBuilder` always writes "Generate a
+      N-day diet plan…") and returns exactly `N` canned days — otherwise the
+      mock provider would fail `DietPlan.create()`'s day-count validation
+      for any `duration_days != 1`, making it useless for manual end-to-end
+      testing of the Stage 5 API.
+- [x] **Real-model finding, fixed during Stage 3 verification**: the
+      original design (dump the raw JSON Schema into the prompt as
+      instruction text) made `llama3.2:1b` echo the schema's own
+      `type`/`properties` keys back as if they were the answer, and
+      separately — once that was fixed — made it invent extra top-level
+      keys per day (e.g. `"snacks"`, `"high_protein_breakfasts"`) by copying
+      words from free-text `requirements` into new JSON keys instead of
+      putting that content inside the existing `meals` list. Root cause:
+      raw JSON Schema syntax and schema-shaped instructions are unreliable
+      for very small local models. Fixed by adding
+      `build_example_from_schema()` (renders a filled-in *example instance*
+      instead of the schema definition — tiny models follow a concrete
+      example far more reliably) plus an explicit instruction that
+      requirements affect *content*, never *key names*. Verified empirically
+      against the real Docker Ollama container across four separate runs
+      (1-day, 2-day, 3-day-with-requirements, retry-triggering case) — all
+      now produce schema-conformant JSON on the first or second attempt.
+
+Exit criteria: provider-level tests (`test_claude_provider.py` — JSON-mode
+request shape; `test_ollama_provider.py` — parse/validate,
+retry-once-then-succeed, retry-once-then-raise; `test_mock_llm_provider.py`
+— day-count matching) added, 6 tests, full suite at 165/165 passing.
+Real-Ollama verification as described above (not just fakes) — Claude
+verification deferred to whenever a real `ANTHROPIC_API_KEY` is available in
+this environment, same caveat as every prior Claude-provider stage.
+
+---
+
+## Stage 4 — Infrastructure: Mongo persistence (Beanie) — DONE
+
+- [x] `infrastructure/documents/diet_plan_document.py` — Beanie `Document`,
+      `Settings.name = "diet_plans"`, index on `user_id` (not unique — many
+      plans per user, unlike `NutritionProfileDocument`'s unique index).
+      `days`/`meals` are embedded Pydantic models (`DietDayEmbed`,
+      `MealEmbed`), not separate Beanie documents — they only ever exist
+      nested inside a plan, same reasoning as `Message` living inline on
+      `ConversationDocument` rather than its own collection.
+- [x] `infrastructure/mappers/diet_plan_mapper.py` — Document ↔ domain.
+      `to_document()` uses `dataclasses.asdict(day)` to flatten each
+      `DietDay`/`Meal` dataclass into the nested dict shape
+      `DietDayEmbed(**...)` expects — `asdict()` works with `slots=True`
+      dataclasses (it introspects `fields()`, not `__dict__`).
+- [x] `infrastructure/repository/mongo_diet_plan_repository.py` —
+      `list_by_user_id` sorts by `-DietPlanDocument.created_at` (newest
+      first, matching the port's documented contract).
+- [x] Registered `DietPlanDocument` in `main.py`'s
+      `init_beanie_documents([ConversationDocument, NutritionProfileDocument,
+      DietPlanDocument])`.
+
+Exit criteria: repository-level tests against the real ephemeral Mongo test
+stack (save/get round-trip, unknown-id → `None`, list-by-user newest-first,
+list-for-user-with-no-plans → `[]`), same isolation pattern as
+`NutritionProfileDocument`'s Stage 3. 4 tests added, full suite at 169/169
+passing. Also verified directly against the real dev Mongo (not just the
+ephemeral test stack): saved and re-fetched a plan through the actual
+running container's `MongoDietPlanRepository`.
+
+---
+
+## Stage 5 — API layer — DONE
+
+Endpoints (per docs/api.md, updated to snake_case):
 
 ```
-I run 5 times a week.
-Create high protein breakfasts for 7 days.
+POST /diet-plans/generate
+GET  /diet-plans
+GET  /diet-plans/{diet_plan_id}
 ```
 
-System:
+- [x] `api/schemas/diet_plan_schemas.py` — `GenerateDietPlanRequest`
+      (`duration_days: int = Field(ge=1, le=14)`, `requirements:
+      list[str] | None`), `MealResponse`/`DietDayResponse`/
+      `DietPlanResponse`/`DietPlanSummaryResponse` (`from_result()`
+      classmethods).
+- [x] `api/dependencies/diet_plan_dependencies.py` — wires
+      `NutritionProfileRepository` (reusing
+      `nutrition_dependencies.get_nutrition_profile_repository`) +
+      `DietPlanRepository` + `LLMProvider` into `GenerateDietPlanUseCase`,
+      mirroring `SendMessageUseCase`'s cross-module DI shape from Phase 5/6
+      Stage 5.
+- [x] `api/routers/diet_plan_router.py` — `POST` → `AppException(NOT_FOUND)`
+      if the caller has no nutrition profile yet (reusing
+      `NutritionProfileNotFoundError`/`NOT_FOUND`, per Stage 2's decision —
+      no new `ErrorCode` needed); `GET /diet-plans/{id}` →
+      `AppException(NOT_FOUND)` for a nonexistent or non-owned plan.
+      **No explicit handling needed for a malformed AI response**
+      (`InvalidDietPlanError` from a day-count mismatch, or the `RuntimeError`
+      from Ollama's failed retry) — both fall through to the existing
+      generic `Exception` handler → `500 INTERNAL_ERROR`, consistent with
+      the project's fail-loud philosophy for AI upstream failures.
+- [x] Registered `diet_plan_router` in `nutrition/api/router.py` alongside
+      `profile_router`.
 
-```
-Nutrition Profile
+Exit criteria: full API integration tests (generate-without-profile 404 →
+generate 201 → requires-auth 401 → invalid-duration 422 → list-only-own →
+get-full-plan → get-unknown-404 → get-other-users-plan-404), same shape as
+`test_nutrition_api.py`. 8 tests added, full suite at 177/177 passing.
+Verified end-to-end on the real Docker stack with Ollama: generated a real
+2-day vegan/weight-loss plan through the full HTTP stack (~42s, realistic
+meals, exactly 2 days), confirmed via `GET /diet-plans` (summary) and
+`GET /diet-plans/{id}` (full plan, 200), and confirmed a nonexistent id
+still 404s.
 
-+
+---
 
-Conversation Context
+## Stage 6 — Tests & docs sync — DONE
 
-+
+- [x] `docs/https/diet-plan.http` — register → login → generate-without-profile
+      404 → create profile → generate (2 days, no requirements) → generate
+      with `requirements` (marked flaky on Ollama, see finding below) → list →
+      get by id → no-token 401 → invalid-duration 422 → get-unknown-id 404 →
+      second-user isolation (404 on the first user's plan, empty list). All
+      steps replayed manually against the real Docker stack.
+- [x] `docs/api.md` Diet Plan API section rewritten to the shipped
+      snake_case shape — real request/response fields (`goal`/`diet_type`
+      come from the profile, not the request), all three endpoints
+      documented (the original draft only had two), and real error codes
+      including the 500 case for a malformed AI response.
+- [x] `architecture.md` — Nutrition Module section: `DietPlan`/`DietDay`/
+      `Meal` marked implemented (were "future"); added a description of the
+      generate flow and its profile-required 404. New **AI Module**
+      subsection "Structured output" documenting `generate_structured_response`
+      and how each provider (Claude/Ollama/Mock) implements it, including the
+      real-model prompting finding from Stage 3.
+- [x] `domain-model.md` — `DietPlan`/`DietDay`/`Meal` sections rewritten:
+      real field names (`duration_days`, `day_number`, not the original
+      draft's `duration`/`date`), `DietDay`/`Meal` reclassified from "Entity"
+      to "Value Object" (they're embedded, no identity of their own —
+      matches how they're actually modeled), dropped the never-implemented
+      `description`/`ingredients`/`Ingredient` fields from the original
+      sparse draft.
+- [x] **Reliability finding from re-testing `diet-plan.http` against real
+      Ollama**: even after Stage 3's prompt fix, `llama3.2:1b` can still
+      invent extra keys (e.g. `"snacks_and_refills"`) and exhaust the
+      retry-once, especially when free-text `requirements` are present —
+      reproduced this on both a 2-day and 3-day plan with requirements
+      (500), while the identical request *without* requirements succeeded
+      reliably (201, ~31s). This isn't a new bug: it's the documented,
+      accepted "fail loud" behavior for a 1B-parameter local model doing
+      structured generation (Stage 3's `RuntimeError` design existed
+      specifically for this case) — but it was real news that even the
+      improved prompt doesn't make it fully reliable with `requirements`
+      set. Documented in `architecture.md`, `api.md`, and `diet-plan.http`
+      itself so nobody mistakes an occasional 500 here for a regression;
+      not chased further since Claude's native structured output already
+      solves this for anyone using `AI_PROVIDER=claude`.
+- [x] **`README.md` — full rewrite**, not just a status-table touch-up: the
+      previous version was the original pre-implementation planning draft
+      (OpenAI instead of Claude/Ollama, Motor instead of Beanie's native
+      PyMongo client, Python 3.13 instead of 3.12, a status table showing
+      everything "⏳ in progress" despite Phases 3-7 being done, broken
+      `docs/` references to files that were never created). Added a
+      prominent **Getting Started** section up front covering: prerequisites,
+      the exact `docker compose up -d --build` quick-start with a
+      service/port table, what happens automatically on first boot (Ollama
+      model pull, Alembic migrations), how to verify it's running, how to
+      exercise the full flow via `docs/https/*.http`, how AI provider
+      selection actually works (and its real limitation — `docker-compose.yml`
+      sets env vars as literals with no `.env`/`${VAR}` substitution wired
+      up, so switching providers under Docker means editing the compose
+      file directly, not just copying `.env.example`), running without
+      Docker, and running the test suite. **Every command in this section
+      was actually run during this stage, not just written from reading the
+      code** — this caught a real inaccuracy: Alembic reads `DATABASE_URL`
+      (a sync `psycopg2` URL), not the app's own `POSTGRES_URL` (async
+      `asyncpg`, used by `.env`) — a first draft of the local-dev
+      instructions silently pointed at the wrong hostname
+      (`alembic.ini`'s built-in default is the Docker service name `db`)
+      and would have failed for anyone following it outside Docker.
+- [x] Roadmap status table updated (this file).
 
-AI
-
-↓
-
-Diet Plan
-```
+Exit criteria: full suite still green after the docs-only changes
+(177/177 — this stage touched no application code). `diet-plan.http`,
+local-dev `uvicorn`, and the local `alembic` command from the new README
+were each executed for real against this repo, not just written from
+inspection.
 
 ---
 

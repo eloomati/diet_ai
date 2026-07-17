@@ -1,3 +1,4 @@
+import json
 import time
 
 import anthropic
@@ -38,6 +39,17 @@ class ClaudeProvider(LLMProvider):
         messages = [{"role": turn.role, "content": turn.content} for turn in prompt.conversation_history]
         messages.append({"role": "user", "content": prompt.question})
         return messages
+
+    async def generate_structured_response(self, prompt: Prompt, schema: dict) -> dict:
+        response = await self._client.messages.create(
+            model=self._model,
+            max_tokens=4096,
+            system=prompt.system_prompt,
+            messages=self._build_messages(prompt),
+            output_config={"format": {"type": "json_schema", "schema": schema}},
+        )
+        text = next((block.text for block in response.content if block.type == "text"), "")
+        return json.loads(text)
 
     async def aclose(self) -> None:
         await self._client.close()

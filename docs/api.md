@@ -504,24 +504,31 @@ Module:
 Nutrition
 ```
 
+All endpoints below require `Authorization: Bearer {access_token}` and a
+nutrition profile must already exist for the caller (`POST /profile` —
+see Nutrition Profile API above). `goal` and `diet_type` are **not**
+request fields — they're read from the caller's existing
+`NutritionProfile`, the same way chat responses are personalized from it.
+
 ---
 
 ## POST /diet-plans/generate
 
-Generates personalized diet plan using AI.
+Generates a personalized, structured multi-day diet plan using AI, seeded
+from the caller's nutrition profile plus optional free-text requirements.
 
 ### Request
 
 ```json
 {
-  "goal": "MUSCLE_GAIN",
-  "durationDays": 7,
-  "requirements": [
-    "high protein",
-    "vegetarian breakfast"
-  ]
+  "duration_days": 3,
+  "requirements": ["high protein breakfasts"]
 }
 ```
+
+`duration_days`: 1-14 (422 `VALIDATION_ERROR` outside that range).
+`requirements`: optional list of free-text hints — omit or send `null`/`[]`
+for none.
 
 ### Response
 
@@ -535,11 +542,15 @@ Body:
 
 ```json
 {
-  "id": "diet-plan-id",
-  "durationDays": 7,
+  "plan_id": "uuid",
+  "user_id": "uuid",
+  "goal": "MUSCLE_GAIN",
+  "diet_type": "VEGETARIAN",
+  "duration_days": 3,
+  "requirements": ["high protein breakfasts"],
   "days": [
     {
-      "day": 1,
+      "day_number": 1,
       "meals": [
         {
           "name": "Protein oatmeal",
@@ -550,26 +561,74 @@ Body:
         }
       ]
     }
-  ]
+  ],
+  "created_at": "2026-01-01T10:00:00Z"
 }
+```
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — caller has no nutrition profile yet (create
+                one via POST /profile first)
+500 Internal Server Error code=INTERNAL_ERROR — the AI provider returned a
+                malformed/unparseable plan; retried once internally
+                (Ollama only) before giving up — no silent fallback to a
+                broken plan. Rare with Claude (native structured output);
+                more likely with the small local Ollama model, especially
+                when `requirements` is non-empty — retrying the request
+                usually succeeds.
 ```
 
 ---
 
 ## GET /diet-plans
 
-Returns generated diet plans.
+Lists the caller's own generated diet plans, newest first (summary only —
+no `days`/`meals`).
 
 ### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
 
 ```json
 [
   {
-    "id": "diet-plan-id",
+    "plan_id": "uuid",
     "goal": "MUSCLE_GAIN",
-    "createdAt": "2026-01-01T10:00:00Z"
+    "diet_type": "VEGETARIAN",
+    "duration_days": 3,
+    "created_at": "2026-01-01T10:00:00Z"
   }
 ]
+```
+
+---
+
+## GET /diet-plans/{diet_plan_id}
+
+Returns one full diet plan (with `days`/`meals`) — same body shape as the
+`POST /diet-plans/generate` response.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another
+                user (not distinguished, so existence isn't leaked)
 ```
 
 ---
