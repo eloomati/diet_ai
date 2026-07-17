@@ -11,6 +11,14 @@ class Settings(BaseSettings):
     api_prefix: str = "/api/v1"
     log_level: str = "INFO"
 
+    # Database
+    postgres_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/diet_ai"
+    mongo_url: str = "mongodb://localhost:27017"
+
+    # AI
+    use_mock_ai: bool = True
+    openai_api_key: str | None = None
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
