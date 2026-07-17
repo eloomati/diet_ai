@@ -26,6 +26,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    jwt_secret_key: str = "change-me-in-env"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_minutes: int = 15
+    jwt_refresh_token_days: int = 7
+
     def __init__(self, **data):
         super().__init__(**data)
         if os.getenv("TESTING") or self.app_env == "test":
