@@ -13,6 +13,7 @@ from backend.modules.conversation.application import (
     SendMessageUseCase,
 )
 from backend.modules.conversation.tests.fakes import InMemoryConversationRepository
+from backend.modules.nutrition.tests.fakes import InMemoryNutritionProfileRepository
 
 
 @pytest.mark.asyncio
@@ -25,7 +26,9 @@ async def test_get_conversation_history_returns_messages() -> None:
     )
     conversation_id = UUID(created.conversation_id)
 
-    await SendMessageUseCase(repo, FakeLLMProvider(canned_response="Try oatmeal.")).execute(
+    await SendMessageUseCase(
+        repo, FakeLLMProvider(canned_response="Try oatmeal."), InMemoryNutritionProfileRepository()
+    ).execute(
         SendMessageCommand(conversation_id=conversation_id, user_id=user_id, content="Hi")
     )
 

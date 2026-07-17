@@ -20,7 +20,10 @@ Phase 2  - Database Setup           DONE (Postgres + Mongo/Beanie both wired; Be
                                      Nutrition's collections still pending Phase 4)
 Phase 3  - Identity Module          DONE (register, login, refresh, me; JWT; unified
                                      error format; real-DB + fake-based tests)
-Phase 4  - User Profile (Nutrition) NOT STARTED (empty skeleton only)
+Phase 4  - User Profile (Nutrition) Stages 1-5 DONE — profile CRUD + wired into
+                                     the AI prompt, verified end-to-end on the
+                                     real Docker stack. Only Stage 6 (docs/http
+                                     sync) is left open.
 Phase 5/6 - Conversation + AI       DONE — chat MVP is functional end-to-end
                                      (register → login → create conversation →
                                      send message → AI response → history),
@@ -32,10 +35,11 @@ Phase 7+ - Diet Generation/Frontend/Testing/Future  NOT STARTED
 ```
 
 **Conversation + AI ("chat MVP") is complete** — see the detailed stage log
-under Phase 5/6 below. Nutrition Profile (Phase 4) is next; it was deferred
-behind this milestone since chatting with the AI doesn't strictly need profile
-personalization for a first version (`Prompt.userProfile` can be added once
-Nutrition exists).
+under Phase 5/6 below. **Nutrition Profile (Phase 4) is now also complete
+through Stage 5** — profile CRUD exists and `SendMessageUseCase` folds
+`profile.as_prompt_text()` into the AI prompt when one exists, verified
+end-to-end against the real Docker stack (Ollama). Only Stage 6 (docs/http
+sync) remains before both phases are fully closed out.
 
 ---
 
@@ -404,22 +408,34 @@ end-to-end on the real Docker stack too (create → get → update → duplicate
 
 ---
 
-## Stage 5 — Wire into the AI prompt (the actual point of this phase)
+## Stage 5 — Wire into the AI prompt (the actual point of this phase) — DONE
 
-- [ ] `SendMessageUseCase` gains a `NutritionProfileRepository` dependency,
+- [x] `SendMessageUseCase` gains a `NutritionProfileRepository` dependency,
       looks up the requesting user's profile (if any — chatting must still
       work with no profile set), and passes
       `user_profile=profile.as_prompt_text()` into `PromptBuilder.build()`.
-- [ ] `conversation_dependencies.get_send_message_use_case` wires the new
-      repository dependency alongside the existing conversation repo + LLM provider.
-- [ ] Test: sending a message as a user *with* a saved profile actually
-      includes profile text in the composed `Prompt.system_prompt` — same
-      style of assertion as Stage 4's
-      `test_prompt_builder_folds_in_user_profile_when_given`, but now exercised
-      through the real use case instead of passed manually.
-- [ ] Manual end-to-end smoke test against the real Docker stack (Ollama),
-      same verification style used for every other stage — confirm the AI's
-      answer actually changes based on profile content (e.g. stated goal).
+- [x] `conversation_dependencies.get_send_message_use_case` wires the new
+      repository dependency (`get_nutrition_profile_repository`) alongside the
+      existing conversation repo + LLM provider — cross-module DI, `conversation`
+      depends on `nutrition`'s domain port + Mongo implementation directly
+      (one-directional; `nutrition` has no knowledge of `conversation`).
+- [x] `FakeLLMProvider` (ai module test double) gained a `last_prompt` attribute
+      so tests can assert on the exact composed `Prompt` a use case produced,
+      not just the canned response.
+- [x] Tests: `test_send_message_includes_nutrition_profile_in_prompt` (profile
+      text appears in `Prompt.system_prompt` when one exists) and
+      `test_send_message_without_nutrition_profile_still_works` (no profile ⇒
+      still succeeds, no crash) — both exercised through the real
+      `SendMessageUseCase`, not `PromptBuilder` directly. 2 tests added, full
+      suite at 144/144 passing.
+- [x] Manual end-to-end smoke test against the real Docker stack (Ollama):
+      created a profile (`VEGAN`, `WEIGHT_LOSS`, `LOW` activity), asked "What
+      should I eat for dinner tonight?" in a `DIET` conversation — the model's
+      answer was fully vegan (tempeh + roasted vegetables, no animal products
+      or dairy anywhere), confirming the profile actually reaches the prompt.
+      Repeated with a fresh user with **no** profile — request still succeeded
+      (HTTP 201) with a generic (non-personalized) answer, confirming the
+      optional-profile path doesn't break the base flow.
 
 ---
 
