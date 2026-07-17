@@ -833,32 +833,46 @@ zero infra deps. 7 tests added (`test_diet_plan_entity.py`), full suite at
 
 ---
 
-## Stage 2 — Application
+## Stage 2 — Application — DONE
 
 `modules/nutrition/application/`:
-- [ ] `dto/generate_diet_plan_dto.py` — `GenerateDietPlanCommand` (`user_id`,
-      `duration_days`, `requirements: list[str] | None`),
+- [x] `dto/diet_plan_dto.py` — `GenerateDietPlanCommand` (`user_id`,
+      `duration_days`, `requirements: tuple[str, ...] | None`),
+      `ListDietPlansQuery`, `GetDietPlanQuery`, `MealResult`/`DietDayResult`/
       `DietPlanResult`/`DietPlanSummaryResult` (`from_domain()` classmethods,
       mirroring `NutritionProfileResult`).
-- [ ] `use_cases/generate_diet_plan_use_case.py` — looks up the caller's
-      `NutritionProfile` (required this time, unlike chat — no profile means
-      no personalization basis, so raise a domain-level "profile required"
-      error, not a silent generic plan), builds a structured prompt via a new
-      `DietPlanPromptBuilder` (in `ai/application/`, mirroring
-      `PromptBuilder`'s shape but emitting a JSON-schema-oriented system
-      prompt + the fixed schema dict), calls
-      `LLMProvider.generate_structured_response`, maps the returned dict into
-      `DietPlan.create(...)`, saves, returns `DietPlanResult`.
-- [ ] `use_cases/list_diet_plans_use_case.py`, `get_diet_plan_use_case.py`
-      (ownership check — 404 for another user's plan, same
-      don't-leak-existence shape as Conversation/Nutrition).
-- [ ] `tests/fakes.py` — `InMemoryDietPlanRepository`; extend
-      `ai/tests/fakes.py`'s `FakeLLMProvider` with a
-      `generate_structured_response` implementation (returns a canned dict,
-      captures the schema/prompt it received like `last_prompt` does).
+- [x] `use_cases/generate_diet_plan_use_case.py` — looks up the caller's
+      `NutritionProfile` and **reuses the existing
+      `NutritionProfileNotFoundError`** when it's missing (deliberate reuse,
+      not a new error type — "you need a profile before generating a plan"
+      is the same shape as "you need a profile before chatting gets
+      personalized", and it already maps to 404 at the API layer). Builds a
+      structured prompt via the new `DietPlanPromptBuilder` (in
+      `ai/application/`), calls `LLMProvider.generate_structured_response`,
+      maps the returned dict into `DietPlan.create(...)`, saves, returns
+      `DietPlanResult`.
+- [x] `use_cases/list_diet_plans_use_case.py`, `get_diet_plan_use_case.py` —
+      new `DietPlanNotFoundError` for the get-by-id case (ownership check —
+      404 for another user's plan, same don't-leak-existence shape as
+      Conversation/Nutrition).
+- [x] `ai/application/diet_plan_prompt_builder.py` — `DietPlanPromptBuilder`:
+      `build()` composes the question + a dietitian-framed system prompt;
+      `build_schema()` returns the JSON schema passed to
+      `generate_structured_response`. **Deliberately no `minItems`/`maxItems`
+      on the `days` array** — Claude's structured-output schema support
+      excludes complex array constraints, so the exact day count is
+      enforced by `DietPlan.create()` after parsing instead.
+- [x] `tests/fakes.py` — `InMemoryDietPlanRepository`; extended
+      `ai/tests/fakes.py`'s `FakeLLMProvider` with
+      `generate_structured_response` (takes an explicit
+      `canned_structured_response` dict per test, captures `last_prompt` +
+      `last_schema`).
 
 Exit criteria: use case tests pass against fakes only, no real DB/HTTP —
-including a test that no-profile raises before ever calling the LLM.
+including a test that no-profile raises before ever calling the LLM
+(`test_generate_diet_plan_without_profile_raises`). 12 tests added
+(`test_generate_diet_plan_use_case.py`, `test_diet_plan_query_use_cases.py`),
+full suite at 159/159 passing.
 
 ---
 

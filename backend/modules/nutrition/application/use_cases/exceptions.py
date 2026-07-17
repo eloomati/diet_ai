@@ -8,3 +8,7 @@ class NutritionProfileAlreadyExistsError(NutritionApplicationError):
 
 class NutritionProfileNotFoundError(NutritionApplicationError):
     pass
+
+
+class DietPlanNotFoundError(NutritionApplicationError):
+    pass
