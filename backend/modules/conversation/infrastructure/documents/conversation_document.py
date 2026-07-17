@@ -3,6 +3,7 @@ from uuid import UUID, uuid4
 
 from beanie import Document
 from pydantic import BaseModel, Field
+from pymongo import ASCENDING, IndexModel
 
 
 class MessageEmbedded(BaseModel):
@@ -25,3 +26,8 @@ class ConversationDocument(Document):
 
     class Settings:
         name = "conversations"
+        # list_by_user filters on this field — without the index it's a full
+        # collection scan, and gets worse as conversations accumulate.
+        indexes = [
+            IndexModel([("user_id", ASCENDING)], name="ix_conversations_user_id"),
+        ]

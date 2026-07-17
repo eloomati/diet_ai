@@ -79,3 +79,12 @@ async def test_list_by_user_returns_only_own_conversations(repository: MongoConv
     conversations = await repository.list_by_user(user_id)
 
     assert {c.title for c in conversations} == {"Breakfast ideas", "Leg day"}
+
+
+@pytest.mark.asyncio
+async def test_user_id_index_is_created(repository: MongoConversationRepository) -> None:
+    collection = ConversationDocument.get_pymongo_collection()
+
+    index_info = await collection.index_information()
+
+    assert any(("user_id", 1) in spec["key"] for spec in index_info.values())
