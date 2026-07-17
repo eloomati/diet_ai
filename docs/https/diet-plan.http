@@ -1,0 +1,176 @@
+### Diet Plan MVP smoke tests
+### Base URL (zmień jeśli backend działa na innym porcie/hoście)
+@baseUrl = http://localhost:8000
+@authPrefix = /api/v1/auth
+@profilePrefix = /api/v1/profile
+@dietPlansPrefix = /api/v1/diet-plans
+
+### Dane testowego użytkownika
+@email = dietplan.demo@example.com
+@password = StrongPass123
+
+### =========================
+### 1) Register
+### =========================
+POST {{baseUrl}}{{authPrefix}}/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### =========================
+### 2) Login (zapis tokena do zmiennej)
+### =========================
+# @name login
+POST {{baseUrl}}{{authPrefix}}/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+> {%
+  client.global.set("access_token", response.body.access_token);
+%}
+
+### =========================
+### 3) Generate przed utworzeniem profilu
+### Oczekiwane: 404 + code NOT_FOUND (profil wymagany przed generowaniem planu)
+### =========================
+POST {{baseUrl}}{{dietPlansPrefix}}/generate
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "duration_days": 3
+}
+
+### =========================
+### 4) Create nutrition profile (wymagany do generowania planu)
+### =========================
+POST {{baseUrl}}{{profilePrefix}}
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "age": 29,
+  "height_cm": 187,
+  "weight_kg": 80,
+  "activity_level": "HIGH",
+  "goal": "MUSCLE_GAIN",
+  "diet_type": "VEGETARIAN"
+}
+
+### =========================
+### 5) Generate diet plan (realna odpowiedź AI — zależnie od AI_PROVIDER,
+### z Ollama na małym modelu (llama3.2:1b) może potrwać ~30-60s).
+### Uwaga: bez "requirements" — empirycznie dużo bardziej niezawodne na
+### małym lokalnym modelu niż z requirements (patrz krok 5b niżej).
+### =========================
+# @name generatePlan
+POST {{baseUrl}}{{dietPlansPrefix}}/generate
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "duration_days": 2
+}
+
+> {%
+  client.global.set("plan_id", response.body.plan_id);
+%}
+
+### =========================
+### 5b) Generate z dodatkowym "requirements" (opcjonalne, do ręcznego testu)
+### Uwaga: z AI_PROVIDER=ollama + llama3.2:1b to bywa zawodne — wolny lokalny
+### model czasem dodaje własne klucze (np. "snacks") zamiast trzymać się
+### schematu nawet po jednym retry, co kończy się 500 (patrz
+### ollama_provider.py — celowe "fail loud", nie cichy fallback na zły plan).
+### Z AI_PROVIDER=claude ten problem nie występuje (natywny structured output).
+### =========================
+POST {{baseUrl}}{{dietPlansPrefix}}/generate
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "duration_days": 2,
+  "requirements": ["high protein breakfasts"]
+}
+
+### =========================
+### 6) List diet plans (właściciela)
+### =========================
+GET {{baseUrl}}{{dietPlansPrefix}}
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 7) Get diet plan by id (pełen plan z posiłkami)
+### =========================
+GET {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 8) Negatywny test: brak tokena
+### Oczekiwane: 401 + code INVALID_ACCESS_TOKEN
+### =========================
+GET {{baseUrl}}{{dietPlansPrefix}}
+
+### =========================
+### 9) Negatywny test: nieprawidłowy duration_days (poza zakresem 1-14)
+### Oczekiwane: 422 + code VALIDATION_ERROR
+### =========================
+POST {{baseUrl}}{{dietPlansPrefix}}/generate
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "duration_days": 30
+}
+
+### =========================
+### 10) Negatywny test: nieistniejący plan
+### Oczekiwane: 404 + code NOT_FOUND
+### =========================
+GET {{baseUrl}}{{dietPlansPrefix}}/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 11) Drugi użytkownik — register + login (do testu izolacji danych)
+### =========================
+POST {{baseUrl}}{{authPrefix}}/register
+Content-Type: application/json
+
+{
+  "email": "dietplan.other@example.com",
+  "password": "StrongPass123"
+}
+
+###
+# @name loginOther
+POST {{baseUrl}}{{authPrefix}}/login
+Content-Type: application/json
+
+{
+  "email": "dietplan.other@example.com",
+  "password": "StrongPass123"
+}
+
+> {%
+  client.global.set("other_access_token", response.body.access_token);
+%}
+
+### =========================
+### 12) Negatywny test: drugi user nie widzi cudzego planu
+### Oczekiwane: 404 + code NOT_FOUND (nie zdradzamy, że plan istnieje)
+### =========================
+GET {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}
+Authorization: Bearer {{other_access_token}}
+
+### =========================
+### 13) Negatywny test: drugi user widzi pustą listę własnych planów
+### =========================
+GET {{baseUrl}}{{dietPlansPrefix}}
+Authorization: Bearer {{other_access_token}}

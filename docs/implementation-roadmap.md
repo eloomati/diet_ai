@@ -16,8 +16,8 @@ Each phase should result in a working part of the system.
 Phase 0  - Project Bootstrap        DONE
 Phase 1  - Architecture Skeleton    DONE (module folders + hexagonal layout scaffolded)
 Phase 2  - Database Setup           DONE (Postgres + Mongo/Beanie both wired; Beanie
-                                     currently only registers Conversation's document —
-                                     Nutrition's collections still pending Phase 4)
+                                     registers Conversation, NutritionProfile, and
+                                     DietPlan documents)
 Phase 3  - Identity Module          DONE (register, login, refresh, me; JWT; unified
                                      error format; real-DB + fake-based tests)
 Phase 4  - User Profile (Nutrition) DONE — profile CRUD wired into the AI
@@ -27,19 +27,23 @@ Phase 5/6 - Conversation + AI       DONE — chat MVP is functional end-to-end
                                      (register → login → create conversation →
                                      send message → AI response → history),
                                      verified against the real Docker stack.
-                                     Providers: Mock/Claude/Ollama, not OpenAI
-                                     — see Stage 4. Only Stage 6's doc-sync
-                                     spot-check is left open.
-Phase 7  - Diet Generation          IN PROGRESS — Stage 1 (domain) DONE,
-                                     see the staged breakdown below.
+                                     Providers: Mock/Claude/Ollama, not OpenAI.
+Phase 7  - Diet Generation          DONE — structured multi-day diet plan
+                                     generation (POST /diet-plans/generate,
+                                     GET /diet-plans, GET /diet-plans/{id}),
+                                     verified end-to-end on the real Docker
+                                     stack with Ollama. See the 6-stage log
+                                     below, including a real reliability
+                                     finding for the small local model.
 Phase 8+ - Frontend/Testing/Future  NOT STARTED
 ```
 
-**Conversation + AI ("chat MVP") is complete** — see the detailed stage log
-under Phase 5/6 below. **Nutrition Profile (Phase 4) is now also complete** —
-profile CRUD exists, `SendMessageUseCase` folds `profile.as_prompt_text()`
-into the AI prompt when one exists, and docs/`.http` files are synced to the
-shipped contract. Both milestones are fully closed out; Phase 7+ is next.
+**Phases 3 through 7 are complete** — Identity, Nutrition Profile,
+Conversation + AI chat, and Diet Plan generation all work end-to-end against
+the real Docker stack, with docs (`architecture.md`, `domain-model.md`,
+`api.md`, `docs/https/*.http`) and `README.md` synced to match. Phase 8+
+(Frontend, broader Reporting) is next — see that section below for the
+sparse original draft, not yet split into stages.
 
 ---
 
@@ -1010,17 +1014,77 @@ still 404s.
 
 ---
 
-## Stage 6 — Tests & docs sync
+## Stage 6 — Tests & docs sync — DONE
 
-- [ ] `docs/https/diet-plan.http`.
-- [ ] `docs/api.md` Diet Plan API section rewritten to the shipped
-      snake_case shape (the current draft already sketches the right
-      contract shape but uses camelCase — align field names, add real error
-      codes).
-- [ ] `architecture.md`/`domain-model.md` spot-check — `DietPlan`/`DietDay`/
-      `Meal` marked implemented; note the `LLMProvider.
-      generate_structured_response` addition in the AI Module section.
-- [ ] Roadmap status table updated.
+- [x] `docs/https/diet-plan.http` — register → login → generate-without-profile
+      404 → create profile → generate (2 days, no requirements) → generate
+      with `requirements` (marked flaky on Ollama, see finding below) → list →
+      get by id → no-token 401 → invalid-duration 422 → get-unknown-id 404 →
+      second-user isolation (404 on the first user's plan, empty list). All
+      steps replayed manually against the real Docker stack.
+- [x] `docs/api.md` Diet Plan API section rewritten to the shipped
+      snake_case shape — real request/response fields (`goal`/`diet_type`
+      come from the profile, not the request), all three endpoints
+      documented (the original draft only had two), and real error codes
+      including the 500 case for a malformed AI response.
+- [x] `architecture.md` — Nutrition Module section: `DietPlan`/`DietDay`/
+      `Meal` marked implemented (were "future"); added a description of the
+      generate flow and its profile-required 404. New **AI Module**
+      subsection "Structured output" documenting `generate_structured_response`
+      and how each provider (Claude/Ollama/Mock) implements it, including the
+      real-model prompting finding from Stage 3.
+- [x] `domain-model.md` — `DietPlan`/`DietDay`/`Meal` sections rewritten:
+      real field names (`duration_days`, `day_number`, not the original
+      draft's `duration`/`date`), `DietDay`/`Meal` reclassified from "Entity"
+      to "Value Object" (they're embedded, no identity of their own —
+      matches how they're actually modeled), dropped the never-implemented
+      `description`/`ingredients`/`Ingredient` fields from the original
+      sparse draft.
+- [x] **Reliability finding from re-testing `diet-plan.http` against real
+      Ollama**: even after Stage 3's prompt fix, `llama3.2:1b` can still
+      invent extra keys (e.g. `"snacks_and_refills"`) and exhaust the
+      retry-once, especially when free-text `requirements` are present —
+      reproduced this on both a 2-day and 3-day plan with requirements
+      (500), while the identical request *without* requirements succeeded
+      reliably (201, ~31s). This isn't a new bug: it's the documented,
+      accepted "fail loud" behavior for a 1B-parameter local model doing
+      structured generation (Stage 3's `RuntimeError` design existed
+      specifically for this case) — but it was real news that even the
+      improved prompt doesn't make it fully reliable with `requirements`
+      set. Documented in `architecture.md`, `api.md`, and `diet-plan.http`
+      itself so nobody mistakes an occasional 500 here for a regression;
+      not chased further since Claude's native structured output already
+      solves this for anyone using `AI_PROVIDER=claude`.
+- [x] **`README.md` — full rewrite**, not just a status-table touch-up: the
+      previous version was the original pre-implementation planning draft
+      (OpenAI instead of Claude/Ollama, Motor instead of Beanie's native
+      PyMongo client, Python 3.13 instead of 3.12, a status table showing
+      everything "⏳ in progress" despite Phases 3-7 being done, broken
+      `docs/` references to files that were never created). Added a
+      prominent **Getting Started** section up front covering: prerequisites,
+      the exact `docker compose up -d --build` quick-start with a
+      service/port table, what happens automatically on first boot (Ollama
+      model pull, Alembic migrations), how to verify it's running, how to
+      exercise the full flow via `docs/https/*.http`, how AI provider
+      selection actually works (and its real limitation — `docker-compose.yml`
+      sets env vars as literals with no `.env`/`${VAR}` substitution wired
+      up, so switching providers under Docker means editing the compose
+      file directly, not just copying `.env.example`), running without
+      Docker, and running the test suite. **Every command in this section
+      was actually run during this stage, not just written from reading the
+      code** — this caught a real inaccuracy: Alembic reads `DATABASE_URL`
+      (a sync `psycopg2` URL), not the app's own `POSTGRES_URL` (async
+      `asyncpg`, used by `.env`) — a first draft of the local-dev
+      instructions silently pointed at the wrong hostname
+      (`alembic.ini`'s built-in default is the Docker service name `db`)
+      and would have failed for anyone following it outside Docker.
+- [x] Roadmap status table updated (this file).
+
+Exit criteria: full suite still green after the docs-only changes
+(177/177 — this stage touched no application code). `diet-plan.http`,
+local-dev `uvicorn`, and the local `alembic` command from the new README
+were each executed for real against this repo, not just written from
+inspection.
 
 ---
 
