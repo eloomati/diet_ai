@@ -1,0 +1,80 @@
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, status
+
+from backend.modules.identity.api.dependencies import get_current_user
+from backend.modules.identity.domain import User
+from backend.modules.nutrition.api.dependencies import (
+    get_diet_plan_use_case,
+    get_generate_diet_plan_use_case,
+    get_list_diet_plans_use_case,
+)
+from backend.modules.nutrition.api.schemas import (
+    DietPlanResponse,
+    DietPlanSummaryResponse,
+    GenerateDietPlanRequest,
+)
+from backend.modules.nutrition.application import (
+    DietPlanNotFoundError,
+    GenerateDietPlanCommand,
+    GenerateDietPlanUseCase,
+    GetDietPlanQuery,
+    GetDietPlanUseCase,
+    ListDietPlansQuery,
+    ListDietPlansUseCase,
+    NutritionProfileNotFoundError,
+)
+from backend.shared.exceptions import AppException, ErrorCode
+
+router = APIRouter(prefix="/diet-plans", tags=["nutrition"])
+
+
+@router.post("/generate", response_model=DietPlanResponse, status_code=status.HTTP_201_CREATED)
+async def generate_diet_plan(
+    request: GenerateDietPlanRequest,
+    current_user: User = Depends(get_current_user),
+    use_case: GenerateDietPlanUseCase = Depends(get_generate_diet_plan_use_case),
+) -> DietPlanResponse:
+    try:
+        result = await use_case.execute(
+            GenerateDietPlanCommand(
+                user_id=current_user.id,
+                duration_days=request.duration_days,
+                requirements=request.requirements,
+            )
+        )
+    except NutritionProfileNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message=str(exc),
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+    return DietPlanResponse.from_result(result)
+
+
+@router.get("", response_model=list[DietPlanSummaryResponse], status_code=status.HTTP_200_OK)
+async def list_diet_plans(
+    current_user: User = Depends(get_current_user),
+    use_case: ListDietPlansUseCase = Depends(get_list_diet_plans_use_case),
+) -> list[DietPlanSummaryResponse]:
+    results = await use_case.execute(ListDietPlansQuery(user_id=current_user.id))
+    return [DietPlanSummaryResponse.from_result(result) for result in results]
+
+
+@router.get("/{diet_plan_id}", response_model=DietPlanResponse, status_code=status.HTTP_200_OK)
+async def get_diet_plan(
+    diet_plan_id: UUID,
+    current_user: User = Depends(get_current_user),
+    use_case: GetDietPlanUseCase = Depends(get_diet_plan_use_case),
+) -> DietPlanResponse:
+    try:
+        result = await use_case.execute(GetDietPlanQuery(user_id=current_user.id, plan_id=diet_plan_id))
+    except DietPlanNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message=str(exc),
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+    return DietPlanResponse.from_result(result)

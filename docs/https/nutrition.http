@@ -1,0 +1,178 @@
+### Nutrition Profile MVP smoke tests
+### Base URL (zmień jeśli backend działa na innym porcie/hoście)
+@baseUrl = http://localhost:8000
+@authPrefix = /api/v1/auth
+@profilePrefix = /api/v1/profile
+@conversationsPrefix = /api/v1/conversations
+
+### Dane testowego użytkownika
+@email = nutrition.demo@example.com
+@password = StrongPass123
+
+### =========================
+### 1) Register
+### =========================
+POST {{baseUrl}}{{authPrefix}}/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### =========================
+### 2) Login (zapis tokena do zmiennej)
+### =========================
+# @name login
+POST {{baseUrl}}{{authPrefix}}/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+> {%
+  client.global.set("access_token", response.body.access_token);
+%}
+
+### =========================
+### 3) Get profile przed utworzeniem
+### Oczekiwane: 404 + code NOT_FOUND
+### =========================
+GET {{baseUrl}}{{profilePrefix}}
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 4) Create profile
+### =========================
+POST {{baseUrl}}{{profilePrefix}}
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "age": 29,
+  "height_cm": 187,
+  "weight_kg": 80,
+  "activity_level": "HIGH",
+  "goal": "MUSCLE_GAIN",
+  "diet_type": "VEGETARIAN"
+}
+
+### =========================
+### 5) Get profile po utworzeniu
+### =========================
+GET {{baseUrl}}{{profilePrefix}}
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 6) Negatywny test: utworzenie drugiego profilu
+### Oczekiwane: 409 + code CONFLICT
+### =========================
+POST {{baseUrl}}{{profilePrefix}}
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "age": 29,
+  "height_cm": 187,
+  "weight_kg": 80,
+  "activity_level": "HIGH",
+  "goal": "MUSCLE_GAIN",
+  "diet_type": "VEGETARIAN"
+}
+
+### =========================
+### 7) Update profile (częściowy — tylko wskazane pola się zmieniają)
+### =========================
+PUT {{baseUrl}}{{profilePrefix}}
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "weight_kg": 82,
+  "activity_level": "VERY_HIGH"
+}
+
+### =========================
+### 8) Negatywny test: nieprawidłowy wiek
+### Oczekiwane: 422 + code VALIDATION_ERROR
+### =========================
+POST {{baseUrl}}{{profilePrefix}}
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "age": 200,
+  "height_cm": 187,
+  "weight_kg": 80,
+  "activity_level": "HIGH",
+  "goal": "MUSCLE_GAIN",
+  "diet_type": "VEGETARIAN"
+}
+
+### =========================
+### 9) Negatywny test: brak tokena
+### Oczekiwane: 401 + code INVALID_ACCESS_TOKEN
+### =========================
+GET {{baseUrl}}{{profilePrefix}}
+
+### =========================
+### 10) Drugi użytkownik — bez profilu (izolacja danych)
+### =========================
+POST {{baseUrl}}{{authPrefix}}/register
+Content-Type: application/json
+
+{
+  "email": "nutrition.other@example.com",
+  "password": "StrongPass123"
+}
+
+###
+# @name loginOther
+POST {{baseUrl}}{{authPrefix}}/login
+Content-Type: application/json
+
+{
+  "email": "nutrition.other@example.com",
+  "password": "StrongPass123"
+}
+
+> {%
+  client.global.set("other_access_token", response.body.access_token);
+%}
+
+### =========================
+### 11) Drugi user nie widzi cudzego profilu
+### Oczekiwane: 404 + code NOT_FOUND (własny profil nie istnieje)
+### =========================
+GET {{baseUrl}}{{profilePrefix}}
+Authorization: Bearer {{other_access_token}}
+
+### =========================
+### 12) Weryfikacja Stage 5: profil wpływa na odpowiedź AI
+### Utwórz konwersację i wyślij wiadomość — odpowiedź powinna
+### uwzględniać ustawiony profil (np. VEGETARIAN z kroku 4/7).
+### =========================
+# @name createConversation
+POST {{baseUrl}}{{conversationsPrefix}}
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "title": "Dinner ideas",
+  "category": "DIET"
+}
+
+> {%
+  client.global.set("conversation_id", response.body.conversation_id);
+%}
+
+###
+POST {{baseUrl}}{{conversationsPrefix}}/{{conversation_id}}/messages
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "content": "What should I eat for dinner tonight?"
+}

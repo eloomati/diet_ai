@@ -53,9 +53,11 @@ Creates a new user account.
 ```json
 {
   "email": "user@example.com",
-  "password": "password123"
+  "password": "StrongPass123"
 }
 ```
+
+Password: 8-128 characters, must satisfy `PasswordPolicy` (see domain-model.md).
 
 ### Response
 
@@ -69,44 +71,31 @@ Body:
 
 ```json
 {
-  "id": "uuid",
-  "email": "user@example.com",
-  "createdAt": "2026-01-01T10:00:00Z"
+  "user_id": "uuid",
+  "email": "user@example.com"
 }
 ```
 
 ### Errors
 
-400 Bad Request
+400 Bad Request — `INVALID_PASSWORD` (fails password policy)
 
-```json
-{
-  "code": "INVALID_EMAIL",
-  "message": "Email format is invalid"
-}
-```
+422 Unprocessable Entity — `VALIDATION_ERROR` (malformed email / missing fields)
 
-409 Conflict
-
-```json
-{
-  "code": "USER_ALREADY_EXISTS",
-  "message": "User with this email already exists"
-}
-```
+409 Conflict — `USER_ALREADY_EXISTS`
 
 ---
 
 ## POST /auth/login
 
-Authenticates a user.
+Authenticates a user and issues a token pair.
 
 ### Request
 
 ```json
 {
   "email": "user@example.com",
-  "password": "password123"
+  "password": "StrongPass123"
 }
 ```
 
@@ -122,34 +111,34 @@ Body:
 
 ```json
 {
-  "accessToken": "jwt-token",
-  "refreshToken": "refresh-token",
-  "expiresIn": 3600
+  "access_token": "jwt-token",
+  "refresh_token": "refresh-token",
+  "token_type": "bearer"
 }
 ```
+
+`access_token` TTL: `JWT_ACCESS_TTL_MINUTES` (default 15 min).
+`refresh_token` TTL: `JWT_REFRESH_TTL_DAYS` (default 7 days).
 
 ### Errors
 
-401 Unauthorized
+401 Unauthorized — `INVALID_CREDENTIALS`
 
-```json
-{
-  "code": "INVALID_CREDENTIALS",
-  "message": "Invalid email or password"
-}
-```
+403 Forbidden — `INACTIVE_USER`
 
 ---
 
 ## POST /auth/refresh
 
-Creates a new access token using refresh token.
+Rotates a refresh token: the token sent in the request is invalidated and a new
+access/refresh pair is issued. Reusing an already-rotated (or expired/unknown)
+refresh token is rejected.
 
 ### Request
 
 ```json
 {
-  "refreshToken": "refresh-token"
+  "refresh_token": "refresh-token"
 }
 ```
 
@@ -157,10 +146,51 @@ Creates a new access token using refresh token.
 
 ```json
 {
-  "accessToken": "new-jwt-token",
-  "expiresIn": 3600
+  "access_token": "new-jwt-token",
+  "refresh_token": "new-refresh-token",
+  "token_type": "bearer"
 }
 ```
+
+### Errors
+
+401 Unauthorized — `INVALID_REFRESH_TOKEN`
+
+403 Forbidden — `INACTIVE_USER`
+
+---
+
+## GET /auth/me
+
+Returns the authenticated user.
+
+Authentication:
+
+Required — `Authorization: Bearer {access_token}`.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "user_id": "uuid",
+  "email": "user@example.com",
+  "status": "ACTIVE"
+}
+```
+
+### Errors
+
+401 Unauthorized — `INVALID_ACCESS_TOKEN` (missing/malformed/expired token, or token references a deleted user)
+
+403 Forbidden — `INACTIVE_USER`
 
 ---
 
@@ -180,46 +210,75 @@ MongoDB
 
 ---
 
+All endpoints below require `Authorization: Bearer {access_token}`.
+
+Enums:
+
+```
+activity_level: LOW | MODERATE | HIGH | VERY_HIGH
+goal:           WEIGHT_LOSS | MUSCLE_GAIN | MAINTENANCE | PERFORMANCE
+diet_type:      STANDARD | VEGETARIAN | VEGAN | KETO | PALEO | GLUTEN_FREE
+```
+
+One profile per user — `POST` on a user who already has one returns `409`.
+
 ## GET /profile
 
-Returns authenticated user's nutrition profile.
-
-Authentication:
-
-Required.
+Returns the authenticated user's nutrition profile.
 
 ### Response
 
+Status:
+
+```
+200 OK
+```
+
+Body:
+
 ```json
 {
-  "id": "uuid",
+  "profile_id": "uuid",
+  "user_id": "uuid",
   "age": 29,
-  "height": 187,
-  "weight": 80,
-  "activityLevel": "HIGH",
+  "height_cm": 187,
+  "weight_kg": 80.0,
+  "activity_level": "HIGH",
   "goal": "MUSCLE_GAIN",
-  "dietType": "VEGETARIAN"
+  "diet_type": "VEGETARIAN",
+  "created_at": "2026-01-01T10:00:00Z",
+  "updated_at": "2026-01-01T10:00:00Z"
 }
+```
+
+Errors:
+
+```
+404 Not Found  code=NOT_FOUND        — user has no profile yet
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/invalid token
 ```
 
 ---
 
 ## POST /profile
 
-Creates nutrition profile.
+Creates the authenticated user's nutrition profile.
 
 ### Request
 
 ```json
 {
   "age": 29,
-  "height": 187,
-  "weight": 80,
-  "activityLevel": "HIGH",
+  "height_cm": 187,
+  "weight_kg": 80,
+  "activity_level": "HIGH",
   "goal": "MUSCLE_GAIN",
-  "dietType": "VEGETARIAN"
+  "diet_type": "VEGETARIAN"
 }
 ```
+
+Validation: `age` 1-120, `height_cm` 50-250, `weight_kg` 20-400 (422
+`VALIDATION_ERROR` otherwise).
 
 ### Response
 
@@ -229,34 +288,44 @@ Status:
 201 Created
 ```
 
-Body:
+Body: same shape as `GET /profile`.
 
-```json
-{
-  "id": "uuid",
-  "createdAt": "2026-01-01T10:00:00Z"
-}
+Errors:
+
+```
+409 Conflict code=CONFLICT — profile already exists for this user
 ```
 
 ---
 
 ## PUT /profile
 
-Updates nutrition profile.
+Partially updates the authenticated user's nutrition profile — only the
+provided fields change, the rest are kept as-is.
 
 ### Request
 
 ```json
 {
-  "weight": 82,
-  "activityLevel": "VERY_HIGH"
+  "weight_kg": 82,
+  "activity_level": "VERY_HIGH"
 }
 ```
 
 ### Response
 
+Status:
+
 ```
 200 OK
+```
+
+Body: same shape as `GET /profile`, with updated fields.
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — user has no profile to update yet
 ```
 
 ---
@@ -277,6 +346,8 @@ MongoDB
 
 ---
 
+All endpoints below require `Authorization: Bearer {access_token}`.
+
 ## POST /conversations
 
 Creates a new conversation.
@@ -285,8 +356,8 @@ Creates a new conversation.
 
 ```json
 {
-  "category": "DIET",
-  "title": "High protein breakfasts"
+  "title": "High protein breakfasts",
+  "category": "BREAKFAST"
 }
 ```
 
@@ -302,72 +373,101 @@ Body:
 
 ```json
 {
-  "id": "conversation-id",
-  "category": "DIET",
-  "createdAt": "2026-01-01T10:00:00Z"
+  "conversation_id": "uuid",
+  "title": "High protein breakfasts",
+  "category": "BREAKFAST",
+  "status": "ACTIVE"
 }
 ```
+
+### Errors
+
+401 Unauthorized — missing/invalid token (see auth-runbook.md)
+
+422 Unprocessable Entity — `VALIDATION_ERROR` (invalid `category`, empty `title`)
 
 ---
 
 ## GET /conversations
 
-Returns conversations belonging to authenticated user.
+Returns conversation summaries belonging to the authenticated user (no messages — use `GET /conversations/{id}` for those).
 
 ### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
 
 ```json
 [
   {
-    "id": "conversation-id",
+    "conversation_id": "uuid",
     "title": "High protein breakfasts",
-    "category": "DIET",
-    "updatedAt": "2026-01-01T12:00:00Z"
+    "category": "BREAKFAST",
+    "status": "ACTIVE",
+    "updated_at": "2026-01-01T12:00:00Z"
   }
 ]
 ```
 
 ---
 
-## GET /conversations/{id}
+## GET /conversations/{conversation_id}
 
-Returns conversation history.
+Returns a single conversation with its full message history.
 
 ### Response
 
+Status:
+
+```
+200 OK
+```
+
+Body:
+
 ```json
 {
-  "id": "conversation-id",
+  "conversation_id": "uuid",
   "title": "High protein breakfasts",
-  "category": "DIET",
+  "category": "BREAKFAST",
+  "status": "ACTIVE",
   "messages": [
     {
-      "id": "message-id",
+      "id": "uuid",
       "role": "USER",
       "content": "Create breakfast ideas",
-      "createdAt": "2026-01-01T10:01:00Z"
+      "created_at": "2026-01-01T10:01:00Z"
     },
     {
-      "id": "message-id",
+      "id": "uuid",
       "role": "ASSISTANT",
       "content": "Here are ideas...",
-      "createdAt": "2026-01-01T10:01:05Z"
+      "created_at": "2026-01-01T10:01:05Z"
     }
   ]
 }
 ```
 
+### Errors
+
+404 Not Found — `NOT_FOUND` (conversation doesn't exist, or belongs to another user — both look identical, to avoid leaking existence)
+
 ---
 
-## POST /conversations/{id}/messages
+## POST /conversations/{conversation_id}/messages
 
-Sends user message and generates AI response.
+Appends a user message, generates an AI response (via whichever provider `AI_PROVIDER` selects — see auth-runbook.md-style config in `.env.example`), appends the response, and returns both.
 
 ### Request
 
 ```json
 {
-  "message": "I run 5 times a week. Create high protein breakfasts for 7 days."
+  "content": "I run 5 times a week. Create high protein breakfasts for 7 days."
 }
 ```
 
@@ -383,11 +483,16 @@ Body:
 
 ```json
 {
-  "messageId": "uuid",
-  "answer": "Here is your weekly breakfast plan...",
-  "createdAt": "2026-01-01T10:02:00Z"
+  "conversation_id": "uuid",
+  "user_message_id": "uuid",
+  "assistant_message_id": "uuid",
+  "assistant_content": "Here is your weekly breakfast plan..."
 }
 ```
+
+### Errors
+
+404 Not Found — `NOT_FOUND` (same not-found-vs-not-yours ambiguity as above)
 
 ---
 
@@ -399,24 +504,31 @@ Module:
 Nutrition
 ```
 
+All endpoints below require `Authorization: Bearer {access_token}` and a
+nutrition profile must already exist for the caller (`POST /profile` —
+see Nutrition Profile API above). `goal` and `diet_type` are **not**
+request fields — they're read from the caller's existing
+`NutritionProfile`, the same way chat responses are personalized from it.
+
 ---
 
 ## POST /diet-plans/generate
 
-Generates personalized diet plan using AI.
+Generates a personalized, structured multi-day diet plan using AI, seeded
+from the caller's nutrition profile plus optional free-text requirements.
 
 ### Request
 
 ```json
 {
-  "goal": "MUSCLE_GAIN",
-  "durationDays": 7,
-  "requirements": [
-    "high protein",
-    "vegetarian breakfast"
-  ]
+  "duration_days": 3,
+  "requirements": ["high protein breakfasts"]
 }
 ```
+
+`duration_days`: 1-14 (422 `VALIDATION_ERROR` outside that range).
+`requirements`: optional list of free-text hints — omit or send `null`/`[]`
+for none.
 
 ### Response
 
@@ -430,11 +542,15 @@ Body:
 
 ```json
 {
-  "id": "diet-plan-id",
-  "durationDays": 7,
+  "plan_id": "uuid",
+  "user_id": "uuid",
+  "goal": "MUSCLE_GAIN",
+  "diet_type": "VEGETARIAN",
+  "duration_days": 3,
+  "requirements": ["high protein breakfasts"],
   "days": [
     {
-      "day": 1,
+      "day_number": 1,
       "meals": [
         {
           "name": "Protein oatmeal",
@@ -445,46 +561,99 @@ Body:
         }
       ]
     }
-  ]
+  ],
+  "created_at": "2026-01-01T10:00:00Z"
 }
+```
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — caller has no nutrition profile yet (create
+                one via POST /profile first)
+500 Internal Server Error code=INTERNAL_ERROR — the AI provider returned a
+                malformed/unparseable plan; retried once internally
+                (Ollama only) before giving up — no silent fallback to a
+                broken plan. Rare with Claude (native structured output);
+                more likely with the small local Ollama model, especially
+                when `requirements` is non-empty — retrying the request
+                usually succeeds.
 ```
 
 ---
 
 ## GET /diet-plans
 
-Returns generated diet plans.
+Lists the caller's own generated diet plans, newest first (summary only —
+no `days`/`meals`).
 
 ### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
 
 ```json
 [
   {
-    "id": "diet-plan-id",
+    "plan_id": "uuid",
     "goal": "MUSCLE_GAIN",
-    "createdAt": "2026-01-01T10:00:00Z"
+    "diet_type": "VEGETARIAN",
+    "duration_days": 3,
+    "created_at": "2026-01-01T10:00:00Z"
   }
 ]
 ```
 
 ---
 
-# Conversation Categories
+## GET /diet-plans/{diet_plan_id}
 
-Available categories:
+Returns one full diet plan (with `days`/`meals`) — same body shape as the
+`POST /diet-plans/generate` response.
+
+### Response
+
+Status:
 
 ```
+200 OK
+```
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another
+                user (not distinguished, so existence isn't leaked)
+```
+
+---
+
+# Conversation Categories
+
+Available categories (closed enum — steers/guides the conversation, fed into the
+AI prompt; adding a new one is a code change, not a runtime CRUD operation):
+
+```
+GENERAL
+
 DIET
+
+BREAKFAST
 
 FITNESS
 
 RUNNING
 
+GYM
+
 HEALTH
 
 SUPPLEMENTS
-
-GENERAL
 ```
 
 Categories influence:
@@ -497,7 +666,8 @@ Categories influence:
 
 # Common Error Format
 
-All API errors use the same structure.
+All API errors use the same structure — including request validation errors
+(422) and unhandled exceptions (500), not just business errors.
 
 ```json
 {
@@ -506,6 +676,27 @@ All API errors use the same structure.
   "timestamp": "2026-01-01T10:00:00Z"
 }
 ```
+
+Codes currently in use (see `backend/shared/exceptions/error_codes.py`):
+
+```
+VALIDATION_ERROR
+NOT_FOUND
+UNAUTHORIZED
+FORBIDDEN
+CONFLICT
+BAD_REQUEST
+INTERNAL_ERROR
+
+USER_ALREADY_EXISTS
+INVALID_PASSWORD
+INVALID_CREDENTIALS
+INACTIVE_USER
+INVALID_ACCESS_TOKEN
+INVALID_REFRESH_TOKEN
+```
+
+See `docs/auth-runbook.md` for the full status/code table for the auth endpoints.
 
 ---
 

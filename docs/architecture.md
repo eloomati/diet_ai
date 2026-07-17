@@ -220,7 +220,7 @@ Infrastructure implements interfaces defined by the application/domain layer.
 
                          |
 
-              OpenAI Provider / Local Model
+                Claude Provider / Ollama (local)
 ```
 
 ---
@@ -275,7 +275,12 @@ MongoDB
 
 Technology:
 
-- Beanie ODM
+- Beanie ODM (`beanie==2.1.0`) — integrated. `shared/database/mongo.py` uses
+  PyMongo's native async client (`pymongo.AsyncMongoClient`), not Motor: Beanie 2.x
+  requires it (MongoDB deprecated Motor in favor of PyMongo's own async API, and
+  Beanie 2.x calls a driver-metadata hook that only exists on the new client).
+  Nutrition (see below) uses the same Beanie setup, so Mongo access is
+  consistent across both modules.
 
 Main entities:
 
@@ -293,24 +298,50 @@ Responsible for nutrition-related business logic.
 
 Responsibilities:
 
-- nutrition profile,
-- user goals,
-- diet generation,
-- meal recommendations.
+- nutrition profile (implemented),
+- user goals (implemented, part of the profile),
+- diet generation (implemented — Phase 7),
+- meal recommendations (implemented, as part of diet generation).
 
 Database:
 
-MongoDB
+MongoDB (Beanie, same client/setup as Conversation — see above).
+
+Technology:
+
+- Beanie ODM, `nutrition_profiles` collection with a unique index on
+  `user_id` (one profile per user, enforced at the DB layer); `diet_plans`
+  collection with a non-unique index on `user_id` (a user can have many
+  plans — each generation creates a new one, there's no "update a plan").
 
 Main entities:
 
 ```
-NutritionProfile
+NutritionProfile   — implemented: age, height_cm, weight_kg, activity_level,
+                     goal, diet_type
 
-DietPlan
+DietPlan           — implemented: id, user_id, goal, diet_type,
+                     duration_days, requirements, days, created_at
 
-Meal
+DietDay / Meal     — implemented, embedded value objects inside DietPlan
+                     (day_number + meals; name/calories/protein/
+                     carbohydrates/fat) — not separate collections
 ```
+
+Status: `NutritionProfile` CRUD (`GET`/`POST`/`PUT /profile`) is implemented
+and wired into the AI module — `SendMessageUseCase` looks up the caller's
+profile and folds `NutritionProfile.as_prompt_text()` into the system prompt
+via `PromptBuilder`, so chat responses are personalized when a profile
+exists (chatting still works fine with no profile set).
+
+`POST /diet-plans/generate` (Phase 7) is also implemented: it requires an
+existing `NutritionProfile` (404 otherwise — a diet plan has no meaningful
+default without a goal/diet type to seed it from), builds a structured
+prompt via `ai.application.DietPlanPromptBuilder`, and calls
+`LLMProvider.generate_structured_response()` — a second `LLMProvider` method
+(alongside `generate_response`) added specifically for this, since a diet
+plan needs reliable structured JSON rather than free-text chat prose. See
+the AI Module section below for how each provider implements it.
 
 ---
 
@@ -329,16 +360,62 @@ LLMProvider
 
         |
 
-+----------------+
++-----------------+
 
-| OpenAIProvider |
+| MockLLMProvider |
 
-| OllamaProvider |
+| ClaudeProvider  |
 
-+----------------+
+| OllamaProvider  |
+
++-----------------+
 ```
 
-The rest of the application does not know which AI provider is used.
+The rest of the application does not know which AI provider is used — selection
+happens via `AI_PROVIDER` (`mock` | `claude` | `ollama`) through
+`modules/ai/infrastructure/provider_factory.py`.
+
+Status: implemented. `ClaudeProvider` (`infrastructure/anthropic/`) uses the
+official `anthropic` SDK against Claude (default model `claude-opus-4-8`).
+`OllamaProvider` (`infrastructure/ollama/`) talks to a self-hosted Ollama
+container over its HTTP API directly via `httpx` — there's no official SDK for
+this, so raw HTTP is the correct choice here, not a shortcut. Local dev
+(`docker-compose.yml`) runs a real Ollama container with a small model
+(`llama3.2:1b`, ~1.3GB) pulled automatically on first start. The former
+temporary `MockLLMProvider` in `shared/providers/ai.py`, and the unused generic
+`DIContainer` it was registered in, have both been deleted — nothing ever
+consumed them for real.
+
+## Structured output (`generate_structured_response`)
+
+`LLMProvider` has a second method besides `generate_response`, added for
+Phase 7's diet plan generation: `generate_structured_response(prompt,
+schema) -> dict`, returning JSON validated against a caller-supplied JSON
+Schema instead of free-text prose. Each provider implements it differently:
+
+- **`ClaudeProvider`** — native structured outputs
+  (`output_config: {"format": {"type": "json_schema", "schema": schema}}`
+  on `messages.create()`), which guarantees schema-conformant JSON; no
+  client-side validation needed.
+- **`OllamaProvider`** — no native structured-output guarantee, so it:
+  (1) sends `"format": "json"` (JSON-syntax-only guarantee), (2) renders a
+  filled-in *example instance* of the schema into the prompt (not the raw
+  schema definition — empirically, dumping raw JSON Schema syntax made
+  `llama3.2:1b` echo the schema's own `type`/`properties` keys back as the
+  "answer"; a concrete example is far more reliable for small models),
+  (3) validates the response against a Pydantic model dynamically built
+  from the schema (`ollama/schema_validation.py`), (4) retries **once**
+  with the validation error appended to the prompt, then raises
+  (fail loud — no silent fallback to a malformed plan). Even with the
+  improved prompt, the small local model can still occasionally invent
+  extra keys (especially when free-text `requirements` are present) and
+  exhaust the retry — a real, accepted limitation of a 1B-parameter local
+  model doing structured generation, not a bug to chase further; switching
+  to `AI_PROVIDER=claude` avoids it entirely.
+- **`MockLLMProvider`** — parses the requested day count back out of the
+  prompt text and returns that many canned days, so it stays usable for
+  manual end-to-end testing of the diet-plan endpoint without hitting a
+  real model.
 
 ---
 

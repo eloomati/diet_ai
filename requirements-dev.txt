@@ -1,0 +1,7 @@
+# Kept in sync with requirements.txt by reference, not by hand-copied pins —
+# this file had drifted badly (e.g. pytest 8.3.4 vs 9.1.1, httpx2 0.1.0 vs
+# 2.7.0) since nothing in the repo actually installs from it, and this project
+# doesn't have a real prod/dev split: test tooling (pytest, pytest-asyncio,
+# pytest-env) already lives in requirements.txt because Docker and local test
+# runs both need it.
+-r requirements.txt

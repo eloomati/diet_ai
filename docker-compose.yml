@@ -1,0 +1,109 @@
+# Explicit project name so it never accidentally collides with
+# docker-compose.test.yml's "diet_ai_test" — see that file for why.
+name: diet_ai
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: diet_ai_db
+    environment:
+      POSTGRES_DB: diet_ai
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d diet_ai"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  mongo:
+    image: mongo:7
+    container_name: diet_ai_mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Small local model (~1.3GB), enough for simple chat responses without a GPU.
+  # Swap OLLAMA_MODEL below to any other tag pulled here if you need something bigger.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: diet_ai_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        until ollama list >/dev/null 2>&1; do sleep 1; done
+        ollama pull llama3.2:1b
+        wait
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q llama3.2:1b"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: diet_ai_backend
+    depends_on:
+      db:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    environment:
+      APP_ENV: dev
+      APP_DEBUG: "true"
+      LOG_LEVEL: INFO
+
+      POSTGRES_URL: postgresql+asyncpg://postgres:postgres@db:5432/diet_ai
+      MONGO_URL: mongodb://mongo:27017
+
+      JWT_SECRET_KEY: change-me-in-prod
+      JWT_ALGORITHM: HS256
+      JWT_ACCESS_TTL_MINUTES: 15
+      JWT_REFRESH_TTL_DAYS: 7
+
+      AI_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: llama3.2:1b
+      ANTHROPIC_API_KEY: ""
+      ANTHROPIC_MODEL: claude-opus-4-8
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload --timeout-graceful-shutdown 30
+    # Slightly above --timeout-graceful-shutdown above, so Compose doesn't
+    # SIGKILL before uvicorn's own graceful window has a chance to finish.
+    # Note: this drains normal in-flight requests, but a request blocked on a
+    # slow external call (e.g. an AI provider) can still be cut — uvicorn
+    # closes active connections on shutdown rather than waiting on arbitrary
+    # external I/O, which is standard ASGI-server behavior, not fixable here.
+    stop_grace_period: 35s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  mongo_data:
+  ollama_data:
