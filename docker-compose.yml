@@ -1,3 +1,7 @@
+# Explicit project name so it never accidentally collides with
+# docker-compose.test.yml's "diet_ai_test" — see that file for why.
+name: diet_ai
+
 services:
   db:
     image: postgres:16-alpine
@@ -31,6 +35,30 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Small local model (~1.3GB), enough for simple chat responses without a GPU.
+  # Swap OLLAMA_MODEL below to any other tag pulled here if you need something bigger.
+  ollama:
+    image: ollama/ollama:latest
+    container_name: diet_ai_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        until ollama list >/dev/null 2>&1; do sleep 1; done
+        ollama pull llama3.2:1b
+        wait
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list | grep -q llama3.2:1b"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -40,6 +68,8 @@ services:
       db:
         condition: service_healthy
       mongo:
+        condition: service_healthy
+      ollama:
         condition: service_healthy
     environment:
       APP_ENV: dev
@@ -53,13 +83,27 @@ services:
       JWT_ALGORITHM: HS256
       JWT_ACCESS_TTL_MINUTES: 15
       JWT_REFRESH_TTL_DAYS: 7
+
+      AI_PROVIDER: ollama
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_MODEL: llama3.2:1b
+      ANTHROPIC_API_KEY: ""
+      ANTHROPIC_MODEL: claude-opus-4-8
     ports:
       - "8000:8000"
     volumes:
       - .:/app
-    command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn backend.app.main:app --host 0.0.0.0 --port 8000 --reload --timeout-graceful-shutdown 30
+    # Slightly above --timeout-graceful-shutdown above, so Compose doesn't
+    # SIGKILL before uvicorn's own graceful window has a chance to finish.
+    # Note: this drains normal in-flight requests, but a request blocked on a
+    # slow external call (e.g. an AI provider) can still be cut — uvicorn
+    # closes active connections on shutdown rather than waiting on arbitrary
+    # external I/O, which is standard ASGI-server behavior, not fixable here.
+    stop_grace_period: 35s
     restart: unless-stopped
 
 volumes:
   postgres_data:
   mongo_data:
+  ollama_data:

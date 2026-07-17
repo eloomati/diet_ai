@@ -482,13 +482,17 @@ LLMProvider
 generateResponse(prompt)
 ```
 
-Possible implementations:
+Implementations:
 
 ```
-OpenAIProvider
+MockLLMProvider   (deterministic, no network — default in dev/tests)
 
-OllamaProvider
+ClaudeProvider    (Anthropic, via the official SDK)
+
+OllamaProvider    (self-hosted, via raw HTTP — no official SDK exists for it)
 ```
+
+Selected at runtime via `AI_PROVIDER` config (`mock` | `claude` | `ollama`).
 
 ---
 
@@ -503,16 +507,19 @@ Example:
 ```
 Prompt
 
-systemContext
-
-userProfile
-
-conversationHistory
+question
 
 category
 
-question
+systemPrompt
+
+conversationHistory
 ```
+
+`systemPrompt` is fully composed by `PromptBuilder` (dietetics/fitness framing +
+per-category guidance + user profile, once folded in) — providers just pass it
+through as-is, rather than each building their own system message from raw
+category/profile fields.
 
 ---
 

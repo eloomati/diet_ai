@@ -4,12 +4,19 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from backend.app.api_router import api_router
+from backend.modules.ai.infrastructure import close_llm_provider, init_llm_provider
+from backend.modules.conversation.infrastructure.documents import ConversationDocument
 from backend.shared.config import get_settings
-from backend.shared.database import close_mongo, close_postgres, init_mongo, init_postgres
+from backend.shared.database import (
+    close_mongo,
+    close_postgres,
+    init_beanie_documents,
+    init_mongo,
+    init_postgres,
+)
 from backend.shared.exceptions import register_exception_handlers
 from backend.shared.logging import setup_logging
 from backend.shared.middleware import RequestIdMiddleware
-from backend.shared.providers import create_di_container
 
 
 @asynccontextmanager
@@ -19,8 +26,9 @@ async def lifespan(app: FastAPI):
 
     try:
         await init_postgres(settings.postgres_url)
-        if not settings.testing:
-            await init_mongo(settings.mongo_url)
+        await init_mongo(settings.mongo_url)
+        await init_beanie_documents([ConversationDocument])
+        await init_llm_provider(settings)
     except Exception as e:
         logging.error(f"Failed to initialize databases: {e}")
         raise
@@ -28,8 +36,8 @@ async def lifespan(app: FastAPI):
     yield
 
     await close_postgres()
-    if not settings.testing:
-        await close_mongo()
+    await close_mongo()
+    await close_llm_provider()
 
 
 def create_app() -> FastAPI:
@@ -42,9 +50,6 @@ def create_app() -> FastAPI:
         debug=settings.app_debug,
         lifespan=lifespan,
     )
-
-    di_container = create_di_container(use_mock_ai=settings.use_mock_ai)
-    app.state.di_container = di_container
 
     app.add_middleware(RequestIdMiddleware)
     register_exception_handlers(app)

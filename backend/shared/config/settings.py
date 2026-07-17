@@ -17,9 +17,12 @@ class Settings(BaseSettings):
     postgres_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/diet_ai"
     mongo_url: str = "mongodb://localhost:27017"
 
-    # AI
-    use_mock_ai: bool = True
-    openai_api_key: str | None = None
+    # AI — provider selection: "mock" | "claude" | "ollama"
+    ai_provider: str = "mock"
+    anthropic_api_key: str | None = None
+    anthropic_model: str = "claude-opus-4-8"
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2:1b"
 
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"

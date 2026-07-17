@@ -275,7 +275,12 @@ MongoDB
 
 Technology:
 
-- Beanie ODM
+- Beanie ODM (`beanie==2.1.0`) — integrated. `shared/database/mongo.py` uses
+  PyMongo's native async client (`pymongo.AsyncMongoClient`), not Motor: Beanie 2.x
+  requires it (MongoDB deprecated Motor in favor of PyMongo's own async API, and
+  Beanie 2.x calls a driver-metadata hook that only exists on the new client).
+  Nutrition should adopt the same Beanie setup once its phase starts, to keep
+  Mongo access consistent across modules.
 
 Main entities:
 
@@ -329,16 +334,31 @@ LLMProvider
 
         |
 
-+----------------+
++-----------------+
 
-| OpenAIProvider |
+| MockLLMProvider |
 
-| OllamaProvider |
+| ClaudeProvider  |
 
-+----------------+
+| OllamaProvider  |
+
++-----------------+
 ```
 
-The rest of the application does not know which AI provider is used.
+The rest of the application does not know which AI provider is used — selection
+happens via `AI_PROVIDER` (`mock` | `claude` | `ollama`) through
+`modules/ai/infrastructure/provider_factory.py`.
+
+Status: implemented. `ClaudeProvider` (`infrastructure/anthropic/`) uses the
+official `anthropic` SDK against Claude (default model `claude-opus-4-8`).
+`OllamaProvider` (`infrastructure/ollama/`) talks to a self-hosted Ollama
+container over its HTTP API directly via `httpx` — there's no official SDK for
+this, so raw HTTP is the correct choice here, not a shortcut. Local dev
+(`docker-compose.yml`) runs a real Ollama container with a small model
+(`llama3.2:1b`, ~1.3GB) pulled automatically on first start. The former
+temporary `MockLLMProvider` in `shared/providers/ai.py`, and the unused generic
+`DIContainer` it was registered in, have both been deleted — nothing ever
+consumed them for real.
 
 ---
 
