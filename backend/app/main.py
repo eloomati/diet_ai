@@ -1,0 +1,26 @@
+from fastapi import FastAPI
+
+from backend.app.api_router import api_router
+from backend.shared.config import get_settings
+from backend.shared.exceptions import register_exception_handlers
+
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+
+    app = FastAPI(
+        title=settings.app_name,
+        debug=False,
+    )
+
+    register_exception_handlers(app)
+
+    @app.get(f"{settings.api_prefix}/health", tags=["system"])
+    async def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    app.include_router(api_router, prefix=settings.api_prefix)
+    return app
+
+
+app = create_app()
