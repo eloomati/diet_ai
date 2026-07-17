@@ -3,6 +3,8 @@ from .dto import (
     LoginUserResult,
     RegisterUserCommand,
     RegisterUserResult,
+    RefreshTokenCommand,
+    RefreshTokenResult
 )
 from .ports import PasswordHasher, TokenService
 from .use_cases import (
@@ -12,6 +14,8 @@ from .use_cases import (
     RegisterUserUseCase,
     UserAlreadyExistsError,
     UserNotFoundError,
+    InvalidRefreshTokenError,
+    RefreshAccessTokenUseCase
 )
 
 __all__ = [

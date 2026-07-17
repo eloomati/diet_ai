@@ -1,3 +1,13 @@
-from backend.modules.identity.tests.fakes import FakePasswordHasher, FakeTokenService, InMemoryUserRepository
+from .fakes import (
+    FakePasswordHasher,
+    FakeTokenService,
+    InMemoryRefreshTokenRepository,
+    InMemoryUserRepository,
+)
 
-__all__ = ["InMemoryUserRepository", "FakePasswordHasher", "FakeTokenService"]
+__all__ = [
+    "InMemoryUserRepository",
+    "InMemoryRefreshTokenRepository",
+    "FakePasswordHasher",
+    "FakeTokenService",
+]

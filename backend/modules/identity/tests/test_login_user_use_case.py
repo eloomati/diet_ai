@@ -11,6 +11,7 @@ from backend.modules.identity.application import (
 from backend.modules.identity.tests.fakes import (
     FakePasswordHasher,
     FakeTokenService,
+    InMemoryRefreshTokenRepository,
     InMemoryUserRepository,
 )
 
@@ -18,11 +19,12 @@ from backend.modules.identity.tests.fakes import (
 @pytest.mark.asyncio
 async def test_login_success() -> None:
     repo = InMemoryUserRepository()
+    refresh_repo = InMemoryRefreshTokenRepository()
     hasher = FakePasswordHasher()
     tokens = FakeTokenService()
 
     register_uc = RegisterUserUseCase(repo, hasher)
-    login_uc = LoginUserUseCase(repo, hasher, tokens)
+    login_uc = LoginUserUseCase(repo, refresh_repo, hasher, tokens)
 
     await register_uc.execute(
         RegisterUserCommand(
@@ -46,9 +48,10 @@ async def test_login_success() -> None:
 @pytest.mark.asyncio
 async def test_login_user_not_found() -> None:
     repo = InMemoryUserRepository()
+    refresh_repo = InMemoryRefreshTokenRepository()
     hasher = FakePasswordHasher()
     tokens = FakeTokenService()
-    login_uc = LoginUserUseCase(repo, hasher, tokens)
+    login_uc = LoginUserUseCase(repo, refresh_repo, hasher, tokens)
 
     with pytest.raises(UserNotFoundError):
         await login_uc.execute(
@@ -62,11 +65,12 @@ async def test_login_user_not_found() -> None:
 @pytest.mark.asyncio
 async def test_login_invalid_credentials() -> None:
     repo = InMemoryUserRepository()
+    refresh_repo = InMemoryRefreshTokenRepository()
     hasher = FakePasswordHasher()
     tokens = FakeTokenService()
 
     register_uc = RegisterUserUseCase(repo, hasher)
-    login_uc = LoginUserUseCase(repo, hasher, tokens)
+    login_uc = LoginUserUseCase(repo, refresh_repo, hasher, tokens)
 
     await register_uc.execute(
         RegisterUserCommand(

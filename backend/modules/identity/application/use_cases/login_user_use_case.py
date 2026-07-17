@@ -1,24 +1,29 @@
+from datetime import UTC, datetime, timedelta
+
 from backend.modules.identity.application.dto.login_user_dto import (
     LoginUserCommand,
     LoginUserResult,
 )
 from backend.modules.identity.application.ports.password_hasher import PasswordHasher
+from backend.modules.identity.application.ports.refresh_token_repository import RefreshTokenRepository
 from backend.modules.identity.application.ports.token_service import TokenService
 from backend.modules.identity.application.use_cases.exceptions import (
     InvalidCredentialsError,
     UserNotFoundError,
 )
-from backend.modules.identity.domain import Email, UserRepository
+from backend.modules.identity.domain import Email, RefreshToken, UserRepository
 
 
 class LoginUserUseCase:
     def __init__(
         self,
         user_repository: UserRepository,
+        refresh_token_repository: RefreshTokenRepository,
         password_hasher: PasswordHasher,
         token_service: TokenService,
     ) -> None:
         self._user_repository = user_repository
+        self._refresh_token_repository = refresh_token_repository
         self._password_hasher = password_hasher
         self._token_service = token_service
 
@@ -42,7 +47,14 @@ class LoginUserUseCase:
             user_id=str(user.id),
             email=user.email.value,
         )
-        refresh_token = self._token_service.create_refresh_token(user_id=str(user.id))
+        refresh_token = self._token_service.create_refresh_token(str(user.id))
+
+        refresh_entity = RefreshToken.issue(
+            user_id=user.id,
+            token_hash=refresh_token,
+            expires_at=datetime.now(UTC) + timedelta(days=7),
+        )
+        await self._refresh_token_repository.save(refresh_entity)
 
         return LoginUserResult(
             access_token=access_token,

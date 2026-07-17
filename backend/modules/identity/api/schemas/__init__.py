@@ -1,6 +1,8 @@
 from .auth_schemas import (
     LoginRequest,
     LoginResponse,
+    RefreshTokenRequest,
+    RefreshTokenResponse,
     RegisterRequest,
     RegisterResponse,
 )
@@ -10,4 +12,6 @@ __all__ = [
     "RegisterResponse",
     "LoginRequest",
     "LoginResponse",
+    "RefreshTokenRequest",
+    "RefreshTokenResponse",
 ]

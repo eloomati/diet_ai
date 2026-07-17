@@ -12,3 +12,6 @@ class InvalidCredentialsError(IdentityApplicationError):
 
 class UserNotFoundError(IdentityApplicationError):
     pass
+
+class InvalidRefreshTokenError(IdentityApplicationError):
+    pass
