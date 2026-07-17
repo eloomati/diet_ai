@@ -50,4 +50,5 @@ class RequestPasswordResetUseCase:
                 f"This token expires in {_RESET_TOKEN_TTL_MINUTES} minutes. "
                 "If you didn't request this, you can safely ignore this email."
             ),
+            purpose="PASSWORD_RESET",
         )

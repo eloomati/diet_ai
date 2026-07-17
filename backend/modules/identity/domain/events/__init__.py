@@ -1,3 +1,3 @@
-from .user_events import PasswordChanged, UserLoggedIn, UserRegistered
+from .user_events import EmailVerified, PasswordChanged, UserLoggedIn, UserRegistered
 
-__all__ = ["UserRegistered", "UserLoggedIn", "PasswordChanged"]
+__all__ = ["UserRegistered", "UserLoggedIn", "PasswordChanged", "EmailVerified"]

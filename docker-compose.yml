@@ -59,6 +59,16 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  # SMTP catcher for local dev — password-reset emails land here instead of a
+  # real inbox. No auth, no TLS. Web UI at http://localhost:8025.
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: diet_ai_mailhog
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI + API
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -71,6 +81,8 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
+      mailhog:
+        condition: service_started
     environment:
       APP_ENV: dev
       APP_DEBUG: "true"
@@ -89,6 +101,11 @@ services:
       OLLAMA_MODEL: llama3.2:1b
       ANTHROPIC_API_KEY: ""
       ANTHROPIC_MODEL: claude-opus-4-8
+
+      EMAIL_PROVIDER: smtp
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      SMTP_FROM_ADDRESS: noreply@dietai.local
     ports:
       - "8000:8000"
     volumes:

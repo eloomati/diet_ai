@@ -4,9 +4,11 @@ from uuid import UUID, uuid4
 
 from backend.modules.identity.domain.services.secure_token import SecureToken
 
+_DEFAULT_TTL_MINUTES = 60 * 24  # 24h — verification is far less time-sensitive than a reset
+
 
 @dataclass(slots=True)
-class PasswordResetToken:
+class EmailVerificationToken:
     id: UUID
     user_id: UUID
     token_hash: str
@@ -15,9 +17,11 @@ class PasswordResetToken:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
-    def issue(cls, user_id: UUID, ttl_minutes: int = 30) -> tuple["PasswordResetToken", str]:
-        """Mint a new reset token. Returns (token, raw_token) — raw_token is the only
-        time the plaintext secret exists; only its hash is ever persisted."""
+    def issue(
+        cls, user_id: UUID, ttl_minutes: int = _DEFAULT_TTL_MINUTES
+    ) -> tuple["EmailVerificationToken", str]:
+        """Mint a new verification token. Returns (token, raw_token) — raw_token is the
+        only time the plaintext secret exists; only its hash is ever persisted."""
         raw_token, token_hash = SecureToken.generate()
         now = datetime.now(UTC)
         token = cls(
@@ -29,10 +33,6 @@ class PasswordResetToken:
             created_at=now,
         )
         return token, raw_token
-
-    @staticmethod
-    def hash_token(raw_token: str) -> str:
-        return SecureToken.hash(raw_token)
 
     def is_expired(self, now: datetime | None = None) -> bool:
         current = now or datetime.now(UTC)

@@ -11,15 +11,18 @@ from backend.modules.identity.domain.entities.password_reset_token import Passwo
 from backend.modules.identity.tests.fakes import (
     FakeEmailSender,
     FakePasswordHasher,
+    InMemoryEmailVerificationTokenRepository,
     InMemoryPasswordResetTokenRepository,
     InMemoryUserRepository,
 )
 
 
 async def _register(user_repo: InMemoryUserRepository, email: str) -> None:
-    await RegisterUserUseCase(user_repo, FakePasswordHasher()).execute(
-        RegisterUserCommand(email=email, password="StrongPass123")
-    )
+    # Uses its own throwaway email sender/repo — registration's own verification
+    # email is not what these password-reset-focused tests assert on.
+    await RegisterUserUseCase(
+        user_repo, FakePasswordHasher(), InMemoryEmailVerificationTokenRepository(), FakeEmailSender()
+    ).execute(RegisterUserCommand(email=email, password="StrongPass123"))
 
 
 @pytest.mark.asyncio

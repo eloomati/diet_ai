@@ -35,15 +35,16 @@ Phase 7  - Diet Generation          DONE — structured multi-day diet plan
                                      stack with Ollama. See the 6-stage log
                                      below, including a real reliability
                                      finding for the small local model.
-Phase 8  - Conversation Lifecycle &  IN PROGRESS — post-Phase-7 gap audit
-           Account Recovery          found no DELETE endpoints anywhere,
-                                     no route to the domain's existing
-                                     Conversation.archive(), and no password
-                                     recovery path. Scope: conversation
-                                     delete+archive, and password reset with
-                                     real SMTP delivery via a new Mailhog
-                                     dev container. See the 5-stage
-                                     breakdown below.
+Phase 8  - Conversation Lifecycle &  IN PROGRESS (Stages 1-4/7 DONE) —
+           Account Recovery          post-Phase-7 gap audit found no DELETE
+                                     endpoints anywhere, no route to the
+                                     domain's existing Conversation.archive(),
+                                     and no password recovery path. Grew
+                                     mid-phase to also cover real email
+                                     verification at registration (shared
+                                     SecureToken generator) and an email
+                                     delivery log — scope expanded from 5 to
+                                     7 stages; see the breakdown below.
 Phase 9+ - Frontend/Testing/Future  NOT STARTED
 ```
 
@@ -1249,91 +1250,284 @@ Full suite at 210/210 passing.
 
 ---
 
-## Stage 3 — Password reset: infrastructure (Postgres + email)
+## Stage 3 — Password reset: infrastructure (Postgres + email) — DONE
 
 `modules/identity/infrastructure/`:
-- [ ] `persistence/models/password_reset_token_model.py` — SQLAlchemy model,
-      `password_reset_tokens` table, index on `token_hash` (unique) and
-      `user_id`.
-- [ ] Alembic migration — new table.
-- [ ] `persistence/sqlalchemy_password_reset_token_repository.py`.
-- [ ] `persistence/sqlalchemy_refresh_token_repository.py` — add
-      `revoke_all_for_user(user_id)`.
-- [ ] `infrastructure/email/smtp_email_sender.py` — `SmtpEmailSender` using
-      `aiosmtplib` (async, matches the rest of the codebase's async I/O;
-      no heavier framework like `fastapi-mail` needed for a single
-      plain-text send).
-- [ ] `infrastructure/email/mock_email_sender.py` — `MockEmailSender`,
-      captures sent emails in memory; used when `EMAIL_PROVIDER=mock`
-      (the default — mirrors `AI_PROVIDER`'s mock-by-default design so the
-      test suite and quick local runs never need a real SMTP server).
-- [ ] `infrastructure/email/email_sender_factory.py` —
+- [x] `persistence/models/password_reset_token_model.py` — SQLAlchemy model,
+      `password_reset_tokens` table, `token_hash` sized `String(64)` (exact
+      length of a SHA-256 hex digest) with a unique index, plus a `user_id`
+      index and an `ON DELETE CASCADE` FK to `users`.
+- [x] Alembic migration `20260717_02_password_reset.py` (`down_revision`:
+      the Phase 3 base migration). **Naming gotcha hit and fixed**: the
+      first attempt used the full `..._password_reset_tokens` revision id
+      (33 chars) and failed applying with `StringDataRightTruncation` —
+      Alembic's own `alembic_version.version_num` bookkeeping column
+      defaults to `VARCHAR(32)`, independent of anything in this project's
+      own migrations. Shortened to `20260717_02_password_reset` (26 chars).
+- [x] `persistence/sqlalchemy_password_reset_token_repository.py`.
+- [x] `persistence/sqlalchemy_refresh_token_repository.py` — implemented
+      `revoke_all_for_user(user_id)` for real (a single bulk `UPDATE …
+      SET revoked = true WHERE user_id = :id AND revoked = false`), fulfilling
+      the concrete-method-with-default added in Stage 2.
+- [x] `infrastructure/email/smtp_email_sender.py` — `SmtpEmailSender` using
+      `aiosmtplib.send()` with an `email.message.EmailMessage` (sender/
+      recipient read from its `From`/`To` headers) and `start_tls=False`
+      (Mailhog is a plaintext local catcher — no STARTTLS support to
+      negotiate).
+- [x] `infrastructure/email/mock_email_sender.py` — `MockEmailSender`,
+      captures sent emails (`to`/`subject`/`body`) in memory; used when
+      `EMAIL_PROVIDER=mock` (the default — mirrors `AI_PROVIDER`'s
+      mock-by-default design so the test suite and quick local runs never
+      need a real SMTP server).
+- [x] `infrastructure/email/email_sender_factory.py` —
       `build_email_sender(settings)` / `init_email_sender` /
       `close_email_sender` / `get_email_sender`, same singleton-lifecycle
-      shape as `ai/infrastructure/provider_factory.py`; wired into
-      `main.py`'s lifespan.
-- [ ] `shared/config/settings.py` — `email_provider: str = "mock"`,
-      `smtp_host`, `smtp_port`, `smtp_from_address`.
-- [ ] `docker-compose.yml` — new `mailhog` service (SMTP catcher +
-      web UI, no real credentials needed); `backend` gets
-      `EMAIL_PROVIDER=smtp`, `SMTP_HOST=mailhog`, `SMTP_PORT=1025`,
-      `SMTP_FROM_ADDRESS=noreply@dietai.local`, and depends on `mailhog`.
-- [ ] `requirements.txt` — add `aiosmtplib`.
+      shape as `ai/infrastructure/provider_factory.py` (though simpler:
+      `close_email_sender` is a bare reset to `None` — neither
+      `SmtpEmailSender` nor `MockEmailSender` hold a persistent connection;
+      `aiosmtplib.send()` opens/closes its own connection per call, unlike
+      the DB clients / AI provider HTTP clients this pattern was
+      originally built for); wired into `main.py`'s lifespan.
+- [x] `shared/config/settings.py` — `email_provider: str = "mock"`,
+      `smtp_host`, `smtp_port`, `smtp_from_address`. Mirrored into
+      `.env.example` too.
+- [x] `docker-compose.yml` — new `mailhog` service (image has no shell, so
+      no in-container `HEALTHCHECK` is possible — `backend` depends on it
+      with `condition: service_started`, not `service_healthy`); `backend`
+      gets `EMAIL_PROVIDER=smtp`, `SMTP_HOST=mailhog`, `SMTP_PORT=1025`,
+      `SMTP_FROM_ADDRESS=noreply@dietai.local`.
+- [x] `requirements.txt` — added `aiosmtplib==5.1.2`.
 
-Exit criteria: repository tests against the real ephemeral Postgres test
-stack (save/get round-trip, hash lookup, `revoke_all_for_user`); verified
-end-to-end against the real dev stack: sent a real email through
-`SmtpEmailSender` → `mailhog` and confirmed it via Mailhog's HTTP API
-(`GET http://localhost:8025/api/v2/messages`).
+**Deviation from the original plan**: no new `test_sqlalchemy_*_repository.py`
+file. Unlike Conversation/Nutrition (which test their Mongo repositories
+directly against a real ephemeral Mongo), Identity's own established
+convention (`test_user_repository_contract.py` notwithstanding — that file
+is actually fakes-only despite its name) exercises real-Postgres behavior
+only through full API integration tests
+(`test_auth_api.py`/`test_auth_refresh_api.py`), never a repository unit
+test constructing `AsyncSession` directly. Followed that precedent rather
+than introducing a new pattern — `SqlAlchemyPasswordResetTokenRepository`
+and `revoke_all_for_user` will get their real-DB exercise via Stage 4's API
+tests, and were verified manually against the real dev Postgres in the
+meantime (see below).
+
+Exit criteria: migration applied cleanly to the real dev Postgres (verified
+via `\d password_reset_tokens`); manual script-based verification against
+the real dev Postgres of `SqlAlchemyPasswordResetTokenRepository`
+(save/get-by-hash round-trip) and `revoke_all_for_user` (an active refresh
+token became inactive after the call) — both via the actual
+`get_postgres_session()` session factory, not a bespoke connection. Sent a
+real email through `SmtpEmailSender` → `mailhog` and confirmed it via
+Mailhog's HTTP API (`GET http://localhost:8025/api/v2/messages`) — subject,
+from/to, and body all matched. Full suite still at 210/210 (no new
+automated tests this stage, per the deviation above).
 
 ---
 
-## Stage 4 — Password reset: API
+## Stage 4 — Shared token generator + email verification (domain + application) — DONE
+
+Added mid-phase, per user request: extract the token-generation logic
+`PasswordResetToken` already has into a shared utility (so email
+verification doesn't duplicate it), and give registration a real
+verification-code flow — same issue/confirm shape as password reset —
+instead of the "just fire a welcome email" alternative.
+
+`modules/identity/domain/`:
+- [x] `services/secure_token.py` — `SecureToken`: `generate() -> (raw_token,
+      token_hash)` (`secrets.token_urlsafe(32)` + SHA-256), `hash(raw_token)
+      -> token_hash`. Extracted from `PasswordResetToken.issue()`, which is
+      refactored to call it — `PasswordResetToken.hash_token()` becomes a
+      thin delegate so `ConfirmPasswordResetUseCase` and existing tests
+      don't need to change.
+- [x] `entities/email_verification_token.py` — `EmailVerificationToken`:
+      same shape as `PasswordResetToken` (`id`, `user_id`, `token_hash`,
+      `expires_at`, `used`, `created_at`; `issue()`/`is_expired()`/
+      `is_valid()`/`mark_used()`), built on `SecureToken`. 24h default TTL
+      (vs 30min for a reset) — verification is far less time-sensitive than
+      a credential reset.
+- [x] `repositories/email_verification_token_repository.py` — port:
+      `save(token)`, `get_by_token_hash(hash)`.
+- [x] `InvalidEmailVerificationTokenError` — added to
+      `identity_domain_errors.py` (same file as every other identity domain
+      error).
+- [x] `User` — added `email_verified: bool = False` field,
+      `mark_email_verified()` method + new `EmailVerified` domain event
+      (mirrors `change_password()`/`PasswordChanged` from Stage 2).
+
+`modules/identity/application/`:
+- [x] `use_cases/register_user_use_case.py` — after saving the new user,
+      issues an `EmailVerificationToken` and sends a verification email via
+      `EmailSender` (gained `EmailVerificationTokenRepository` + `EmailSender`
+      constructor deps). Registration itself is unchanged otherwise — the
+      account is still usable immediately (no login gate; see the note
+      below on why that's the deliberate scope for now).
+- [x] `use_cases/confirm_email_verification_use_case.py` — hashes the
+      incoming token, looks it up, validates `is_valid()` (raises
+      `InvalidEmailVerificationTokenError` otherwise), loads the user, calls
+      `user.mark_email_verified()`, saves both.
+- [x] `tests/fakes.py` — `InMemoryEmailVerificationTokenRepository`;
+      `FakeEmailSender.send()` gained the `purpose` param (see below) and
+      records it on `SentEmail`.
+- [x] `EmailSender.send()` gained a required `purpose: str` parameter (e.g.
+      `"PASSWORD_RESET"`, `"EMAIL_VERIFICATION"`) — **pulled forward from
+      Stage 5's plan**, because `RegisterUserUseCase`'s new call site needed
+      it from day one; adding it retroactively in Stage 5 would have meant
+      revisiting this stage's freshly-written code. `RequestPasswordResetUseCase`
+      updated to pass `purpose="PASSWORD_RESET"`. `MockEmailSender`/
+      `SmtpEmailSender` (Stage 3) updated to accept (and, for Mock, record)
+      the new parameter — the actual **logging** of it is still Stage 5's job.
+
+**Scope note**: this wires up real issue → email → confirm for email
+verification, matching password reset's shape exactly (per the shared
+generator request). It does **not** add a login gate for unverified users
+(`LoginUserUseCase` untouched) — that would be a materially bigger, separate
+decision (new blocked-login error path, different UX/security tradeoffs,
+touches every existing login test). Flagged here as a deliberate boundary,
+not an oversight; revisit as its own stage if wanted later.
+
+**Scope pulled forward from Stage 5**: `RegisterUserUseCase` is exercised by
+the *existing* real-Postgres API test suite (`test_auth_api.py` et al., via
+`TestClient` + real lifespan) — it can't take a repository that doesn't
+persist for real. So the minimal Postgres piece for `EmailVerificationToken`
+was built now rather than deferred: `persistence/models/
+email_verification_token_model.py`, `persistence/
+sqlalchemy_email_verification_token_repository.py`, and an Alembic migration
+(`20260718_03_email_verification.py` — adds `users.email_verified` **and**
+creates `email_verification_tokens`; also hit the same `alembic_version`
+`VARCHAR(32)` revision-id-length gotcha from Stage 3, kept the id at 30
+chars from the start this time). `UserModel`/`UserMapper`/
+`SqlAlchemyUserRepository` updated for the new `email_verified` column.
+Stage 5 now only covers `EmailLog` + `LoggingEmailSender` + the
+per-request `EmailSender` architecture correction.
+
+Exit criteria: unit tests against fakes — `SecureToken` produces distinct
+hashes per call and a stable hash for the same input (`test_secure_token.py`);
+`EmailVerificationToken` validity rules mirror `PasswordResetToken`'s own
+tests (`test_email_verification_token.py`); `RegisterUserUseCase` sends
+exactly one verification email per registration
+(`test_register_user_sends_verification_email`);
+`ConfirmEmailVerificationUseCase` marks the user verified on a valid token
+and raises on unknown/expired/used tokens
+(`test_confirm_email_verification_use_case.py`). 14 tests added, full suite
+at 225/225 passing. Verified end-to-end on the real Docker stack: registered
+a real user → fetched the real verification email from Mailhog → confirmed
+with the extracted token via a script using the actual
+`ConfirmEmailVerificationUseCase` + real Postgres session → `email_verified`
+became `true`.
+
+---
+
+## Stage 5 — Email log infrastructure + EmailSender architecture correction
+
+Per user request: a durable log of every email the app attempts to send
+(metadata + delivery status, **not** body — reset/verification emails
+carry a raw one-time secret in the body, and Stage 2's whole point was to
+never let that secret rest in the database). The `EmailVerificationToken`
+Postgres piece and the `EmailSender.send()` `purpose` parameter that were
+originally planned for this stage were pulled forward into Stage 4 (see its
+notes) since `RegisterUserUseCase` needed them immediately — this stage is
+now scoped to just `EmailLog` + the decorator + the DI lifecycle fix.
+
+`modules/identity/domain/`:
+- [ ] `entities/email_log.py` — `EmailLog` (`id`, `to`, `subject`,
+      `purpose`, `status: EmailDeliveryStatus` (`SENT`/`FAILED`),
+      `error_message: str | None`, `created_at`). No body field, by design.
+- [ ] `repositories/email_log_repository.py` — port: `save(log)` only (no
+      read use case requested yet).
+
+`modules/identity/infrastructure/`:
+- [ ] `persistence/models/email_log_model.py` — new Alembic migration.
+      `email_logs` has **no** FK to `users` — a log entry must survive even
+      if the user record is later deleted, unlike a token which is
+      meaningless without its user.
+- [ ] `persistence/sqlalchemy_email_log_repository.py`.
+- [ ] `infrastructure/email/logging_email_sender.py` — `LoggingEmailSender`
+      (decorator over any `EmailSender`): calls the wrapped sender, records
+      an `EmailLog` (`SENT` on success, `FAILED` with the exception message
+      on failure), then re-raises on failure — the existing propagate-to-500
+      behavior for a broken email send is unchanged, it's now just audited.
+
+**Architecture correction to Stage 3's design**: `EmailSender` moves from
+an app-lifetime singleton (`init_email_sender`/`close_email_sender`/
+`get_email_sender`, mirroring `LLMProvider`) to a **per-request** FastAPI
+dependency, same shape as `UserRepository`/`RefreshTokenRepository`
+(`Depends(get_db_session)`). Reason: `LoggingEmailSender` now needs a
+Postgres `AsyncSession` to write `EmailLog` rows, and every other
+Postgres-backed repository in this module is already request-scoped, not a
+singleton — the singleton pattern was only ever justified for things
+holding a real persistent connection/pool (Mongo client, LLM provider's
+HTTP client), and `aiosmtplib` was already observed in Stage 3 to open/close
+a connection per send, so there was never a technical reason for it to be a
+singleton once it needs a DB session. Removes `email_sender_factory.py`'s
+`init_email_sender`/`close_email_sender`/`get_email_sender` and their
+`main.py` lifespan wiring; replaces with a `get_email_sender(session =
+Depends(get_db_session))` dependency alongside the other per-request
+identity dependencies.
+
+Exit criteria: repository/migration verified against the real dev Postgres
+(same manual-script approach as Stage 3, consistent with this module's
+established test convention); `LoggingEmailSender` unit-tested against
+fakes (send success → one `SENT` log row via a fake `EmailLogRepository`;
+inner sender raising → one `FAILED` log row + exception still propagates).
+
+---
+
+## Stage 6 — Password reset + email verification API
 
 Endpoints (per docs/api.md, snake_case):
 
 ```
 POST /auth/password-reset/request
 POST /auth/password-reset/confirm
+POST /auth/verify-email/confirm
 ```
 
 - [ ] `api/schemas/password_reset_schemas.py` — `RequestPasswordResetRequest`
       (`email`), `ConfirmPasswordResetRequest` (`token`, `new_password` —
       same strength validation as registration).
-- [ ] `api/dependencies/password_reset_dependencies.py` — wires
-      `PasswordResetTokenRepository` + `UserRepository` + `EmailSender` into
-      `RequestPasswordResetUseCase`; `PasswordResetTokenRepository` +
-      `UserRepository` + `RefreshTokenRepository` into
-      `ConfirmPasswordResetUseCase`.
-- [ ] `api/routers/auth_router.py` — both endpoints always return `200`
-      with a generic body on `request` (never reveals whether the email
-      exists); `confirm` → `AppException(BAD_REQUEST)` (or a dedicated
-      `ErrorCode` if the review decides it's worth one) on
-      `InvalidPasswordResetTokenError`.
+- [ ] `api/schemas/email_verification_schemas.py` —
+      `ConfirmEmailVerificationRequest` (`token`).
+- [ ] `api/dependencies/` — wires `PasswordResetTokenRepository` +
+      `UserRepository` + `EmailSender` into `RequestPasswordResetUseCase`;
+      `PasswordResetTokenRepository` + `UserRepository` +
+      `RefreshTokenRepository` into `ConfirmPasswordResetUseCase`;
+      `EmailVerificationTokenRepository` + `UserRepository` into
+      `ConfirmEmailVerificationUseCase`; updates
+      `get_register_user_use_case` for its two new deps.
+- [ ] `api/routers/auth_router.py` — both password-reset endpoints always
+      return `200` with a generic body on `request` (never reveals whether
+      the email exists); `confirm` endpoints → `AppException(BAD_REQUEST)`
+      on `InvalidPasswordResetTokenError`/`InvalidEmailVerificationTokenError`.
 
-Exit criteria: full API integration tests (request-unknown-email 200 +
-no email sent; request-known-email 200 + exactly one email sent via
-`FakeEmailSender`/`MockEmailSender`; confirm-valid-token 200 + old
-password no longer works + old refresh token revoked; confirm-expired/
-used/garbage-token → 400). Verified end-to-end on the real Docker stack:
-request → fetch the email from Mailhog's API → extract the token →
-confirm → log in with the new password.
+Exit criteria: full API integration tests — password reset (request-unknown
+-email 200 + no email sent; request-known-email 200 + exactly one email
+sent; confirm-valid-token 200 + old password no longer works + old refresh
+token revoked; confirm-expired/used/garbage-token → 400) and email
+verification (register sends exactly one verification email;
+confirm-valid-token 200 + `user.email_verified` true; confirm-expired/used/
+garbage-token → 400). Verified end-to-end on the real Docker stack: for
+each flow, request/register → fetch the email from Mailhog's API → extract
+the token → confirm → (for reset) log in with the new password.
 
 ---
 
-## Stage 5 — Tests & docs sync
+## Stage 7 — Tests & docs sync
 
 - [ ] `docs/https/user.http` — add archive/delete steps for conversations
-      (or extend `conversation.http`) and a new password-reset flow
-      section (request → read token from Mailhog manually → confirm →
-      login with new password).
+      (or extend `conversation.http`), a password-reset flow section, and
+      an email-verification flow section (all read the token from
+      Mailhog manually, same pattern).
 - [ ] `docs/api.md` — new endpoints documented (Conversation archive/delete,
-      both password-reset endpoints).
-- [ ] `docs/architecture.md` — note the new `PasswordResetToken` aggregate,
-      the `EmailSender` port/Mailhog addition, and the
+      both password-reset endpoints, email-verification confirm).
+- [ ] `docs/architecture.md` — note `PasswordResetToken`/
+      `EmailVerificationToken`/`EmailLog`, the shared `SecureToken`
+      generator, the `EmailSender` port/Mailhog addition + its purpose
+      parameter, the per-request (not singleton) construction, and the
       `revoke-all-refresh-tokens-on-reset` behavior.
-- [ ] `docs/domain-model.md` — `PasswordResetToken` entity documented.
-- [ ] `docs/auth-runbook.md` — extended with the password-reset flow.
+- [ ] `docs/domain-model.md` — `PasswordResetToken`/`EmailVerificationToken`/
+      `EmailLog` entities documented.
+- [ ] `docs/auth-runbook.md` — extended with the password-reset and
+      email-verification flows.
 - [ ] `README.md` — mention the `mailhog` service and its web UI
       (http://localhost:8025) in the Getting Started service table.
 - [ ] Roadmap status table updated.

@@ -1,3 +1,4 @@
+from .confirm_email_verification_use_case import ConfirmEmailVerificationUseCase
 from .confirm_password_reset_use_case import ConfirmPasswordResetUseCase
 from .exceptions import (
     IdentityApplicationError,
@@ -22,4 +23,5 @@ __all__ = [
     "InvalidRefreshTokenError",
     "RequestPasswordResetUseCase",
     "ConfirmPasswordResetUseCase",
+    "ConfirmEmailVerificationUseCase",
 ]

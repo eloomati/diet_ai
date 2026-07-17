@@ -1,3 +1,4 @@
+from .confirm_email_verification_dto import ConfirmEmailVerificationCommand
 from .confirm_password_reset_dto import ConfirmPasswordResetCommand
 from .login_user_dto import LoginUserCommand, LoginUserResult
 from .refresh_token_dto import RefreshTokenCommand, RefreshTokenResult
@@ -13,4 +14,5 @@ __all__ = [
     "RefreshTokenResult",
     "RequestPasswordResetCommand",
     "ConfirmPasswordResetCommand",
+    "ConfirmEmailVerificationCommand",
 ]

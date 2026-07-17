@@ -8,6 +8,10 @@ from backend.modules.identity.application import (
     RefreshAccessTokenUseCase,
     RegisterUserUseCase,
 )
+from backend.modules.identity.infrastructure.email.email_sender_factory import get_email_sender
+from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_email_verification_token_repository import (
+    SqlAlchemyEmailVerificationTokenRepository,
+)
 from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_refresh_token_repository import (
     SqlAlchemyRefreshTokenRepository,
 )
@@ -44,7 +48,9 @@ def get_register_user_use_case(
 ) -> RegisterUserUseCase:
     repo = SqlAlchemyUserRepository(session)
     hasher = BcryptPasswordHasher()
-    return RegisterUserUseCase(repo, hasher)
+    email_verification_repo = SqlAlchemyEmailVerificationTokenRepository(session)
+    email_sender = get_email_sender()
+    return RegisterUserUseCase(repo, hasher, email_verification_repo, email_sender)
 
 
 def get_login_user_use_case(

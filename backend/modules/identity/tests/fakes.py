@@ -2,6 +2,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
+from backend.modules.identity.domain.entities.email_verification_token import (
+    EmailVerificationToken,
+)
 from backend.modules.identity.domain.entities.password_reset_token import PasswordResetToken
 from backend.modules.identity.domain.entities.refresh_token import RefreshToken
 from backend.modules.identity.domain.entities.user import User
@@ -72,19 +75,31 @@ class InMemoryPasswordResetTokenRepository:
         return self._by_hash.get(token_hash)
 
 
+class InMemoryEmailVerificationTokenRepository:
+    def __init__(self) -> None:
+        self._by_hash: dict[str, EmailVerificationToken] = {}
+
+    async def save(self, token: EmailVerificationToken) -> None:
+        self._by_hash[token.token_hash] = token
+
+    async def get_by_token_hash(self, token_hash: str) -> EmailVerificationToken | None:
+        return self._by_hash.get(token_hash)
+
+
 @dataclass
 class SentEmail:
     to: str
     subject: str
     body: str
+    purpose: str = ""
 
 
 class FakeEmailSender:
     def __init__(self) -> None:
         self.sent: list[SentEmail] = []
 
-    async def send(self, to: str, subject: str, body: str) -> None:
-        self.sent.append(SentEmail(to=to, subject=subject, body=body))
+    async def send(self, to: str, subject: str, body: str, purpose: str = "") -> None:
+        self.sent.append(SentEmail(to=to, subject=subject, body=body, purpose=purpose))
 
 
 class FakePasswordHasher:

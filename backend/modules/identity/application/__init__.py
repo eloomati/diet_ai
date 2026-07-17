@@ -1,4 +1,5 @@
 from .dto import (
+    ConfirmEmailVerificationCommand,
     ConfirmPasswordResetCommand,
     LoginUserCommand,
     LoginUserResult,
@@ -10,6 +11,7 @@ from .dto import (
 )
 from .ports import EmailSender, PasswordHasher, RefreshTokenRepository, TokenService
 from .use_cases import (
+    ConfirmEmailVerificationUseCase,
     ConfirmPasswordResetUseCase,
     IdentityApplicationError,
     InvalidCredentialsError,
@@ -31,6 +33,7 @@ __all__ = [
     "RefreshTokenResult",
     "RequestPasswordResetCommand",
     "ConfirmPasswordResetCommand",
+    "ConfirmEmailVerificationCommand",
     "PasswordHasher",
     "TokenService",
     "RefreshTokenRepository",
@@ -45,4 +48,5 @@ __all__ = [
     "RefreshAccessTokenUseCase",
     "RequestPasswordResetUseCase",
     "ConfirmPasswordResetUseCase",
+    "ConfirmEmailVerificationUseCase",
 ]

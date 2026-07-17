@@ -41,6 +41,7 @@ class SqlAlchemyUserRepository(UserRepository):
             existing.email = user.email.value
             existing.password_hash = user.password_hash.value
             existing.status = user.status.value
+            existing.email_verified = user.email_verified
             existing.updated_at = user.updated_at
 
         await self._session.flush()

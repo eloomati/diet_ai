@@ -24,3 +24,7 @@ class RefreshTokenRevokedError(IdentityDomainError):
 
 class InvalidPasswordResetTokenError(IdentityDomainError):
     pass
+
+
+class InvalidEmailVerificationTokenError(IdentityDomainError):
+    pass
