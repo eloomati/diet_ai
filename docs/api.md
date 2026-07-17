@@ -53,9 +53,11 @@ Creates a new user account.
 ```json
 {
   "email": "user@example.com",
-  "password": "password123"
+  "password": "StrongPass123"
 }
 ```
+
+Password: 8-128 characters, must satisfy `PasswordPolicy` (see domain-model.md).
 
 ### Response
 
@@ -69,44 +71,31 @@ Body:
 
 ```json
 {
-  "id": "uuid",
-  "email": "user@example.com",
-  "createdAt": "2026-01-01T10:00:00Z"
+  "user_id": "uuid",
+  "email": "user@example.com"
 }
 ```
 
 ### Errors
 
-400 Bad Request
+400 Bad Request — `INVALID_PASSWORD` (fails password policy)
 
-```json
-{
-  "code": "INVALID_EMAIL",
-  "message": "Email format is invalid"
-}
-```
+422 Unprocessable Entity — `VALIDATION_ERROR` (malformed email / missing fields)
 
-409 Conflict
-
-```json
-{
-  "code": "USER_ALREADY_EXISTS",
-  "message": "User with this email already exists"
-}
-```
+409 Conflict — `USER_ALREADY_EXISTS`
 
 ---
 
 ## POST /auth/login
 
-Authenticates a user.
+Authenticates a user and issues a token pair.
 
 ### Request
 
 ```json
 {
   "email": "user@example.com",
-  "password": "password123"
+  "password": "StrongPass123"
 }
 ```
 
@@ -122,34 +111,34 @@ Body:
 
 ```json
 {
-  "accessToken": "jwt-token",
-  "refreshToken": "refresh-token",
-  "expiresIn": 3600
+  "access_token": "jwt-token",
+  "refresh_token": "refresh-token",
+  "token_type": "bearer"
 }
 ```
+
+`access_token` TTL: `JWT_ACCESS_TTL_MINUTES` (default 15 min).
+`refresh_token` TTL: `JWT_REFRESH_TTL_DAYS` (default 7 days).
 
 ### Errors
 
-401 Unauthorized
+401 Unauthorized — `INVALID_CREDENTIALS`
 
-```json
-{
-  "code": "INVALID_CREDENTIALS",
-  "message": "Invalid email or password"
-}
-```
+403 Forbidden — `INACTIVE_USER`
 
 ---
 
 ## POST /auth/refresh
 
-Creates a new access token using refresh token.
+Rotates a refresh token: the token sent in the request is invalidated and a new
+access/refresh pair is issued. Reusing an already-rotated (or expired/unknown)
+refresh token is rejected.
 
 ### Request
 
 ```json
 {
-  "refreshToken": "refresh-token"
+  "refresh_token": "refresh-token"
 }
 ```
 
@@ -157,10 +146,51 @@ Creates a new access token using refresh token.
 
 ```json
 {
-  "accessToken": "new-jwt-token",
-  "expiresIn": 3600
+  "access_token": "new-jwt-token",
+  "refresh_token": "new-refresh-token",
+  "token_type": "bearer"
 }
 ```
+
+### Errors
+
+401 Unauthorized — `INVALID_REFRESH_TOKEN`
+
+403 Forbidden — `INACTIVE_USER`
+
+---
+
+## GET /auth/me
+
+Returns the authenticated user.
+
+Authentication:
+
+Required — `Authorization: Bearer {access_token}`.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "user_id": "uuid",
+  "email": "user@example.com",
+  "status": "ACTIVE"
+}
+```
+
+### Errors
+
+401 Unauthorized — `INVALID_ACCESS_TOKEN` (missing/malformed/expired token, or token references a deleted user)
+
+403 Forbidden — `INACTIVE_USER`
 
 ---
 
@@ -471,20 +501,25 @@ Returns generated diet plans.
 
 # Conversation Categories
 
-Available categories:
+Available categories (closed enum — steers/guides the conversation, fed into the
+AI prompt; adding a new one is a code change, not a runtime CRUD operation):
 
 ```
+GENERAL
+
 DIET
+
+BREAKFAST
 
 FITNESS
 
 RUNNING
 
+GYM
+
 HEALTH
 
 SUPPLEMENTS
-
-GENERAL
 ```
 
 Categories influence:
@@ -497,7 +532,8 @@ Categories influence:
 
 # Common Error Format
 
-All API errors use the same structure.
+All API errors use the same structure — including request validation errors
+(422) and unhandled exceptions (500), not just business errors.
 
 ```json
 {
@@ -506,6 +542,27 @@ All API errors use the same structure.
   "timestamp": "2026-01-01T10:00:00Z"
 }
 ```
+
+Codes currently in use (see `backend/shared/exceptions/error_codes.py`):
+
+```
+VALIDATION_ERROR
+NOT_FOUND
+UNAUTHORIZED
+FORBIDDEN
+CONFLICT
+BAD_REQUEST
+INTERNAL_ERROR
+
+USER_ALREADY_EXISTS
+INVALID_PASSWORD
+INVALID_CREDENTIALS
+INACTIVE_USER
+INVALID_ACCESS_TOKEN
+INVALID_REFRESH_TOKEN
+```
+
+See `docs/auth-runbook.md` for the full status/code table for the auth endpoints.
 
 ---
 

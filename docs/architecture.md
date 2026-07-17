@@ -275,7 +275,11 @@ MongoDB
 
 Technology:
 
-- Beanie ODM
+- Beanie ODM — required (external task requirement: Mongo access must go through
+  an ODM, not raw Motor). Not yet integrated; `shared/database/mongo.py` currently
+  exposes a raw Motor client only, since the Conversation module has no code beyond
+  an empty router. Nutrition should adopt the same ODM once its phase starts, to
+  keep Mongo access consistent across modules.
 
 Main entities:
 
@@ -339,6 +343,14 @@ LLMProvider
 ```
 
 The rest of the application does not know which AI provider is used.
+
+Status: the `ai` module skeleton exists (`domain/ports`, `infrastructure/openai`,
+`infrastructure/ollama`, `infrastructure/providers`) but is currently empty. The only
+provider that exists today is a temporary `MockLLMProvider` living in
+`shared/providers/ai.py`, registered directly in the generic `DIContainer`
+(`shared/providers/container.py`) — it is not wired to any real conversation flow yet,
+since Conversation module doesn't exist yet either. This should move into the `ai`
+module once Phase 6 (see implementation-roadmap.md) starts.
 
 ---
 

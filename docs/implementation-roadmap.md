@@ -10,6 +10,30 @@ Each phase should result in a working part of the system.
 
 ---
 
+## Status (as of 2026-07-17)
+
+```
+Phase 0  - Project Bootstrap        DONE
+Phase 1  - Architecture Skeleton    DONE (module folders + hexagonal layout scaffolded)
+Phase 2  - Database Setup           PARTIAL (Postgres done; Mongo connection exists,
+                                     Beanie/collections not started)
+Phase 3  - Identity Module          DONE (register, login, refresh, me; JWT; unified
+                                     error format; real-DB + fake-based tests)
+Phase 4  - User Profile (Nutrition) NOT STARTED (empty skeleton only)
+Phase 5  - Conversation Module      NOT STARTED (empty router only)
+Phase 6  - AI Integration           NOT STARTED (empty skeleton; a temporary
+                                     MockLLMProvider lives in shared/providers/ai.py,
+                                     unused by any real flow)
+Phase 7+ - Diet Generation/Frontend/Testing/Future  NOT STARTED
+```
+
+Next planned milestone: **Conversation + AI ("chat MVP")** — see the detailed
+sub-plan under Phase 5/6 below. Nutrition Profile (Phase 4) is deferred until
+after it, since chatting with the AI doesn't strictly need profile personalization
+for a first version (`Prompt.userProfile` can be added once Nutrition exists).
+
+---
+
 # Phase 0 - Project Bootstrap
 
 Goal:
@@ -20,20 +44,20 @@ Create a working development environment.
 
 ### Repository
 
-- [ ] Create monorepo structure
-- [ ] Initialize Git repository
-- [ ] Create README
-- [ ] Create documentation structure
+- [x] Create monorepo structure
+- [x] Initialize Git repository
+- [x] Create README
+- [x] Create documentation structure
 
 ---
 
 ### Backend
 
-- [ ] Create Python project
-- [ ] Configure dependency management
-- [ ] Create FastAPI application
-- [ ] Configure application settings
-- [ ] Add environment variables support
+- [x] Create Python project
+- [x] Configure dependency management
+- [x] Create FastAPI application
+- [x] Configure application settings
+- [x] Add environment variables support
 
 Expected result:
 
@@ -53,9 +77,9 @@ Response:
 
 Create:
 
-- [ ] Backend container
-- [ ] PostgreSQL container
-- [ ] MongoDB container
+- [x] Backend container
+- [x] PostgreSQL container
+- [x] MongoDB container
 
 Expected:
 
@@ -109,10 +133,10 @@ infrastructure/
 
 ## Implement shared components
 
-- [ ] Configuration management
-- [ ] Dependency injection
-- [ ] Exception handling
-- [ ] Logging basics
+- [x] Configuration management
+- [x] Dependency injection
+- [x] Exception handling
+- [x] Logging basics
 
 ---
 
@@ -130,10 +154,10 @@ Used by Identity.
 
 Tasks:
 
-- [ ] Configure SQLAlchemy
-- [ ] Configure database connection
-- [ ] Configure Alembic
-- [ ] Create first migration
+- [x] Configure SQLAlchemy
+- [x] Configure database connection
+- [x] Configure Alembic
+- [x] Create first migration
 
 Initial tables:
 
@@ -191,9 +215,9 @@ RefreshToken
 
 Implement:
 
-- [ ] User entity
-- [ ] Password hashing
-- [ ] User validation rules
+- [x] User entity
+- [x] Password hashing
+- [x] User validation rules
 
 ---
 
@@ -215,10 +239,10 @@ RefreshTokenUseCase
 
 Implement:
 
-- [ ] SQLAlchemy models
-- [ ] User repository
-- [ ] JWT provider
-- [ ] Password encoder
+- [x] SQLAlchemy models
+- [x] User repository
+- [x] JWT provider
+- [x] Password encoder
 
 ---
 
@@ -232,6 +256,9 @@ POST /auth/register
 POST /auth/login
 
 POST /auth/refresh
+
+GET /auth/me   (added beyond original scope — required by /me tests and
+                by any future module that needs "who is the current user")
 ```
 
 ---
@@ -242,7 +269,14 @@ User can:
 
 - create account,
 - login,
-- receive JWT token.
+- receive JWT token,
+- fetch their own identity via a bearer token.
+
+Also done, beyond what this phase originally scoped: refresh token rotation with
+reuse-detection, a unified `{code, message, timestamp}` error format across all
+endpoints (including 422 validation and 500s), and tests running against an
+ephemeral Dockerized Postgres instead of the dev database (see
+`docs/auth-runbook.md`, `conftest.py`, `docker-compose.test.yml`).
 
 ---
 
@@ -316,66 +350,159 @@ PUT /profile
 
 ---
 
-# Phase 5 - Conversation Module
+# Phase 5/6 - Conversation + AI ("Chat MVP")
 
 Goal:
 
-Implement chat history.
+The next milestone after Identity. Treated as one combined rollout because AI has
+no real consumer without Conversation (see architecture.md section 10 — the AI
+flow *is* `Conversation API -> SendMessageUseCase -> ... -> LLM Provider`), and
+Conversation has no reason to exist yet without AI attached to it.
 
-Database:
+Modules touched: `conversation` (new real code) and `ai` (new real code,
+replacing the temporary `shared/providers/ai.py` placeholder).
 
-MongoDB
+Requirement update: conversations must support a **category that steers the
+conversation** (e.g. breakfast, running, gym — see Stage 1's
+`ConversationCategory`), and conversation history must be persisted in Mongo
+and be visible on the user's profile. For MVP this means: history is stored
+and queryable via `GET /conversations` / `GET /conversations/{id}` (Stage 5);
+the profile *view* composing Identity + Conversation (+ later Nutrition) data
+is a frontend concern for now — no new backend aggregation endpoint, per
+architecture.md's module-ownership rule (modules don't reach into each other's
+database; a cross-module "profile summary" endpoint, if needed later, belongs
+in the future Reporting module, not bolted onto Identity or Conversation).
 
----
-
-## Domain
-
-Create:
-
-```
-Conversation
-
-Message
-```
-
----
-
-## Application
-
-Create:
-
-```
-CreateConversationUseCase
-
-SendMessageUseCase
-
-GetConversationHistoryUseCase
-```
+Follows the roadmap's own rule — Domain → Application → Infrastructure → API →
+Tests — split into small, independently reviewable/testable stages, mirroring how
+the Identity module was actually built (domain first, fakes-based unit tests
+before touching real infrastructure, real-infra integration tests last).
 
 ---
 
-## Infrastructure
+## Stage 1 — Domain (no DB, no HTTP, unit-testable in isolation)
 
-Implement:
+`modules/conversation/domain/`:
+- [ ] `entities/conversation.py` — `Conversation` aggregate: `id`, `user_id`, `title`,
+      `category`, `status`, `created_at`, `updated_at`; rule: archived conversations
+      reject new messages (mirrors `User.assert_can_authenticate` style guard).
+- [ ] `entities/message.py` — `Message` entity: `id`, `role` (`USER`/`ASSISTANT`/`SYSTEM`),
+      `content`, `created_at`, `token_usage`; immutable after creation.
+- [ ] `value_objects/conversation_category.py` — closed enum, guides/steers the
+      conversation (used in the `Prompt` sent to the AI): `GENERAL`, `DIET`,
+      `BREAKFAST`, `FITNESS`, `RUNNING`, `GYM`, `HEALTH`, `SUPPLEMENTS`. Plain
+      enum on purpose (not a dynamic/CRUD-managed entity) — adding a category
+      later is a one-line code change + PR, matches docs/api.md's category list.
+- [ ] `exceptions/conversation_domain_errors.py` — e.g. `ArchivedConversationError`.
+- [ ] `repositories/conversation_repository.py` — port (ABC), no implementation yet.
 
-- [ ] Beanie documents
-- [ ] Mongo repository
+`modules/ai/domain/`:
+- [ ] `ports/llm_provider.py` — `LLMProvider` ABC: `generate_response(prompt: Prompt) -> AIResponse`.
+- [ ] `value_objects/prompt.py` — `Prompt` (`system_context`, `conversation_history`,
+      `category`, `question`; `user_profile` left as `None`/optional for now —
+      wired once Nutrition Profile exists).
+- [ ] `value_objects/ai_response.py` — `AIResponse` (`content`, `model`, `tokens`, `execution_time`).
+
+Exit criteria: unit tests for entities/value objects/domain rules, zero infra deps.
 
 ---
 
-## API
+## Stage 2 — Application (use cases, tested against in-memory fakes)
 
-Endpoints:
+`modules/conversation/application/`:
+- [ ] `ports/` — re-export domain repository port + a `PromptBuilderPort` if useful.
+- [ ] `use_cases/create_conversation_use_case.py`
+- [ ] `use_cases/send_message_use_case.py` — loads conversation, appends user
+      `Message`, builds a `Prompt` from history + category + question, calls
+      `LLMProvider.generate_response`, appends assistant `Message`, saves, returns.
+- [ ] `use_cases/get_conversation_history_use_case.py`
+- [ ] `dto/` — commands/results per use case (same shape as Identity's `dto/`).
+
+`modules/ai/application/`:
+- [ ] `prompt_builder.py` — pure function/service assembling `Prompt` from a
+      `Conversation` + latest user message (+ optional nutrition profile later).
+
+`modules/conversation/tests/fakes.py`: `InMemoryConversationRepository`.
+`modules/ai/tests/fakes.py` (or alongside conversation fakes): `FakeLLMProvider`
+returning a canned/deterministic response — exactly the identity module's
+`fakes.py` pattern, so use cases are tested fully before Mongo/OpenAI exist.
+
+Exit criteria: use case tests pass against fakes only, no real DB/HTTP.
+
+---
+
+## Stage 3 — Infrastructure: Mongo persistence for Conversation
+
+- [ ] **Decided: Beanie ODM** (external requirement — must use an ODM, not raw
+      Motor, for Mongo access). Add `beanie` to `requirements.txt`, initialize
+      it (`Document.init_beanie(...)`) alongside the existing `init_mongo` in
+      `backend/app/main.py`'s lifespan.
+- [ ] `infrastructure/documents/conversation_document.py` — Beanie `Document`
+      subclass mapping `Conversation` + embedded `Message` list (embedding is
+      the natural fit here: messages are only ever read/written as part of
+      their conversation, matching the aggregate boundary in domain-model.md).
+- [ ] `infrastructure/mappers/conversation_mapper.py` — Document ↔ domain
+      entity mapping (mirrors identity's `UserMapper`; domain layer stays free
+      of Beanie per architecture.md's layering rules).
+- [ ] `infrastructure/repository/mongo_conversation_repository.py` implementing
+      `ConversationRepository`.
+- [ ] Same ODM approach should retroactively apply to Nutrition (Phase 4,
+      still not started) once that phase starts — keep Mongo access consistent
+      across modules rather than mixing raw Motor and Beanie.
+
+Exit criteria: repository-level tests against a real (ephemeral, Dockerized)
+Mongo — same isolation approach as `docker-compose.test.yml` for Postgres.
+
+---
+
+## Stage 4 — Infrastructure: real LLM provider
+
+- [ ] `modules/ai/infrastructure/providers/mock_llm_provider.py` — move the
+      logic currently in `shared/providers/ai.py` here for real, behind
+      `LLMProvider`. Keep it as the default dev/test provider.
+- [ ] `modules/ai/infrastructure/openai/openai_provider.py` — real provider;
+      add `openai` to `requirements.txt`; use `settings.openai_api_key`.
+- [ ] Provider selection already has a toggle in `Settings.use_mock_ai` — wire
+      it into whatever builds the `LLMProvider` for `SendMessageUseCase`
+      (today `use_mock_ai` only feeds the unused generic `DIContainer`; needs
+      to actually reach the conversation use case's dependency wiring).
+- [ ] Retire `shared/providers/ai.py` and `DIContainer` once the real wiring
+      exists (currently registered but nothing consumes it).
+
+Exit criteria: `SendMessageUseCase` works end-to-end against both providers
+(mock in tests/dev, OpenAI behind a real key), switchable via config only.
+
+---
+
+## Stage 5 — API layer
+
+Endpoints (per docs/api.md):
 
 ```
 POST /conversations
-
 GET /conversations
-
 GET /conversations/{id}
-
 POST /conversations/{id}/messages
 ```
+
+- [ ] `api/schemas/` — request/response models.
+- [ ] `api/dependencies/` — mirrors identity's `auth_dependencies.py` shape.
+- [ ] `api/routers/conversation_router.py` — reuses Identity's
+      `get_current_user` dependency for auth (no new auth mechanism).
+- [ ] Errors raised as `AppException` with proper `ErrorCode`s from the start
+      (no repeat of the "generic HTTPException" gap fixed in Identity).
+
+---
+
+## Stage 6 — Tests & docs
+
+- [ ] Fakes-based unit tests (already covered in Stage 2) + real-Mongo
+      integration tests (Stage 3) + full API integration tests (register →
+      login → create conversation → send message → get history), same shape
+      as `test_auth_api.py`.
+- [ ] Update `docs/api.md`, `architecture.md`, `domain-model.md`, and this
+      roadmap's status table as each stage actually lands — don't let this
+      drift the way the Identity docs did before this review.
 
 ---
 
@@ -384,80 +511,8 @@ Expected result:
 User can:
 
 - create conversation,
-- send messages,
+- send messages and get an AI response,
 - see history.
-
----
-
-# Phase 6 - AI Integration
-
-Goal:
-
-Connect conversation flow with AI.
-
----
-
-## Domain
-
-Create abstraction:
-
-```
-LLMProvider
-```
-
----
-
-## Infrastructure
-
-Implement:
-
-First:
-
-```
-FakeLLMProvider
-```
-
-Example:
-
-```
-"AI response example"
-```
-
----
-
-Then:
-
-```
-OpenAIProvider
-```
-
----
-
-Application flow:
-
-```
-User message
-
-↓
-
-Conversation
-
-↓
-
-Prompt Builder
-
-↓
-
-LLM Provider
-
-↓
-
-AI Response
-
-↓
-
-Save Message
-```
 
 ---
 
@@ -692,8 +747,8 @@ Possible:
 
 The first complete version is finished when:
 
-- [ ] User can register
-- [ ] User can login
+- [x] User can register
+- [x] User can login
 - [ ] User can create nutrition profile
 - [ ] User can start conversation
 - [ ] User can chat with AI
