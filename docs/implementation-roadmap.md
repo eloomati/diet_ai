@@ -876,27 +876,60 @@ full suite at 159/159 passing.
 
 ---
 
-## Stage 3 — AI provider extension (real structured output)
+## Stage 3 — AI provider extension (real structured output) — DONE
 
-- [ ] `ai/infrastructure/anthropic/claude_provider.py` —
+- [x] `ai/infrastructure/anthropic/claude_provider.py` —
       `generate_structured_response` using `output_config: {"format":
       {"type": "json_schema", "schema": schema}}` on `messages.create()`,
-      parses the guaranteed-valid JSON text block.
-- [ ] `ai/infrastructure/ollama/ollama_provider.py` —
+      parses the guaranteed-valid JSON text block. Not exercised against the
+      real Claude API in this environment (no `ANTHROPIC_API_KEY`
+      configured in dev) — verified structurally via fakes (correct
+      `output_config` shape, correct JSON parsing), same level of
+      verification the original `ClaudeProvider.generate_response` got.
+- [x] `ai/infrastructure/ollama/ollama_provider.py` —
       `generate_structured_response` sends `"format": "json"` in the
       `/api/chat` request body, `json.loads()`s the response, validates
-      against a Pydantic model built from the schema; on a validation
-      failure, retries **once** with the validation error appended to the
-      prompt, then raises a clear error if the retry also fails (fail loud,
-      matching the project's existing `AI_PROVIDER` misconfiguration
-      philosophy — no silent fallback to a malformed plan).
-- [ ] `ai/infrastructure/providers/mock_llm_provider.py` —
-      `generate_structured_response` returns a small deterministic canned
-      plan dict.
+      against a Pydantic model built from the schema (new
+      `ollama/schema_validation.py`: converts the JSON-Schema subset our own
+      prompt builders emit — object/array/string/integer/number/boolean,
+      `required`, `additionalProperties` — into a dynamic Pydantic model via
+      `create_model`). On a validation failure, retries **once** with the
+      validation error appended to the prompt, then raises a `RuntimeError`
+      if the retry also fails (fail loud — no silent fallback to a
+      malformed plan, matching the project's existing `AI_PROVIDER`
+      misconfiguration philosophy).
+- [x] `ai/infrastructure/providers/mock_llm_provider.py` —
+      `generate_structured_response` parses the requested day count out of
+      `Prompt.question` (`DietPlanPromptBuilder` always writes "Generate a
+      N-day diet plan…") and returns exactly `N` canned days — otherwise the
+      mock provider would fail `DietPlan.create()`'s day-count validation
+      for any `duration_days != 1`, making it useless for manual end-to-end
+      testing of the Stage 5 API.
+- [x] **Real-model finding, fixed during Stage 3 verification**: the
+      original design (dump the raw JSON Schema into the prompt as
+      instruction text) made `llama3.2:1b` echo the schema's own
+      `type`/`properties` keys back as if they were the answer, and
+      separately — once that was fixed — made it invent extra top-level
+      keys per day (e.g. `"snacks"`, `"high_protein_breakfasts"`) by copying
+      words from free-text `requirements` into new JSON keys instead of
+      putting that content inside the existing `meals` list. Root cause:
+      raw JSON Schema syntax and schema-shaped instructions are unreliable
+      for very small local models. Fixed by adding
+      `build_example_from_schema()` (renders a filled-in *example instance*
+      instead of the schema definition — tiny models follow a concrete
+      example far more reliably) plus an explicit instruction that
+      requirements affect *content*, never *key names*. Verified empirically
+      against the real Docker Ollama container across four separate runs
+      (1-day, 2-day, 3-day-with-requirements, retry-triggering case) — all
+      now produce schema-conformant JSON on the first or second attempt.
 
-Exit criteria: provider-level tests (mirroring
-`test_claude_provider.py`/`test_ollama_provider.py`) verifying the JSON-mode
-request shape and the Ollama retry-once behavior; full suite green.
+Exit criteria: provider-level tests (`test_claude_provider.py` — JSON-mode
+request shape; `test_ollama_provider.py` — parse/validate,
+retry-once-then-succeed, retry-once-then-raise; `test_mock_llm_provider.py`
+— day-count matching) added, 6 tests, full suite at 165/165 passing.
+Real-Ollama verification as described above (not just fakes) — Claude
+verification deferred to whenever a real `ANTHROPIC_API_KEY` is available in
+this environment, same caveat as every prior Claude-provider stage.
 
 ---
 

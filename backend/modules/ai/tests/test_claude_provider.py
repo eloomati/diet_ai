@@ -84,6 +84,43 @@ async def test_claude_provider_builds_messages_from_history() -> None:
     assert sent["system"] == "You are a nutrition assistant. Category: BREAKFAST."
 
 
+_DIET_PLAN_SCHEMA = {
+    "type": "object",
+    "properties": {"days": {"type": "array", "items": {"type": "object", "properties": {}}}},
+    "required": ["days"],
+    "additionalProperties": False,
+}
+
+
+@pytest.mark.asyncio
+async def test_claude_provider_generate_structured_response_parses_json() -> None:
+    fake_client = _FakeAnthropicClient(
+        _FakeMessage(text='{"days": [{"day_number": 1, "meals": []}]}', model="claude-opus-4-8", output_tokens=10)
+    )
+    provider = ClaudeProvider(api_key="test-key", client=fake_client)
+
+    result = await provider.generate_structured_response(
+        Prompt(question="Generate a 1-day diet plan.", category="DIET"), _DIET_PLAN_SCHEMA
+    )
+
+    assert result == {"days": [{"day_number": 1, "meals": []}]}
+
+
+@pytest.mark.asyncio
+async def test_claude_provider_generate_structured_response_sends_output_config() -> None:
+    fake_client = _FakeAnthropicClient(
+        _FakeMessage(text='{"days": []}', model="claude-opus-4-8", output_tokens=1)
+    )
+    provider = ClaudeProvider(api_key="test-key", client=fake_client)
+
+    await provider.generate_structured_response(
+        Prompt(question="Generate a plan.", category="DIET"), _DIET_PLAN_SCHEMA
+    )
+
+    sent = fake_client.messages.last_kwargs
+    assert sent["output_config"] == {"format": {"type": "json_schema", "schema": _DIET_PLAN_SCHEMA}}
+
+
 @pytest.mark.asyncio
 async def test_claude_provider_aclose_closes_underlying_client() -> None:
     fake_client = _FakeAnthropicClient(_FakeMessage(text="...", model="claude-opus-4-8", output_tokens=1))
