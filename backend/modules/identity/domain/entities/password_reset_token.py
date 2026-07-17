@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
-from backend.modules.identity.domain.services.secure_token import SecureToken
+from backend.shared.security import SecureToken
 
 
 @dataclass(slots=True)

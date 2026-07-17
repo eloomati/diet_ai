@@ -35,11 +35,11 @@ Phase 7  - Diet Generation          DONE — structured multi-day diet plan
                                      stack with Ollama. See the 6-stage log
                                      below, including a real reliability
                                      finding for the small local model.
-Phase 8  - Conversation Lifecycle &  IN PROGRESS (Stages 1-7/8 DONE) —
-           Account Recovery          post-Phase-7 gap audit found no DELETE
-                                     endpoints anywhere, no route to the
-                                     domain's existing Conversation.archive(),
-                                     and no password recovery path. Grew
+Phase 8  - Conversation Lifecycle &  DONE (Stages 1-8/8) — post-Phase-7
+           Account Recovery          gap audit found no DELETE endpoints
+                                     anywhere, no route to the domain's
+                                     existing Conversation.archive(), and
+                                     no password recovery path. Grew
                                      mid-phase to also cover real email
                                      verification at registration (shared
                                      SecureToken generator), an email
@@ -47,16 +47,24 @@ Phase 8  - Conversation Lifecycle &  IN PROGRESS (Stages 1-7/8 DONE) —
                                      mechanism for failed sends, and (once
                                      spotted mid-Stage-7) a missing logout
                                      endpoint — scope expanded from 5 to 8
-                                     stages; see the breakdown below.
+                                     stages; see the breakdown below. Also
+                                     promoted two dependency-free helpers
+                                     (`SecureToken`; the AI module's
+                                     JSON-Schema-to-Pydantic conversion) out
+                                     of their modules into the previously-
+                                     empty `shared/security`/`shared/utils`
+                                     packages, once noticed they existed
+                                     but were never used.
 Phase 9+ - Frontend/Testing/Future  NOT STARTED
 ```
 
-**Phases 3 through 7 are complete** — Identity, Nutrition Profile,
-Conversation + AI chat, and Diet Plan generation all work end-to-end against
-the real Docker stack, with docs (`architecture.md`, `domain-model.md`,
-`api.md`, `docs/https/*.http`) and `README.md` synced to match. Phase 8+
-(Frontend, broader Reporting) is next — see that section below for the
-sparse original draft, not yet split into stages.
+**Phases 3 through 8 are complete** — Identity (including account
+recovery), Nutrition Profile, Conversation + AI chat (including lifecycle
+management), and Diet Plan generation all work end-to-end against the real
+Docker stack, with docs (`architecture.md`, `domain-model.md`, `api.md`,
+`docs/https/*.http`) and `README.md` synced to match. Phase 9+ (Frontend,
+broader Reporting) is next — see that section below for the sparse
+original draft, not yet split into stages.
 
 ---
 
@@ -1706,24 +1714,53 @@ exercised identically by the garbage/used-token cases.
 
 ## Stage 8 — Tests & docs sync
 
-- [ ] `docs/https/user.http` — add archive/delete steps for conversations
-      (or extend `conversation.http`), a password-reset flow section, and
-      an email-verification flow section (all read the token from
-      Mailhog manually, same pattern).
-- [ ] `docs/api.md` — new endpoints documented (Conversation archive/delete,
-      both password-reset endpoints, email-verification confirm).
-- [ ] `docs/architecture.md` — note `PasswordResetToken`/
-      `EmailVerificationToken`/`EmailLog`, the shared `SecureToken`
-      generator, the `EmailSender` port/Mailhog addition + its purpose
-      parameter, the per-request (not singleton) construction, and the
-      `revoke-all-refresh-tokens-on-reset` behavior.
-- [ ] `docs/domain-model.md` — `PasswordResetToken`/`EmailVerificationToken`/
-      `EmailLog` entities documented.
-- [ ] `docs/auth-runbook.md` — extended with the password-reset and
-      email-verification flows.
-- [ ] `README.md` — mention the `mailhog` service and its web UI
-      (http://localhost:8025) in the Getting Started service table.
-- [ ] Roadmap status table updated.
+- [x] `docs/https/user.http` — extended to a full 18-step flow: register →
+      login → `/me` → refresh → `/me` → reuse-old-refresh-token (401) →
+      fetch the verification email from Mailhog's HTTP API and extract the
+      token via JS regex in the request script (not a manual copy/paste
+      step) → confirm → `/me` (verified) → confirm again (400, used) →
+      logout → refresh after logout (401) → request password reset → fetch
+      + extract the reset token from Mailhog the same way → confirm → old
+      password fails (401) → new password works.
+- [x] `docs/https/conversation.http` — extended with archive → send-message-
+      to-archived (409) → get (still readable) → delete (204) →
+      get-after-delete (404).
+- [x] `docs/api.md` — documented `POST /auth/logout`,
+      `POST /auth/password-reset/request`, `POST /auth/password-reset/confirm`,
+      `POST /auth/verify-email/confirm`, `POST /conversations/{id}/archive`,
+      `DELETE /conversations/{id}`; updated `GET /auth/me`'s response body
+      with `email_verified`; added the previously-undocumented `409 CONFLICT`
+      to the messages endpoint's error list (archived-conversation case).
+- [x] `docs/architecture.md` — new "Secure one-time tokens", "EmailSender,
+      Mailhog, and the delivery log", and "Failed-email retry" subsections
+      under Identity Module; Conversation Module responsibilities/entities
+      updated for archive/delete; new "Shared Kernel (`backend/shared/`)"
+      subsection under Infrastructure Layer documenting `shared/security`
+      (`SecureToken`, `hash_password`/`verify_password`) and `shared/utils`
+      (`build_model_from_schema`/`build_example_from_schema`, moved from
+      the AI module's Ollama integration) — both promoted mid-conversation,
+      after Stage 7, per user request, once it was noticed those packages
+      already existed (scaffolded, empty) but nothing had ever used them.
+- [x] `docs/domain-model.md` — `PasswordResetToken`/`EmailVerificationToken`/
+      `EmailLog` entities documented (`User` gained `emailVerified`);
+      `PasswordChanged`/`EmailVerified` added to the Domain Events list and
+      the three new tables added to the PostgreSQL persistence mapping —
+      both pre-existing gaps from earlier stages, not new to Stage 8.
+- [x] `docs/auth-runbook.md` — rewritten: endpoint table now covers all 8
+      auth endpoints, `code` table gained `BAD_REQUEST`, local smoke test
+      extended with logout + the Mailhog-based password-reset/verification
+      steps, "Known MVP limitations" updated (password reset/verification
+      item removed since it's now shipped; added notes on logout being
+      single-session-only and the retry mechanism's fixed two purposes).
+- [x] `README.md` — `mailhog` added to the service table (with the web UI
+      note), the `.http` file table and business-goals/status sections
+      updated for logout/password-reset/verification/archive/delete, and
+      the `docker-compose.yml`/`shared/` one-liners in the repo tree synced.
+- [x] Roadmap status table updated (see the top-level Phase 8 line and this
+      file's own stage list).
+
+**Status: DONE.** Docs-only stage — no production code changed, full suite
+stays at the Stage 7 count (257 passed).
 
 ---
 

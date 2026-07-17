@@ -1,4 +1,4 @@
-from backend.modules.identity.domain.services.secure_token import SecureToken
+from backend.shared.security import SecureToken
 
 
 def test_generate_returns_raw_and_hash() -> None:

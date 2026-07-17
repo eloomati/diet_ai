@@ -7,9 +7,10 @@ This document defines the REST API contract for the Diet AI application.
 The API provides functionality for:
 
 - user registration and authentication,
+- password reset and email verification,
 - nutrition profile management,
 - AI conversations,
-- conversation history,
+- conversation history, archiving, and deletion,
 - diet plan generation.
 
 Base URL:
@@ -160,6 +161,45 @@ refresh token is rejected.
 
 ---
 
+## POST /auth/logout
+
+Revokes a refresh token. Idempotent — an unknown, garbage, or already
+revoked/expired token still returns `200` (the caller only cares that the
+token can no longer be used, which already holds). Only revokes the one
+session's refresh token, not every session the user is logged into — see
+`revoke_all_for_user` in `docs/architecture.md` for the "revoke everywhere"
+case used by password reset.
+
+### Request
+
+```json
+{
+  "refresh_token": "refresh-token"
+}
+```
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "message": "Logged out successfully."
+}
+```
+
+### Errors
+
+None — always `200`, even for an unknown/garbage token.
+
+---
+
 ## GET /auth/me
 
 Returns the authenticated user.
@@ -182,7 +222,8 @@ Body:
 {
   "user_id": "uuid",
   "email": "user@example.com",
-  "status": "ACTIVE"
+  "status": "ACTIVE",
+  "email_verified": false
 }
 ```
 
@@ -191,6 +232,125 @@ Body:
 401 Unauthorized — `INVALID_ACCESS_TOKEN` (missing/malformed/expired token, or token references a deleted user)
 
 403 Forbidden — `INACTIVE_USER`
+
+---
+
+## POST /auth/password-reset/request
+
+Issues a password reset token (30 min TTL) and emails it to the given
+address, if an account with that address exists. Always returns the same
+generic `200` regardless — this endpoint never reveals whether the email
+is registered.
+
+### Request
+
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "message": "If an account with that email exists, a password reset link has been sent."
+}
+```
+
+### Errors
+
+None — always `200`, whether or not the email exists.
+
+---
+
+## POST /auth/password-reset/confirm
+
+Consumes a password reset token, sets the new password, and — as a
+side effect — revokes every refresh token the user currently holds (forcing
+re-login on all other sessions/devices, standard practice after a
+credential reset).
+
+### Request
+
+```json
+{
+  "token": "raw-token-from-email",
+  "new_password": "NewStrongPass456"
+}
+```
+
+`new_password`: 8-128 characters, must satisfy `PasswordPolicy` (same rule
+as registration).
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "message": "Password has been reset successfully."
+}
+```
+
+### Errors
+
+400 Bad Request — `BAD_REQUEST` (token invalid, expired, already used, or its user no longer exists)
+
+400 Bad Request — `INVALID_PASSWORD` (`new_password` fails `PasswordPolicy`)
+
+422 Unprocessable Entity — `VALIDATION_ERROR` (`new_password` shorter than 8 chars)
+
+---
+
+## POST /auth/verify-email/confirm
+
+Consumes the verification token sent at registration and marks the user's
+email as verified (`GET /auth/me`'s `email_verified` flips to `true`).
+**Not** a login gate — an unverified user can still authenticate normally
+(see auth-runbook.md); this only tracks the flag.
+
+### Request
+
+```json
+{
+  "token": "raw-token-from-email"
+}
+```
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "message": "Email verified successfully."
+}
+```
+
+### Errors
+
+400 Bad Request — `BAD_REQUEST` (token invalid, expired, already used, or its user no longer exists)
 
 ---
 
@@ -488,6 +648,49 @@ Body:
   "assistant_message_id": "uuid",
   "assistant_content": "Here is your weekly breakfast plan..."
 }
+```
+
+### Errors
+
+404 Not Found — `NOT_FOUND` (same not-found-vs-not-yours ambiguity as above)
+
+409 Conflict — `CONFLICT` (conversation is archived — see below)
+
+---
+
+## POST /conversations/{conversation_id}/archive
+
+Archives a conversation. An archived conversation is still readable
+(`GET /conversations/{id}`) but rejects new messages.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `GET /conversations/{conversation_id}`, with
+`"status": "ARCHIVED"`.
+
+### Errors
+
+404 Not Found — `NOT_FOUND` (same not-found-vs-not-yours ambiguity as above)
+
+---
+
+## DELETE /conversations/{conversation_id}
+
+Permanently deletes a conversation and its full message history. Not
+reversible — there is no undo/restore endpoint.
+
+### Response
+
+Status:
+
+```
+204 No Content
 ```
 
 ### Errors

@@ -5,9 +5,9 @@ from backend.modules.identity.application.use_cases.exceptions import UserNotFou
 from backend.modules.identity.domain import (
     EmailVerificationTokenRepository,
     InvalidEmailVerificationTokenError,
-    SecureToken,
     UserRepository,
 )
+from backend.shared.security import SecureToken
 
 
 class ConfirmEmailVerificationUseCase:

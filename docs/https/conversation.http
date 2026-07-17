@@ -144,3 +144,41 @@ Content-Type: application/json
 {
   "content": "Sneaky message"
 }
+
+### =========================
+### 13) Archive conversation (status -> ARCHIVED, wciąż czytelna)
+### =========================
+POST {{baseUrl}}{{conversationsPrefix}}/{{conversation_id}}/archive
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 14) Negatywny test: wiadomość do zarchiwizowanej konwersacji
+### Oczekiwane: 409 + code CONFLICT
+### =========================
+POST {{baseUrl}}{{conversationsPrefix}}/{{conversation_id}}/messages
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "content": "This should be rejected — conversation is archived."
+}
+
+### =========================
+### 15) Get conversation — archiwizacja nie blokuje odczytu, tylko zapis
+### =========================
+GET {{baseUrl}}{{conversationsPrefix}}/{{conversation_id}}
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 16) Delete conversation — trwałe, bez cofnięcia
+### Oczekiwane: 204 No Content
+### =========================
+DELETE {{baseUrl}}{{conversationsPrefix}}/{{conversation_id}}
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 17) Negatywny test: get po delete
+### Oczekiwane: 404 + code NOT_FOUND
+### =========================
+GET {{baseUrl}}{{conversationsPrefix}}/{{conversation_id}}
+Authorization: Bearer {{access_token}}

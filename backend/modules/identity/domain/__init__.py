@@ -23,7 +23,7 @@ from .repositories import (
     PasswordResetTokenRepository,
     UserRepository,
 )
-from .services import PasswordPolicy, SecureToken
+from .services import PasswordPolicy
 from .value_objects import Email, PasswordHash, UserStatus
 
 __all__ = [
@@ -45,7 +45,6 @@ __all__ = [
     "EmailVerificationTokenRepository",
     "EmailLogRepository",
     "PasswordPolicy",
-    "SecureToken",
     "IdentityDomainError",
     "InvalidEmailError",
     "InvalidPasswordError",
