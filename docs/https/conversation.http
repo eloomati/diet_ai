@@ -1,0 +1,146 @@
+### Conversation MVP smoke tests
+### Base URL (zmień jeśli backend działa na innym porcie/hoście)
+@baseUrl = http://localhost:8000
+@authPrefix = /api/v1/auth
+@conversationsPrefix = /api/v1/conversations
+
+### Dane testowego użytkownika (właściciela konwersacji)
+@email = convo.demo@example.com
+@password = StrongPass123
+
+### =========================
+### 1) Register (właściciel)
+### =========================
+POST {{baseUrl}}{{authPrefix}}/register
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### =========================
+### 2) Login (zapis tokena do zmiennej)
+### =========================
+# @name login
+POST {{baseUrl}}{{authPrefix}}/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+> {%
+  client.global.set("access_token", response.body.access_token);
+%}
+
+### =========================
+### 3) Create conversation (zapis conversation_id)
+### =========================
+# @name createConversation
+POST {{baseUrl}}{{conversationsPrefix}}
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "title": "High protein breakfasts",
+  "category": "BREAKFAST"
+}
+
+> {%
+  client.global.set("conversation_id", response.body.conversation_id);
+%}
+
+### =========================
+### 4) List conversations (właściciela)
+### =========================
+GET {{baseUrl}}{{conversationsPrefix}}
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 5) Send message (realna odpowiedź AI — zależnie od AI_PROVIDER)
+### =========================
+POST {{baseUrl}}{{conversationsPrefix}}/{{conversation_id}}/messages
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "content": "I run 5 times a week. Suggest a high protein breakfast."
+}
+
+### =========================
+### 6) Get conversation history (powinna zawierać 2 wiadomości: USER + ASSISTANT)
+### =========================
+GET {{baseUrl}}{{conversationsPrefix}}/{{conversation_id}}
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 7) Negatywny test: brak tokena
+### Oczekiwane: 401 + code INVALID_ACCESS_TOKEN
+### =========================
+GET {{baseUrl}}{{conversationsPrefix}}
+
+### =========================
+### 8) Negatywny test: nieznana kategoria
+### Oczekiwane: 422 + code VALIDATION_ERROR
+### =========================
+POST {{baseUrl}}{{conversationsPrefix}}
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "title": "Bad category",
+  "category": "NOT_A_REAL_CATEGORY"
+}
+
+### =========================
+### 9) Negatywny test: nieistniejąca konwersacja
+### Oczekiwane: 404 + code NOT_FOUND
+### =========================
+GET {{baseUrl}}{{conversationsPrefix}}/00000000-0000-0000-0000-000000000000
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 10) Drugi użytkownik — register + login (do testu izolacji danych)
+### =========================
+# @name loginOther
+POST {{baseUrl}}{{authPrefix}}/register
+Content-Type: application/json
+
+{
+  "email": "convo.other@example.com",
+  "password": "StrongPass123"
+}
+
+###
+POST {{baseUrl}}{{authPrefix}}/login
+Content-Type: application/json
+
+{
+  "email": "convo.other@example.com",
+  "password": "StrongPass123"
+}
+
+> {%
+  client.global.set("other_access_token", response.body.access_token);
+%}
+
+### =========================
+### 11) Negatywny test: drugi user nie widzi cudzej konwersacji
+### Oczekiwane: 404 + code NOT_FOUND (nie 403 — nie zdradzamy, że konwersacja istnieje)
+### =========================
+GET {{baseUrl}}{{conversationsPrefix}}/{{conversation_id}}
+Authorization: Bearer {{other_access_token}}
+
+### =========================
+### 12) Negatywny test: drugi user nie może wysłać wiadomości do cudzej konwersacji
+### Oczekiwane: 404 + code NOT_FOUND
+### =========================
+POST {{baseUrl}}{{conversationsPrefix}}/{{conversation_id}}/messages
+Authorization: Bearer {{other_access_token}}
+Content-Type: application/json
+
+{
+  "content": "Sneaky message"
+}

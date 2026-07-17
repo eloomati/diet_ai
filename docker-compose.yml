@@ -1,3 +1,7 @@
+# Explicit project name so it never accidentally collides with
+# docker-compose.test.yml's "diet_ai_test" — see that file for why.
+name: diet_ai
+
 services:
   db:
     image: postgres:16-alpine
