@@ -1,3 +1,4 @@
+from .mongo_diet_plan_repository import MongoDietPlanRepository
 from .mongo_nutrition_profile_repository import MongoNutritionProfileRepository
 
-__all__ = ["MongoNutritionProfileRepository"]
+__all__ = ["MongoNutritionProfileRepository", "MongoDietPlanRepository"]

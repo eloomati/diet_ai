@@ -933,18 +933,34 @@ this environment, same caveat as every prior Claude-provider stage.
 
 ---
 
-## Stage 4 — Infrastructure: Mongo persistence (Beanie)
+## Stage 4 — Infrastructure: Mongo persistence (Beanie) — DONE
 
-- [ ] `infrastructure/documents/diet_plan_document.py` — Beanie `Document`,
+- [x] `infrastructure/documents/diet_plan_document.py` — Beanie `Document`,
       `Settings.name = "diet_plans"`, index on `user_id` (not unique — many
-      plans per user).
-- [ ] `infrastructure/mappers/diet_plan_mapper.py` — Document ↔ domain.
-- [ ] `infrastructure/repository/mongo_diet_plan_repository.py`.
-- [ ] Register `DietPlanDocument` in `main.py`'s `init_beanie_documents([...,
+      plans per user, unlike `NutritionProfileDocument`'s unique index).
+      `days`/`meals` are embedded Pydantic models (`DietDayEmbed`,
+      `MealEmbed`), not separate Beanie documents — they only ever exist
+      nested inside a plan, same reasoning as `Message` living inline on
+      `ConversationDocument` rather than its own collection.
+- [x] `infrastructure/mappers/diet_plan_mapper.py` — Document ↔ domain.
+      `to_document()` uses `dataclasses.asdict(day)` to flatten each
+      `DietDay`/`Meal` dataclass into the nested dict shape
+      `DietDayEmbed(**...)` expects — `asdict()` works with `slots=True`
+      dataclasses (it introspects `fields()`, not `__dict__`).
+- [x] `infrastructure/repository/mongo_diet_plan_repository.py` —
+      `list_by_user_id` sorts by `-DietPlanDocument.created_at` (newest
+      first, matching the port's documented contract).
+- [x] Registered `DietPlanDocument` in `main.py`'s
+      `init_beanie_documents([ConversationDocument, NutritionProfileDocument,
       DietPlanDocument])`.
 
 Exit criteria: repository-level tests against the real ephemeral Mongo test
-stack, same isolation pattern as `NutritionProfileDocument`'s Stage 3.
+stack (save/get round-trip, unknown-id → `None`, list-by-user newest-first,
+list-for-user-with-no-plans → `[]`), same isolation pattern as
+`NutritionProfileDocument`'s Stage 3. 4 tests added, full suite at 169/169
+passing. Also verified directly against the real dev Mongo (not just the
+ephemeral test stack): saved and re-fetched a plan through the actual
+running container's `MongoDietPlanRepository`.
 
 ---
 
