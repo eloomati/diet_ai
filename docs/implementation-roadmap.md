@@ -964,7 +964,7 @@ running container's `MongoDietPlanRepository`.
 
 ---
 
-## Stage 5 — API layer
+## Stage 5 — API layer — DONE
 
 Endpoints (per docs/api.md, updated to snake_case):
 
@@ -974,25 +974,39 @@ GET  /diet-plans
 GET  /diet-plans/{diet_plan_id}
 ```
 
-- [ ] `api/schemas/diet_plan_schemas.py` — `GenerateDietPlanRequest`
+- [x] `api/schemas/diet_plan_schemas.py` — `GenerateDietPlanRequest`
       (`duration_days: int = Field(ge=1, le=14)`, `requirements:
-      list[str] | None`), `DietPlanResponse`/`DietPlanSummaryResponse`
-      (`from_result()` classmethods).
-- [ ] `api/dependencies/diet_plan_dependencies.py` — wires
-      `NutritionProfileRepository` + `DietPlanRepository` + `LLMProvider`
-      into `GenerateDietPlanUseCase`, mirroring `SendMessageUseCase`'s
-      cross-module DI shape from Phase 5/6 Stage 5.
-- [ ] `api/routers/diet_plan_router.py` — `POST` → `AppException(NOT_FOUND)`
-      if the caller has no nutrition profile yet (or a distinct code if the
-      roadmap review decides a profile-required error deserves its own
-      `ErrorCode`); `GET /diet-plans/{id}` → `AppException(NOT_FOUND)` for a
-      nonexistent or non-owned plan.
+      list[str] | None`), `MealResponse`/`DietDayResponse`/
+      `DietPlanResponse`/`DietPlanSummaryResponse` (`from_result()`
+      classmethods).
+- [x] `api/dependencies/diet_plan_dependencies.py` — wires
+      `NutritionProfileRepository` (reusing
+      `nutrition_dependencies.get_nutrition_profile_repository`) +
+      `DietPlanRepository` + `LLMProvider` into `GenerateDietPlanUseCase`,
+      mirroring `SendMessageUseCase`'s cross-module DI shape from Phase 5/6
+      Stage 5.
+- [x] `api/routers/diet_plan_router.py` — `POST` → `AppException(NOT_FOUND)`
+      if the caller has no nutrition profile yet (reusing
+      `NutritionProfileNotFoundError`/`NOT_FOUND`, per Stage 2's decision —
+      no new `ErrorCode` needed); `GET /diet-plans/{id}` →
+      `AppException(NOT_FOUND)` for a nonexistent or non-owned plan.
+      **No explicit handling needed for a malformed AI response**
+      (`InvalidDietPlanError` from a day-count mismatch, or the `RuntimeError`
+      from Ollama's failed retry) — both fall through to the existing
+      generic `Exception` handler → `500 INTERNAL_ERROR`, consistent with
+      the project's fail-loud philosophy for AI upstream failures.
+- [x] Registered `diet_plan_router` in `nutrition/api/router.py` alongside
+      `profile_router`.
 
-Exit criteria: full API integration tests (generate → list → get →
-get-nonexistent 404 → generate-without-profile 404/error), same shape as
-`test_nutrition_api.py`. Verified end-to-end on the real Docker stack with
-Ollama, confirming the generated plan is valid structured JSON with exactly
-`duration_days` days.
+Exit criteria: full API integration tests (generate-without-profile 404 →
+generate 201 → requires-auth 401 → invalid-duration 422 → list-only-own →
+get-full-plan → get-unknown-404 → get-other-users-plan-404), same shape as
+`test_nutrition_api.py`. 8 tests added, full suite at 177/177 passing.
+Verified end-to-end on the real Docker stack with Ollama: generated a real
+2-day vegan/weight-loss plan through the full HTTP stack (~42s, realistic
+meals, exactly 2 days), confirmed via `GET /diet-plans` (summary) and
+`GET /diet-plans/{id}` (full plan, 200), and confirmed a nonexistent id
+still 404s.
 
 ---
 
