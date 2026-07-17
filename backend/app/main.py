@@ -4,8 +4,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from backend.app.api_router import api_router
+from backend.modules.conversation.infrastructure.documents import ConversationDocument
 from backend.shared.config import get_settings
-from backend.shared.database import close_mongo, close_postgres, init_mongo, init_postgres
+from backend.shared.database import (
+    close_mongo,
+    close_postgres,
+    init_beanie_documents,
+    init_mongo,
+    init_postgres,
+)
 from backend.shared.exceptions import register_exception_handlers
 from backend.shared.logging import setup_logging
 from backend.shared.middleware import RequestIdMiddleware
@@ -19,8 +26,8 @@ async def lifespan(app: FastAPI):
 
     try:
         await init_postgres(settings.postgres_url)
-        if not settings.testing:
-            await init_mongo(settings.mongo_url)
+        await init_mongo(settings.mongo_url)
+        await init_beanie_documents([ConversationDocument])
     except Exception as e:
         logging.error(f"Failed to initialize databases: {e}")
         raise
@@ -28,8 +35,7 @@ async def lifespan(app: FastAPI):
     yield
 
     await close_postgres()
-    if not settings.testing:
-        await close_mongo()
+    await close_mongo()
 
 
 def create_app() -> FastAPI:

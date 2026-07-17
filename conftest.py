@@ -15,10 +15,10 @@ def _compose(*args: str) -> None:
 
 @pytest.fixture(scope="session", autouse=True)
 def test_database() -> None:
-    """Spin up a throwaway Postgres container for the test run and remove it afterwards.
+    """Spin up throwaway Postgres + Mongo containers for the test run, remove them after.
 
-    Keeps tests off the dev database (see docker-compose.yml's `db` service) — tests
-    write/commit real rows, and reusing the dev DB left that data behind permanently.
+    Keeps tests off the dev databases (see docker-compose.yml's `db`/`mongo` services) —
+    tests write/commit real rows, and reusing the dev DBs left that data behind permanently.
     """
     _compose("up", "-d", "--wait")
     try:

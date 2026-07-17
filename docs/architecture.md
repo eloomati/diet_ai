@@ -275,11 +275,12 @@ MongoDB
 
 Technology:
 
-- Beanie ODM — required (external task requirement: Mongo access must go through
-  an ODM, not raw Motor). Not yet integrated; `shared/database/mongo.py` currently
-  exposes a raw Motor client only, since the Conversation module has no code beyond
-  an empty router. Nutrition should adopt the same ODM once its phase starts, to
-  keep Mongo access consistent across modules.
+- Beanie ODM (`beanie==2.1.0`) — integrated. `shared/database/mongo.py` uses
+  PyMongo's native async client (`pymongo.AsyncMongoClient`), not Motor: Beanie 2.x
+  requires it (MongoDB deprecated Motor in favor of PyMongo's own async API, and
+  Beanie 2.x calls a driver-metadata hook that only exists on the new client).
+  Nutrition should adopt the same Beanie setup once its phase starts, to keep
+  Mongo access consistent across modules.
 
 Main entities:
 

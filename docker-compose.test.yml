@@ -17,3 +17,16 @@ services:
       interval: 2s
       timeout: 3s
       retries: 20
+
+  mongo-test:
+    image: mongo:7
+    container_name: diet_ai_mongo_test
+    ports:
+      - "27018:27017"
+    tmpfs:
+      - /data/db
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 }).ok' || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 20

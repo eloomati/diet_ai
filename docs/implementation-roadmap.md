@@ -15,19 +15,20 @@ Each phase should result in a working part of the system.
 ```
 Phase 0  - Project Bootstrap        DONE
 Phase 1  - Architecture Skeleton    DONE (module folders + hexagonal layout scaffolded)
-Phase 2  - Database Setup           PARTIAL (Postgres done; Mongo connection exists,
-                                     Beanie/collections not started)
+Phase 2  - Database Setup           DONE (Postgres + Mongo/Beanie both wired; Beanie
+                                     currently only registers Conversation's document —
+                                     Nutrition's collections still pending Phase 4)
 Phase 3  - Identity Module          DONE (register, login, refresh, me; JWT; unified
                                      error format; real-DB + fake-based tests)
 Phase 4  - User Profile (Nutrition) NOT STARTED (empty skeleton only)
-Phase 5  - Conversation Module      NOT STARTED (empty router only)
-Phase 6  - AI Integration           NOT STARTED (empty skeleton; a temporary
-                                     MockLLMProvider lives in shared/providers/ai.py,
-                                     unused by any real flow)
+Phase 5/6 - Conversation + AI       IN PROGRESS — domain, application, and Mongo
+                                     persistence done (Stages 1-3); real LLM
+                                     provider + API layer + full integration
+                                     tests remain (Stages 4-6)
 Phase 7+ - Diet Generation/Frontend/Testing/Future  NOT STARTED
 ```
 
-Next planned milestone: **Conversation + AI ("chat MVP")** — see the detailed
+Current milestone: **Conversation + AI ("chat MVP")** — see the detailed
 sub-plan under Phase 5/6 below. Nutrition Profile (Phase 4) is deferred until
 after it, since chatting with the AI doesn't strictly need profile personalization
 for a first version (`Prompt.userProfile` can be added once Nutrition exists).
@@ -453,27 +454,49 @@ Exit criteria: use case tests pass against fakes only, no real DB/HTTP.
 
 ---
 
-## Stage 3 — Infrastructure: Mongo persistence for Conversation
+## Stage 3 — Infrastructure: Mongo persistence for Conversation — DONE
 
-- [ ] **Decided: Beanie ODM** (external requirement — must use an ODM, not raw
-      Motor, for Mongo access). Add `beanie` to `requirements.txt`, initialize
-      it (`Document.init_beanie(...)`) alongside the existing `init_mongo` in
-      `backend/app/main.py`'s lifespan.
-- [ ] `infrastructure/documents/conversation_document.py` — Beanie `Document`
-      subclass mapping `Conversation` + embedded `Message` list (embedding is
-      the natural fit here: messages are only ever read/written as part of
-      their conversation, matching the aggregate boundary in domain-model.md).
-- [ ] `infrastructure/mappers/conversation_mapper.py` — Document ↔ domain
-      entity mapping (mirrors identity's `UserMapper`; domain layer stays free
-      of Beanie per architecture.md's layering rules).
-- [ ] `infrastructure/repository/mongo_conversation_repository.py` implementing
+- [x] **Beanie ODM** added (`beanie==2.1.0`). `Document`/`Message` map to
+      `infrastructure/documents/conversation_document.py`'s `ConversationDocument`
+      (embeds messages as a `MessageEmbedded` list — the natural fit, since
+      messages are only ever read/written as part of their conversation,
+      matching the aggregate boundary in domain-model.md).
+- [x] `infrastructure/mappers/conversation_mapper.py` — Document ↔ domain
+      entity mapping (mirrors identity's `UserMapper`; sets `domain_events=[]`
+      on rehydration for the same reason `UserMapper` does).
+- [x] `infrastructure/repository/mongo_conversation_repository.py` implementing
       `ConversationRepository`.
-- [ ] Same ODM approach should retroactively apply to Nutrition (Phase 4,
-      still not started) once that phase starts — keep Mongo access consistent
-      across modules rather than mixing raw Motor and Beanie.
+- [x] **Unplanned but required: dropped Motor, switched to pymongo's native
+      async client (`pymongo.AsyncMongoClient`).** Beanie 2.x doesn't support
+      Motor — MongoDB deprecated Motor in favor of PyMongo's own async API
+      (added in PyMongo 4.9+), and Beanie 2.x calls a driver-metadata hook that
+      only exists on the new client. `shared/database/mongo.py` rewritten
+      accordingly; `motor` removed from `requirements.txt` (nothing else used it).
+- [x] `backend/app/main.py` lifespan now always calls `init_mongo` +
+      `init_beanie_documents([ConversationDocument])` — previously Mongo init
+      was skipped when `settings.testing`, back when nothing used it; now
+      Conversation needs it, so tests need a real Mongo too (see below).
+- [x] Test isolation: extended `docker-compose.test.yml` with a `mongo-test`
+      service (port 27018, `tmpfs` data dir, same ephemeral-container pattern
+      as `db-test`) instead of retroactively mixing Motor and Beanie for Nutrition
+      — Nutrition (Phase 4, still not started) should use the same Beanie setup
+      once it starts, for consistency.
+- [x] Added `backend/modules/conversation/tests/conftest.py` (same `client`
+      fixture as Identity's, since Stage 5's API tests will need the full app).
+      Repository-level tests use a *separate*, dedicated async fixture
+      (`init_mongo`/`init_beanie_documents` called directly in the test's own
+      event loop) rather than the `client`/TestClient fixture — pymongo's async
+      client is bound to the event loop it was created in, and TestClient runs
+      the app's lifespan in its own separate loop/thread, so a repository test
+      awaiting Mongo calls directly would hit
+      `RuntimeError: Cannot use AsyncMongoClient in different event loop`.
+- [x] Rebuilt the `backend` Docker image (`docker compose up -d --build backend`)
+      — the running dev container had `beanie` missing until rebuilt, since
+      only `requirements.txt` on the host had changed, not the baked image.
 
 Exit criteria: repository-level tests against a real (ephemeral, Dockerized)
 Mongo — same isolation approach as `docker-compose.test.yml` for Postgres.
+4 tests added, full suite at 86/86 passing.
 
 ---
 
