@@ -334,24 +334,31 @@ LLMProvider
 
         |
 
-+----------------+
++-----------------+
 
-| OpenAIProvider |
+| MockLLMProvider |
 
-| OllamaProvider |
+| ClaudeProvider  |
 
-+----------------+
+| OllamaProvider  |
+
++-----------------+
 ```
 
-The rest of the application does not know which AI provider is used.
+The rest of the application does not know which AI provider is used — selection
+happens via `AI_PROVIDER` (`mock` | `claude` | `ollama`) through
+`modules/ai/infrastructure/provider_factory.py`.
 
-Status: the `ai` module skeleton exists (`domain/ports`, `infrastructure/openai`,
-`infrastructure/ollama`, `infrastructure/providers`) but is currently empty. The only
-provider that exists today is a temporary `MockLLMProvider` living in
-`shared/providers/ai.py`, registered directly in the generic `DIContainer`
-(`shared/providers/container.py`) — it is not wired to any real conversation flow yet,
-since Conversation module doesn't exist yet either. This should move into the `ai`
-module once Phase 6 (see implementation-roadmap.md) starts.
+Status: implemented. `ClaudeProvider` (`infrastructure/anthropic/`) uses the
+official `anthropic` SDK against Claude (default model `claude-opus-4-8`).
+`OllamaProvider` (`infrastructure/ollama/`) talks to a self-hosted Ollama
+container over its HTTP API directly via `httpx` — there's no official SDK for
+this, so raw HTTP is the correct choice here, not a shortcut. Local dev
+(`docker-compose.yml`) runs a real Ollama container with a small model
+(`llama3.2:1b`, ~1.3GB) pulled automatically on first start. The former
+temporary `MockLLMProvider` in `shared/providers/ai.py`, and the unused generic
+`DIContainer` it was registered in, have both been deleted — nothing ever
+consumed them for real.
 
 ---
 

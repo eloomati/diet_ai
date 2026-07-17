@@ -1,6 +1,7 @@
 from uuid import uuid4
 
 from backend.modules.ai.application import PromptBuilder
+from backend.modules.ai.domain import PromptTurn
 from backend.modules.conversation.domain import Conversation, ConversationCategory, MessageRole
 
 
@@ -25,5 +26,8 @@ def test_prompt_builder_includes_prior_history_but_not_current_question() -> Non
 
     prompt = PromptBuilder.build(conversation, question="What should I eat?")
 
-    assert prompt.conversation_history == ("USER: Hi", "ASSISTANT: Hello, how can I help?")
-    assert "What should I eat?" not in prompt.conversation_history
+    assert prompt.conversation_history == (
+        PromptTurn(role="user", content="Hi"),
+        PromptTurn(role="assistant", content="Hello, how can I help?"),
+    )
+    assert prompt.question == "What should I eat?"

@@ -21,10 +21,11 @@ Phase 2  - Database Setup           DONE (Postgres + Mongo/Beanie both wired; Be
 Phase 3  - Identity Module          DONE (register, login, refresh, me; JWT; unified
                                      error format; real-DB + fake-based tests)
 Phase 4  - User Profile (Nutrition) NOT STARTED (empty skeleton only)
-Phase 5/6 - Conversation + AI       IN PROGRESS — domain, application, and Mongo
-                                     persistence done (Stages 1-3); real LLM
-                                     provider + API layer + full integration
-                                     tests remain (Stages 4-6)
+Phase 5/6 - Conversation + AI       IN PROGRESS — domain, application, Mongo
+                                     persistence, and LLM providers done
+                                     (Stages 1-4: Mock/Claude/Ollama, not
+                                     OpenAI — see Stage 4). API layer + full
+                                     integration tests remain (Stages 5-6)
 Phase 7+ - Diet Generation/Frontend/Testing/Future  NOT STARTED
 ```
 
@@ -500,22 +501,57 @@ Mongo — same isolation approach as `docker-compose.test.yml` for Postgres.
 
 ---
 
-## Stage 4 — Infrastructure: real LLM provider
+## Stage 4 — Infrastructure: real LLM provider — DONE
 
-- [ ] `modules/ai/infrastructure/providers/mock_llm_provider.py` — move the
-      logic currently in `shared/providers/ai.py` here for real, behind
-      `LLMProvider`. Keep it as the default dev/test provider.
-- [ ] `modules/ai/infrastructure/openai/openai_provider.py` — real provider;
-      add `openai` to `requirements.txt`; use `settings.openai_api_key`.
-- [ ] Provider selection already has a toggle in `Settings.use_mock_ai` — wire
-      it into whatever builds the `LLMProvider` for `SendMessageUseCase`
-      (today `use_mock_ai` only feeds the unused generic `DIContainer`; needs
-      to actually reach the conversation use case's dependency wiring).
-- [ ] Retire `shared/providers/ai.py` and `DIContainer` once the real wiring
-      exists (currently registered but nothing consumes it).
+**Scope change from the original plan:** OpenAI → **Claude (Anthropic)**, plus a
+third provider — **Ollama**, self-hosted in its own container — added at the
+same time rather than deferred, per updated requirements.
 
-Exit criteria: `SendMessageUseCase` works end-to-end against both providers
-(mock in tests/dev, OpenAI behind a real key), switchable via config only.
+- [x] `modules/ai/infrastructure/providers/mock_llm_provider.py` — moved the
+      logic out of the now-deleted `shared/providers/ai.py`, behind
+      `LLMProvider`. Returns a deterministic canned `AIResponse`; default
+      dev/test provider (`AI_PROVIDER=mock`).
+- [x] `modules/ai/infrastructure/anthropic/claude_provider.py` — `ClaudeProvider`
+      using the official `anthropic` SDK (`AsyncAnthropic`), model defaults to
+      `claude-opus-4-8` via `settings.anthropic_model`. Constructor accepts an
+      injectable client for testing (fake object, no real network call in tests).
+- [x] `modules/ai/infrastructure/ollama/ollama_provider.py` — `OllamaProvider`
+      talking to a local/self-hosted Ollama server's HTTP API directly via
+      `httpx.AsyncClient` (no official SDK exists for this — that's expected,
+      not a shortcut). Same injectable-client pattern for tests.
+- [x] **Prerequisite fix, done first:** `Prompt.conversation_history` changed
+      from flat `"ROLE: content"` strings (Stage 2) to structured `PromptTurn(role,
+      content)` tuples — the flat format would have forced every provider to
+      re-parse it back into a role/content split. `PromptBuilder` and its Stage 2
+      tests updated accordingly.
+- [x] `Settings.use_mock_ai` (bool) replaced with `Settings.ai_provider: str`
+      (`"mock" | "claude" | "ollama"`), plus `anthropic_api_key`, `anthropic_model`,
+      `ollama_base_url`, `ollama_model`.
+- [x] `modules/ai/infrastructure/provider_factory.py` — `build_llm_provider(settings)`
+      picks the provider by `settings.ai_provider`; raises a clear `RuntimeError`
+      for `claude` with no API key configured, rather than silently falling back
+      to mock (a misconfigured "production" deployment should fail loudly, not
+      quietly serve canned responses).
+- [x] **Retired `shared/providers/` (`DIContainer`, `ai.py`) entirely** — nothing
+      real ever consumed it (confirmed via grep before deleting); its
+      `use_mock_ai` branch was already dead code (`MockLLMProvider() if
+      use_mock_ai else MockLLMProvider()` — both branches were identical, a bug
+      nobody hit because nothing called it). Removed `app.state.di_container`
+      from `main.py`, deleted `backend/tests/test_di_container.py`, and trimmed
+      the two DI-container assertions out of `test_app_startup.py` (its health-
+      endpoint test stays).
+- [x] `docker-compose.yml`: new `ollama` service (`ollama/ollama:latest`),
+      auto-pulls `llama3.2:1b` (~1.3GB, CPU-friendly) on first start via its
+      command, healthcheck waits for the model to actually be present (not just
+      the server up). `backend` depends on it and defaults to `AI_PROVIDER=ollama`
+      in Docker dev; `.env.example` documents all three provider configs.
+      Verified end-to-end: real `POST /api/chat` round-trip against the running
+      container returned actual generated text.
+
+Exit criteria: `SendMessageUseCase` works end-to-end against all three providers
+(mock in unit tests; Claude and Ollama unit-tested via injected fake clients, no
+real network calls in the test suite), switchable via `AI_PROVIDER` only.
+9 tests added, full suite at 90/90 passing.
 
 ---
 

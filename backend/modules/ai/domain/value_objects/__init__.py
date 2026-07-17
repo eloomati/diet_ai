@@ -1,4 +1,4 @@
 from .ai_response import AIResponse
-from .prompt import Prompt
+from .prompt import Prompt, PromptTurn
 
-__all__ = ["Prompt", "AIResponse"]
+__all__ = ["Prompt", "PromptTurn", "AIResponse"]

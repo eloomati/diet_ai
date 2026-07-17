@@ -1,4 +1,4 @@
-from backend.modules.ai.domain import AIResponse, Prompt
+from backend.modules.ai.domain import AIResponse, Prompt, PromptTurn
 
 
 def test_prompt_defaults() -> None:
@@ -13,10 +13,16 @@ def test_prompt_carries_conversation_history() -> None:
     prompt = Prompt(
         question="And tomorrow?",
         category="BREAKFAST",
-        conversation_history=("USER: What should I eat?", "ASSISTANT: Try oatmeal."),
+        conversation_history=(
+            PromptTurn(role="user", content="What should I eat?"),
+            PromptTurn(role="assistant", content="Try oatmeal."),
+        ),
     )
 
-    assert prompt.conversation_history == ("USER: What should I eat?", "ASSISTANT: Try oatmeal.")
+    assert prompt.conversation_history == (
+        PromptTurn(role="user", content="What should I eat?"),
+        PromptTurn(role="assistant", content="Try oatmeal."),
+    )
 
 
 def test_ai_response_fields() -> None:

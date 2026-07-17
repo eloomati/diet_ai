@@ -16,7 +16,6 @@ from backend.shared.database import (
 from backend.shared.exceptions import register_exception_handlers
 from backend.shared.logging import setup_logging
 from backend.shared.middleware import RequestIdMiddleware
-from backend.shared.providers import create_di_container
 
 
 @asynccontextmanager
@@ -48,9 +47,6 @@ def create_app() -> FastAPI:
         debug=settings.app_debug,
         lifespan=lifespan,
     )
-
-    di_container = create_di_container(use_mock_ai=settings.use_mock_ai)
-    app.state.di_container = di_container
 
     app.add_middleware(RequestIdMiddleware)
     register_exception_handlers(app)

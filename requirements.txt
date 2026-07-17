@@ -39,3 +39,4 @@ asyncpg==0.29.0
 email-validator==2.3.0
 greenlet>=3.0
 beanie==2.1.0
+anthropic==0.117.0
