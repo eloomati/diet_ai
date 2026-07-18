@@ -28,7 +28,7 @@ async def repository() -> AsyncGenerator[MongoConversationRepository, None]:
 @pytest.mark.asyncio
 async def test_save_and_get_by_id_round_trips(repository: MongoConversationRepository) -> None:
     conversation = Conversation.create(
-        user_id=uuid4(), title="Breakfast ideas", category=ConversationCategory.BREAKFAST
+        user_id=uuid4(), title="Breakfast ideas", categories=[ConversationCategory.BREAKFAST]
     )
     conversation.add_message(role=MessageRole.USER, content="What should I eat?")
 
@@ -38,7 +38,7 @@ async def test_save_and_get_by_id_round_trips(repository: MongoConversationRepos
     assert fetched is not None
     assert fetched.id == conversation.id
     assert fetched.title == "Breakfast ideas"
-    assert fetched.category == ConversationCategory.BREAKFAST
+    assert fetched.categories == (ConversationCategory.BREAKFAST,)
     assert len(fetched.messages) == 1
     assert fetched.messages[0].content == "What should I eat?"
 
@@ -51,7 +51,7 @@ async def test_get_by_id_returns_none_for_unknown_id(repository: MongoConversati
 @pytest.mark.asyncio
 async def test_save_upserts_existing_conversation(repository: MongoConversationRepository) -> None:
     conversation = Conversation.create(
-        user_id=uuid4(), title="Leg day", category=ConversationCategory.GYM
+        user_id=uuid4(), title="Leg day", categories=[ConversationCategory.GYM]
     )
     await repository.save(conversation)
 
@@ -67,13 +67,13 @@ async def test_list_by_user_returns_only_own_conversations(repository: MongoConv
     user_id = uuid4()
 
     await repository.save(
-        Conversation.create(user_id=user_id, title="Breakfast ideas", category=ConversationCategory.BREAKFAST)
+        Conversation.create(user_id=user_id, title="Breakfast ideas", categories=[ConversationCategory.BREAKFAST])
     )
     await repository.save(
-        Conversation.create(user_id=user_id, title="Leg day", category=ConversationCategory.GYM)
+        Conversation.create(user_id=user_id, title="Leg day", categories=[ConversationCategory.GYM])
     )
     await repository.save(
-        Conversation.create(user_id=uuid4(), title="Someone else's chat", category=ConversationCategory.GENERAL)
+        Conversation.create(user_id=uuid4(), title="Someone else's chat", categories=[ConversationCategory.GENERAL])
     )
 
     conversations = await repository.list_by_user(user_id)
@@ -84,7 +84,7 @@ async def test_list_by_user_returns_only_own_conversations(repository: MongoConv
 @pytest.mark.asyncio
 async def test_delete_removes_conversation(repository: MongoConversationRepository) -> None:
     conversation = Conversation.create(
-        user_id=uuid4(), title="To delete", category=ConversationCategory.GENERAL
+        user_id=uuid4(), title="To delete", categories=[ConversationCategory.GENERAL]
     )
     await repository.save(conversation)
 

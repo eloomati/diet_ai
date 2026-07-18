@@ -20,7 +20,7 @@ class ConversationMapper:
             id=document.id,
             user_id=document.user_id,
             title=document.title,
-            category=ConversationCategory(document.category),
+            categories=tuple(ConversationCategory(c) for c in document.categories),
             status=ConversationStatus(document.status),
             messages=[
                 Message(
@@ -43,7 +43,7 @@ class ConversationMapper:
             id=conversation.id,
             user_id=conversation.user_id,
             title=conversation.title,
-            category=conversation.category.value,
+            categories=[c.value for c in conversation.categories],
             status=conversation.status.value,
             messages=[
                 MessageEmbedded(

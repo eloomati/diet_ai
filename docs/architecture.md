@@ -412,6 +412,15 @@ via `GET`, but `POST .../messages` on an archived conversation now raises
 is a hard delete of the conversation and its full message history — no
 soft-delete flag, no undo.
 
+**Multiple categories per conversation (pre-frontend addendum).** A
+conversation is no longer steered by a single `ConversationCategory` — it
+now carries `categories: tuple[ConversationCategory, ...]`, at least one,
+deduplicated at `create()` time (`InvalidConversationError` on an empty
+list). `PromptBuilder` folds every selected category's guidance into one
+system prompt instead of looking up a single entry, so a conversation
+tagged `DIET` + `RUNNING` gets both sets of guidance at once. Driven by the
+frontend's "Nowy czat" category picker moving from single- to multi-select.
+
 ---
 
 # Nutrition Module

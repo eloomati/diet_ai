@@ -371,7 +371,7 @@ userId
 
 title
 
-category
+categories   — tuple of ConversationCategory, at least one, deduplicated
 
 status
 
@@ -385,6 +385,9 @@ updatedAt
 ## Conversation Rules
 
 - Conversation belongs to one user.
+- Conversation has at least one category — `create()` deduplicates repeats
+  and rejects an empty list (`InvalidConversationError`); a conversation can
+  be steered by more than one category at once (e.g. `DIET` + `RUNNING`).
 - Messages cannot exist without a conversation.
 - Archived conversations cannot receive new messages.
 
@@ -739,7 +742,8 @@ Prompt
 
 question
 
-category
+categories   — tuple of strings, one or more; a conversation with several
+              categories folds guidance for all of them into one systemPrompt
 
 systemPrompt
 
@@ -747,9 +751,9 @@ conversationHistory
 ```
 
 `systemPrompt` is fully composed by `PromptBuilder` (dietetics/fitness framing +
-per-category guidance + user profile, once folded in) — providers just pass it
-through as-is, rather than each building their own system message from raw
-category/profile fields.
+per-category guidance for every category on the conversation + user profile,
+once folded in) — providers just pass it through as-is, rather than each
+building their own system message from raw category/profile fields.
 
 ---
 

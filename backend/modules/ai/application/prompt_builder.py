@@ -12,7 +12,7 @@ _BASE_SYSTEM_PROMPT = (
 
 # Keyed by ConversationCategory value — kept as plain strings here (not the enum
 # itself) so the ai domain stays decoupled from the conversation domain, same
-# reasoning as Prompt.category being a str.
+# reasoning as Prompt.categories holding plain strings, not the enum.
 _CATEGORY_GUIDANCE: dict[str, str] = {
     "BREAKFAST": (
         "Focus on breakfast-appropriate meals: quick to prepare, macro-balanced, "
@@ -51,21 +51,22 @@ class PromptBuilder:
             for message in conversation.messages
             if message.role != MessageRole.SYSTEM
         )
-        category = conversation.category.value
+        categories = tuple(c.value for c in conversation.categories)
         return Prompt(
             question=question,
-            category=category,
-            system_prompt=PromptBuilder._build_system_prompt(category, user_profile),
+            categories=categories,
+            system_prompt=PromptBuilder._build_system_prompt(categories, user_profile),
             conversation_history=history,
         )
 
     @staticmethod
-    def _build_system_prompt(category: str, user_profile: str | None) -> str:
+    def _build_system_prompt(categories: tuple[str, ...], user_profile: str | None) -> str:
         parts = [_BASE_SYSTEM_PROMPT]
 
-        guidance = _CATEGORY_GUIDANCE.get(category)
-        if guidance:
-            parts.append(guidance)
+        for category in categories:
+            guidance = _CATEGORY_GUIDANCE.get(category)
+            if guidance and guidance not in parts:
+                parts.append(guidance)
 
         if user_profile:
             parts.append(f"User profile: {user_profile}")

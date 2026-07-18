@@ -7,19 +7,19 @@ from backend.modules.conversation.domain import Conversation, ConversationCatego
 
 def test_prompt_builder_uses_conversation_category() -> None:
     conversation = Conversation.create(
-        user_id=uuid4(), title="Breakfast ideas", category=ConversationCategory.BREAKFAST
+        user_id=uuid4(), title="Breakfast ideas", categories=[ConversationCategory.BREAKFAST]
     )
 
     prompt = PromptBuilder.build(conversation, question="What should I eat?")
 
-    assert prompt.category == "BREAKFAST"
+    assert prompt.categories == ("BREAKFAST",)
     assert prompt.question == "What should I eat?"
     assert prompt.conversation_history == ()
 
 
 def test_prompt_builder_includes_prior_history_but_not_current_question() -> None:
     conversation = Conversation.create(
-        user_id=uuid4(), title="Breakfast ideas", category=ConversationCategory.BREAKFAST
+        user_id=uuid4(), title="Breakfast ideas", categories=[ConversationCategory.BREAKFAST]
     )
     conversation.add_message(role=MessageRole.USER, content="Hi")
     conversation.add_message(role=MessageRole.ASSISTANT, content="Hello, how can I help?")
@@ -35,7 +35,7 @@ def test_prompt_builder_includes_prior_history_but_not_current_question() -> Non
 
 def test_prompt_builder_includes_nutrition_framing_and_category_guidance() -> None:
     conversation = Conversation.create(
-        user_id=uuid4(), title="Creatine?", category=ConversationCategory.SUPPLEMENTS
+        user_id=uuid4(), title="Creatine?", categories=[ConversationCategory.SUPPLEMENTS]
     )
 
     prompt = PromptBuilder.build(conversation, question="Should I take creatine?")
@@ -46,9 +46,9 @@ def test_prompt_builder_includes_nutrition_framing_and_category_guidance() -> No
 
 def test_prompt_builder_uses_distinct_guidance_per_category() -> None:
     breakfast = Conversation.create(
-        user_id=uuid4(), title="Breakfast ideas", category=ConversationCategory.BREAKFAST
+        user_id=uuid4(), title="Breakfast ideas", categories=[ConversationCategory.BREAKFAST]
     )
-    running = Conversation.create(user_id=uuid4(), title="Race prep", category=ConversationCategory.RUNNING)
+    running = Conversation.create(user_id=uuid4(), title="Race prep", categories=[ConversationCategory.RUNNING])
 
     breakfast_prompt = PromptBuilder.build(breakfast, question="What should I eat?")
     running_prompt = PromptBuilder.build(running, question="What should I eat before a race?")
@@ -58,9 +58,23 @@ def test_prompt_builder_uses_distinct_guidance_per_category() -> None:
     assert "endurance" in running_prompt.system_prompt.lower()
 
 
+def test_prompt_builder_combines_guidance_for_multiple_categories() -> None:
+    conversation = Conversation.create(
+        user_id=uuid4(),
+        title="Race day snacks",
+        categories=[ConversationCategory.BREAKFAST, ConversationCategory.SUPPLEMENTS],
+    )
+
+    prompt = PromptBuilder.build(conversation, question="What should I eat before the race?")
+
+    assert prompt.categories == ("BREAKFAST", "SUPPLEMENTS")
+    assert "breakfast" in prompt.system_prompt.lower()
+    assert "supplement" in prompt.system_prompt.lower()
+
+
 def test_prompt_builder_folds_in_user_profile_when_given() -> None:
     conversation = Conversation.create(
-        user_id=uuid4(), title="Breakfast ideas", category=ConversationCategory.BREAKFAST
+        user_id=uuid4(), title="Breakfast ideas", categories=[ConversationCategory.BREAKFAST]
     )
 
     prompt = PromptBuilder.build(
@@ -74,7 +88,7 @@ def test_prompt_builder_folds_in_user_profile_when_given() -> None:
 
 def test_prompt_builder_omits_user_profile_line_when_not_given() -> None:
     conversation = Conversation.create(
-        user_id=uuid4(), title="Breakfast ideas", category=ConversationCategory.BREAKFAST
+        user_id=uuid4(), title="Breakfast ideas", categories=[ConversationCategory.BREAKFAST]
     )
 
     prompt = PromptBuilder.build(conversation, question="What should I eat?")

@@ -568,14 +568,16 @@ All endpoints below require `Authorization: Bearer {access_token}`.
 
 ## POST /conversations
 
-Creates a new conversation.
+Creates a new conversation. `categories` is a list — a conversation can be
+steered by more than one category at once (e.g. `["DIET", "RUNNING"]` for a
+race-prep nutrition chat); at least one is required.
 
 ### Request
 
 ```json
 {
   "title": "High protein breakfasts",
-  "category": "BREAKFAST"
+  "categories": ["BREAKFAST", "DIET"]
 }
 ```
 
@@ -593,7 +595,7 @@ Body:
 {
   "conversation_id": "uuid",
   "title": "High protein breakfasts",
-  "category": "BREAKFAST",
+  "categories": ["BREAKFAST", "DIET"],
   "status": "ACTIVE"
 }
 ```
@@ -602,7 +604,8 @@ Body:
 
 401 Unauthorized — missing/invalid token (see auth-runbook.md)
 
-422 Unprocessable Entity — `VALIDATION_ERROR` (invalid `category`, empty `title`)
+422 Unprocessable Entity — `VALIDATION_ERROR` (invalid category value, empty
+`categories` list, empty `title`)
 
 ---
 
@@ -625,7 +628,7 @@ Body:
   {
     "conversation_id": "uuid",
     "title": "High protein breakfasts",
-    "category": "BREAKFAST",
+    "categories": ["BREAKFAST", "DIET"],
     "status": "ACTIVE",
     "updated_at": "2026-01-01T12:00:00Z"
   }
@@ -652,7 +655,7 @@ Body:
 {
   "conversation_id": "uuid",
   "title": "High protein breakfasts",
-  "category": "BREAKFAST",
+  "categories": ["BREAKFAST", "DIET"],
   "status": "ACTIVE",
   "messages": [
     {
