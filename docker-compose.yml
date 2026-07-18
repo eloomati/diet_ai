@@ -108,6 +108,11 @@ services:
       APP_DEBUG: "true"
       LOG_LEVEL: INFO
 
+      # The frontend service below is reachable from the host at this origin
+      # (Vite dev server); the backend itself is called browser-side, not
+      # container-to-container, so this must be the host-visible origin.
+      CORS_ORIGINS: http://localhost:5173
+
       POSTGRES_URL: postgresql+asyncpg://postgres:postgres@db:5432/diet_ai
       MONGO_URL: mongodb://mongo:27017
 
@@ -145,6 +150,23 @@ services:
     # closes active connections on shutdown rather than waiting on arbitrary
     # external I/O, which is standard ASGI-server behavior, not fixable here.
     stop_grace_period: 35s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: diet_ai_frontend
+    depends_on:
+      - backend
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000/api/v1
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host
     restart: unless-stopped
 
 volumes:

@@ -68,7 +68,12 @@ Phase 9  - Meal Scheduling &         DONE (Stages 1-6/6) — pre-frontend
                                      and date-range filtering of plan
                                      history. See the 6-stage breakdown
                                      below.
-Phase 10+ - Frontend/Testing/Future  NOT STARTED
+Phase 10  - Frontend                 NOT STARTED — full Etap 0-6 breakdown
+                                      below (7 etaps, each split into
+                                      stages), designed against a
+                                      user-approved interactive mockup
+                                      before any code was written.
+Phase 11+ - Testing/Future           NOT STARTED
 ```
 
 **Phases 3 through 9 are complete** — Identity (including account
@@ -76,9 +81,9 @@ recovery), Nutrition Profile, Conversation + AI chat (including lifecycle
 management), Diet Plan generation, and Meal Scheduling & Calendar Export
 all work end-to-end against the real Docker stack, with docs
 (`architecture.md`, `domain-model.md`, `api.md`, `docs/https/*.http`) and
-`README.md` synced to match. Phase 10+ (Frontend, broader Reporting) is
-next — see that section below for the sparse original draft, not yet
-split into stages.
+`README.md` synced to match. Phase 10 (Frontend) is next — see that
+section below for the full stage-by-stage plan (Etap 0 "Fundament" is
+about to start).
 
 ---
 
@@ -2286,45 +2291,383 @@ each endpoint's behavior).
 
 Goal:
 
-Create user interface.
+Build the React frontend against the completed backend (Phases 3-9),
+matching an already-designed and user-approved interactive mockup
+(chat-first layout modeled on Claude/ChatGPT: collapsible left rail with
+history, collapsible right rail reserved for future roadmap items, a
+profile modal opened from an avatar icon with Profil/Plany/Kalendarz
+tabs, a dismissible login/register popup). Palette: beige + gold accent +
+sage green (a color-theory pick to complement the requested beige/yellow).
+Typography: Nunito (headings) / Nunito Sans (body).
 
 Technology:
 
-React
+React + Vite + TypeScript, Tailwind CSS v4, shadcn/ui, React Router,
+TanStack Query.
+
+Split into 7 stages of work (Etap 0-6), each further split into small
+stages — same rule as every backend phase: each stage is independently
+committable/reviewable. Etap 0 is the foundation every later etap builds
+on; Etap 1-4 each wire one backend module's endpoints to a real screen;
+Etap 5-6 are cross-cutting polish and test/docs sync.
 
 ---
 
-## Authentication
+# Etap 0 — Fundament — DONE (Stages 1-6/6)
 
-Implement:
+Goal: project scaffold + the static app shell (visually 1:1 with the
+approved mockup, fully interactive at the UI level — collapsing rails,
+opening the auth popup and profile modal, switching tabs) wired up to a
+real (but not-yet-exercised) API client and auth mechanism. No real
+login/data yet — that starts in Etap 1. Built against a user-approved
+interactive HTML/CSS/JS mockup (published as an Artifact) before any React
+code was written.
 
-- [ ] Login page
-- [ ] Registration page
-- [ ] JWT handling
+## Stage 1 — Tooling & scaffold — DONE
+
+- [x] `frontend/` — Vite + React + TypeScript (strict) project, replacing
+      the stray `frontend/__init__.py`. **Deviation**: `create-vite`'s
+      current template scaffolds **React 19** (not 18) and **oxlint**
+      instead of ESLint (its new default, Rust-based, faster) — kept both
+      rather than downgrading to match an outdated assumption; Prettier
+      added alongside oxlint for formatting (oxlint is lint-only).
+- [x] Tailwind CSS v4 (CSS-first `@theme` config, no `tailwind.config.ts`).
+- [x] shadcn/ui initialized (`style: base-nova`, built on **Base UI**
+      rather than Radix — the current shadcn default); base primitives
+      added: `button`, `dialog`, `input`, `tabs`, `avatar`, `scroll-area`.
+- [x] npm as the package manager (only one available in this environment).
+- [x] Vitest + React Testing Library configured (jsdom environment,
+      `src/test/setup.ts`), one smoke test.
+
+**Real problems hit and fixed**: (1) a corrupted `node_modules` left
+`tslib` missing despite the lockfile claiming otherwise, breaking the
+shadcn CLI (`recast` failed to resolve it) — fixed with a clean
+`rm -rf node_modules package-lock.json && npm install`. (2) shadcn's alias
+resolution didn't pick up the path alias from `tsconfig.app.json` alone
+and wrote generated files into a literal `frontend/@/...` directory
+instead of `src/` — fixed by adding matching `compilerOptions.paths` to
+the root `tsconfig.json` too, then moving the files. (3) TypeScript flagged
+`baseUrl` as deprecated (TS6100/5101) once paths were added — resolved by
+dropping `baseUrl` and keeping `paths` alone (resolves relative to the
+tsconfig file in current TS).
+
+Exit criteria met: `npm run build`, `npm run test`, `npm run lint` all
+green.
 
 ---
 
-## Chat
+## Stage 2 — Design tokens & fonts — DONE
 
-Implement:
+- [x] Palette ported 1:1 from the approved mockup directly into
+      `src/index.css`'s `:root`/`.dark` blocks (shadcn's generated
+      oklch neutral theme replaced with real hex values): beige
+      `#F6EFE2`/`#FFFCF6`, gold accent `#C98A1F`/`#E8AE3D`/`#FBEBC9`, sage
+      `#748C69`/`#DCE6D3`, warm-black text `#332B21`, mapped onto shadcn's
+      semantic slots (`--primary`, `--secondary`, `--accent`,
+      `--sidebar-*`, etc.) rather than a separate `tokens.css` file.
+      `.dark` variant written (not a naive invert — contrast re-checked)
+      but not switched on by any UI yet, per the mockup's own plan.
+- [x] `@fontsource/nunito` (800, headings) and `@fontsource/nunito-sans`
+      (400/700, body) — self-hosted, no Google Fonts CDN.
+- [x] `@theme` block maps `--font-heading`/`--font-sans` to the two
+      families; verified present in the compiled build CSS/font assets.
 
-- [ ] Chat window
-- [ ] Message history
-- [ ] Category tiles
+Exit criteria met (adapted): rather than a throwaway swatch page, verified
+directly against the compiled build output (`--background:#f6efe2`/
+`#221d16`, 15 `@font-face` rules, both family names present) — full visual
+side-by-side happened naturally once Stage 4 built real screens.
 
-Categories:
+---
 
-```
-Diet
+## Stage 3 — API client & auth context (no UI yet) — DONE
 
-Fitness
+- [x] `src/lib/apiFetch.ts` — fetch wrapper with bearer-token injection,
+      refresh-once-on-401 (concurrent 401s coalesce into a single
+      `POST /auth/refresh` call), falls back to cleared tokens ("guest")
+      if refresh also fails. `ApiError` carries `status`/`code` from the
+      backend's common error shape.
+- [x] `src/lib/auth/tokenStore.ts` + `AuthContext`/`AuthProvider`/
+      `useAuth()` — access token in memory (`useSyncExternalStore`),
+      refresh token in `localStorage`.
+- [x] `src/lib/queryClient.ts` — TanStack Query client, wired into
+      `main.tsx` alongside `AuthProvider`.
+- [x] `src/api/{auth,profile,conversations,dietPlans}.ts` — typed 1:1
+      against `docs/api.md`.
 
-Health
+Exit criteria met: 9 Vitest unit tests (mocked `fetch`) — success path,
+refresh-then-retry, refresh-fails-clears-tokens, no-refresh-token-guest,
+and concurrent-401-coalescing; plus `AuthContext` login/logout tests.
 
-Running
+---
 
-Supplements
-```
+## Stage 4 — Static app shell UI (matches the approved mockup) — DONE
+
+- [x] `features/shell/` — `AppShell`, `LeftRail` (avatar button,
+      collapse, `CategoryMenu`, history placeholder gated on
+      `useAuth().isAuthenticated`, "O nas" → `AboutDialog`), `RightRail`
+      ("Co nowego" placeholder).
+- [x] `features/shell/CategoryMenu.tsx` — full multi-select port of the
+      mockup's category picker (checkboxes, "Rozpocznij czat" disabled
+      until ≥1 selected) — kept as real local-state interaction since it
+      doesn't touch the API yet.
+- [x] `features/chat/ChatCanvas.tsx` — hero + composer; hero chips fill
+      the composer text; submit is a no-op (`preventDefault`) — real send
+      wiring is Etap 3.
+- [x] `features/auth/AuthPopup.tsx` — login/register tabs, guest-skip;
+      submit is intentionally a no-op here too (Etap 1 Stage 1 wires it
+      to the already-working `useAuth().login`/`register`, keeping this
+      stage's commit boundary clean).
+- [x] `features/profile/ProfileModal.tsx` — Dialog + Tabs
+      (Profil/Plany/Kalendarz), each tab a placeholder note pointing at
+      the etap that fills it in.
+- [x] Profile-icon gating ported: logged out → reopens `AuthPopup`;
+      logged in → opens `ProfileModal`.
+
+Exit criteria met — **verified live in a real browser** (Chrome via
+`claude-in-chrome`, not just visual inspection): popup dismiss/guest,
+avatar re-opening the popup while logged out, the full category
+multi-select flow (checkboxes → header pills), left-rail collapse/expand,
+and a clean console (no React warnings/errors) all confirmed against the
+running `npm run dev` server.
+
+---
+
+## Stage 5 — Routing — DONE
+
+- [x] React Router v6 (`BrowserRouter` in `main.tsx`); `App.tsx` routes:
+      `/` and `/:conversationId`, both rendering `AppShell`.
+- [x] `AppShell` reads `conversationId` via `useParams()` and passes it to
+      `ChatCanvas`, which shows it as a placeholder title
+      (`Rozmowa #12345678`) when no categories are active yet — read, not
+      fetched (Etap 3 does the real fetch).
+- [x] Starting a new chat (`CategoryMenu` confirm) calls `useNavigate()`
+      back to `/`, so a fresh chat drops any conversation id in the URL.
+
+Exit criteria met: confirmed live in-browser — navigating to
+`/11111111-2222-3333-4444-555555555555` renders the same shell with
+"Rozmowa #11111111" in the header (verified via page-text extraction, not
+just a screenshot). 10/10 Vitest tests green (added a `/:conversationId`
+case to `App.test.tsx` via `MemoryRouter`).
+
+---
+
+## Stage 6 — CORS, Docker, docs sync — DONE
+
+- [x] Backend: `Settings.cors_origins` (comma-separated string + derived
+      `cors_origins_list` property — simpler than a literal `list[str]`
+      env field, which pydantic-settings would otherwise expect as JSON
+      in a `.env` value) + `CORSMiddleware` added last in
+      `create_app()` (so it wraps every other middleware, per Starlette's
+      reverse-registration-order stacking) — confirmed missing entirely
+      beforehand (`grep` for `CORSMiddleware` found nothing).
+- [x] `docker-compose.yml` — new `frontend` service (`npm run dev --
+      --host`, port `5173:5173`, bind-mounted with an anonymous
+      `/app/node_modules` volume so the container's own install isn't
+      shadowed by the host mount); new `frontend/Dockerfile`
+      (`node:20-alpine`, `npm ci`) + `.dockerignore`.
+- [x] `frontend/.env.example` (`VITE_API_BASE_URL`, added back in Stage 3)
+      and root `.env.example`/`docker-compose.yml` gained `CORS_ORIGINS`.
+- [x] `README.md` — Frontend section, architecture diagram, project
+      structure tree, and the stale "Frontend (React/Vite/Tailwind)"
+      future-improvements line all updated to match reality.
+
+Exit criteria met: 2 new backend tests (`test_cors_allows_configured_
+frontend_origin`, `test_cors_does_not_reflect_an_unconfigured_origin`) —
+full backend suite 347/347. `docker build` + standalone `docker run` of
+the frontend image verified the dev server actually starts and responds
+(200 OK) inside the container, not just that the Dockerfile parses.
+
+---
+
+# Etap 1 — Autentykacja
+
+Goal: replace Etap 0's non-functional `AuthPopup`/profile-gating with real
+auth against `docs/api.md`'s Authentication API.
+
+## Stage 1 — Register + login
+
+- [ ] `AuthPopup`'s login/register tabs call real `POST /auth/register` /
+      `POST /auth/login`; success stores tokens via `AuthContext` and
+      closes the popup (mirrors the mockup's mock-login behavior).
+- [ ] Error states surfaced inline (409 `USER_ALREADY_EXISTS`, 401
+      `INVALID_CREDENTIALS`, 422 `VALIDATION_ERROR`, 400
+      `INVALID_PASSWORD`).
+
+## Stage 2 — Session bootstrap, refresh, logout
+
+- [ ] On app load, if a refresh token exists in `localStorage`, silently
+      redeem it (`POST /auth/refresh`) to restore a session without
+      forcing re-login.
+- [ ] Real logout (`POST /auth/logout`) wired to the profile modal's
+      "Wyloguj się" button from the mockup.
+
+## Stage 3 — Password reset & email verification
+
+- [ ] `POST /auth/password-reset/request` + `/confirm` — simple linked
+      screens/forms (not modeled in the mockup; low-traffic flows, kept
+      minimal).
+- [ ] `POST /auth/verify-email/confirm`.
+
+## Stage 4 — Session-aware gating
+
+- [ ] `GET /auth/me` backs the "am I logged in" check used by the profile
+      icon (mockup behavior: click while logged out re-opens the auth
+      popup) and by history visibility in the left rail.
+
+## Stage 5 — Tests & docs sync
+
+- [ ] Component tests for the auth flows (mocked API); `docs/api.md`
+      cross-checked against actual request/response handling; roadmap
+      status updated.
+
+---
+
+# Etap 2 — Profil żywieniowy
+
+Goal: wire the profile modal's "Profil" tab to
+`docs/api.md`'s Nutrition Profile API.
+
+## Stage 1 — Profile form
+
+- [ ] `GET/POST/PUT /profile` — form fields: age, height_cm, weight_kg,
+      activity_level, goal, diet_type (matches the mockup's form layout).
+
+## Stage 2 — Weekly obligations editor
+
+- [ ] Editable list of `weekly_obligations` (day_of_week, start_time,
+      end_time, label) — the mockup shows these as read-only tag rows;
+      this stage makes them add/edit/remove.
+
+## Stage 3 — Validation & error states
+
+- [ ] 422 range validation (age 1-120, height_cm 50-250, weight_kg
+      20-400), 409 on duplicate `POST`, 404 on `GET`/`PUT` with no
+      profile yet, 400 on an obligation's `end_time <= start_time`.
+
+## Stage 4 — Tests & docs sync
+
+---
+
+# Etap 3 — Konwersacje/Chat
+
+Goal: wire the chat canvas and left-rail history to
+`docs/api.md`'s Conversation API (`categories` is a list — see the
+multi-category backend change already shipped).
+
+## Stage 1 — List + create
+
+- [ ] "Nowy czat" category picker (multi-select, matches the mockup) →
+      `POST /conversations` with `categories: [...]`; `GET /conversations`
+      backs the left-rail history list.
+
+## Stage 2 — Chat window
+
+- [ ] `GET /conversations/{id}` (history) + `POST .../messages` (send +
+      AI response) wired to `ChatCanvas`.
+
+## Stage 3 — Archive & delete
+
+- [ ] `POST .../archive`, `DELETE /conversations/{id}` — archived
+      conversations reject new messages (409, surfaced as a disabled
+      composer or inline notice).
+
+## Stage 4 — Real history in the left rail
+
+- [ ] Replace Etap 0's placeholder history with the real
+      `GET /conversations` list (title + categories tag, matching the
+      mockup's "+N" overflow badge for 3+ categories).
+
+## Stage 5 — Tests & docs sync
+
+---
+
+# Etap 4 — Plany dietetyczne
+
+Goal: wire the profile modal's "Plany" and "Kalendarz" tabs, plus the
+chat's "Generuj plan" button, to `docs/api.md`'s Diet Plan API.
+
+## Stage 1 — Generate
+
+- [ ] "Generuj plan" button in the chat composer → `POST
+      /diet-plans/generate` (404 if no profile yet, per the API contract
+      — surfaced as a prompt to complete the profile first). Graying out
+      the button until the conversation has "enough" info is an explicit
+      documented future item (needs a backend heuristic first), not part
+      of this stage.
+
+## Stage 2 — Plan list with date filter
+
+- [ ] "Plany" tab → `GET /diet-plans?from&to` (matches the mockup's date
+      inputs + filter button).
+
+## Stage 3 — Calendar view
+
+- [ ] "Kalendarz" tab → `GET /diet-plans/{id}` rendered as the mockup's
+      weekly grid (day columns × time rows), prev/next week navigation.
+
+## Stage 4 — Reschedule (drag & drop)
+
+- [ ] `PATCH /diet-plans/{id}/meals` — dragging a meal chip to a new
+      day/time (mockup already proved this interaction with a
+      pointer-events-based drag; port the same mechanic against real
+      data) persists via the API and shows a confirmation toast.
+
+## Stage 5 — CSV export
+
+- [ ] `POST .../export`, `GET .../exports`, `GET .../exports/{id}/download`
+      — "Pobierz" button on the right of each plan row, per the mockup.
+
+## Stage 6 — Tests & docs sync
+
+---
+
+# Etap 5 — Polish/UX
+
+Goal: cross-cutting quality pass once every real screen exists.
+
+## Stage 1 — Errors, loading, empty states
+
+- [ ] Global toast/banner for API error codes (`docs/api.md`'s common
+      error format), loading skeletons, empty states for history/plans/
+      calendar.
+
+## Stage 2 — Responsiveness
+
+- [ ] Mobile/desktop layout (the mockup's rails become overlays on
+      narrow viewports — same breakpoint approach already sketched
+      there).
+
+## Stage 3 — Design system pass
+
+- [ ] Once real screens exist (more content/edge cases than the mockup's
+      demo data), a consistency pass on spacing/typography/component
+      reuse.
+
+## Stage 4 — Docs sync
+
+---
+
+# Etap 6 — Testy i dokumentacja
+
+Goal: close out Phase 10 the same way every backend phase closed —
+tests + docs synced to what actually shipped.
+
+## Stage 1 — Component tests
+
+- [ ] Vitest + Testing Library coverage for the key screens (auth, chat,
+      profile, plans, calendar) built up across Etap 1-5.
+
+## Stage 2 — Manual smoke walkthrough
+
+- [ ] A `docs/https`-style walkthrough for the frontend (register → login
+      → complete profile → chat → generate plan → reschedule → export),
+      run manually against the real Docker stack.
+
+## Stage 3 — Docs & status sync
+
+- [ ] `README.md` Frontend status flips to ✅; this roadmap's status table
+      (top of file) updated; `docs/architecture.md`'s "Frontend (future)"
+      diagram label updated to reflect the real stack.
 
 ---
 
