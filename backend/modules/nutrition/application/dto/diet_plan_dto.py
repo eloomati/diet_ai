@@ -31,6 +31,7 @@ class MealResult:
     protein: float
     carbohydrates: float
     fat: float
+    time: str | None
 
     @classmethod
     def from_domain(cls, meal: Meal) -> "MealResult":
@@ -40,6 +41,7 @@ class MealResult:
             protein=meal.protein,
             carbohydrates=meal.carbohydrates,
             fat=meal.fat,
+            time=meal.time.isoformat(timespec="minutes") if meal.time else None,
         )
 
 

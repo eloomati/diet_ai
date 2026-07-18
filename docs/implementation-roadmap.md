@@ -1896,46 +1896,91 @@ this assumption is wrong for how plans actually get used, it's an easy
 one-line change (this stage is exactly where to redirect it).
 
 `domain/value_objects/meal.py`:
-- [ ] `Meal` gains `time: time | None = None`. Still frozen — rescheduling
-      (Stage 3) reconstructs via `dataclasses.replace`, never mutates in place.
+- [x] `Meal` gains `time: datetime.time | None = None`. Still frozen —
+      rescheduling (Stage 3) reconstructs a new `Meal`, never mutates in
+      place. **Real bug hit and fixed while implementing**: writing this as
+      `from datetime import time` + `time: time | None = None` crashes at
+      class-definition time (`TypeError: unsupported operand type(s) for
+      |: 'NoneType' and 'NoneType'`) — a genuine CPython footgun: in a
+      class-body annotated assignment, the value (`None`) is bound to the
+      field name *before* the annotation expression is evaluated, so a
+      field literally named `time` with a bare `time` annotation resolves
+      against the value just assigned, not the imported type. Fixed by
+      `import datetime` + `time: datetime.time | None = None` (qualified
+      reference, doesn't touch the shadowed bare name).
+- [x] New `domain/services/meal_scheduler.py` (new `domain/services/`
+      package for this module, mirroring identity's) — `MealScheduler`:
+      `resolve_weekday(plan_start_date, day_number)` (day 1 = start date)
+      and `clamp_meal_time(meal_time, weekday, weekly_obligations)` (the
+      conflict-clamping heuristic, bounded-iteration to handle back-to-back
+      same-day obligations without looping forever).
 
 `modules/ai/application/diet_plan_prompt_builder.py`:
-- [ ] `build_schema()`'s meal item gains a `"time"` string property
+- [x] `build_schema()`'s meal item gains a `"time"` string property
       (format `"HH:MM"`) — **not** added to `"required"`, so a small local
       model (Ollama) omitting it doesn't hard-fail validation, consistent
       with this module's documented small-model reliability findings
-      (see `docs/architecture.md` § Structured output). The prompt itself
-      still instructs the model to always include a time.
-- [ ] `build()` gains `obligations_text: str = ""`, interpolated into the
-      question the same way `requirements_text` already is.
+      (see `docs/architecture.md` § Structured output). `_SYSTEM_PROMPT`
+      instructs the model to include a time and schedule around any weekly
+      commitments mentioned in the profile text.
+- [x] **Deviation from the original plan above**: no separate
+      `obligations_text` param was added to `build()`. Stage 1 already made
+      `NutritionProfile.as_prompt_text()` append the weekly-commitments
+      clause, and that text is already passed as `user_profile_text` — a
+      second explicit parameter would just duplicate the same information
+      in the prompt for no benefit. `_SYSTEM_PROMPT` alone now asks the
+      model to schedule around "any weekly commitments mentioned in the
+      user profile."
 
 `application/use_cases/generate_diet_plan_use_case.py`:
-- [ ] Passes `profile.weekly_obligations` (formatted) to
-      `DietPlanPromptBuilder.build()`.
-- [ ] New post-generation step: for each meal, resolve its weekday from
-      `day_number` + the plan's creation date, check against
-      `weekly_obligations` for that weekday, and if the AI-suggested time
-      falls inside an obligation window, shift it to the nearest free slot
-      (a small deterministic heuristic, not a full constraint solver —
-      good enough to avoid "lunch during your 9-to-5" but not promising a
-      globally-optimal schedule). This is a code-level safety net
-      precisely because the model's own conflict-avoidance reasoning isn't
-      trusted to be reliable (same reasoning as the `"time"` field being
-      optional in the schema above).
+- [x] New `_build_meal()` step: parses the AI's optional `"time"` string
+      (drops it silently on a malformed value rather than failing the
+      whole generation over a cosmetic field), resolves the meal's weekday
+      via `MealScheduler.resolve_weekday(plan_start_date, day_number)` using
+      `datetime.now(UTC).date()` as `plan_start_date`, and clamps via
+      `MealScheduler.clamp_meal_time()` against `profile.weekly_obligations`.
 
 `application/dto/diet_plan_dto.py` / `api/schemas/diet_plan_schemas.py` /
-`infrastructure/documents/diet_plan_document.py`:
-- [ ] `MealResult`/`MealResponse`/`MealEmbed` all gain `time` — the
-      `DietPlanMapper` direction needs no code change (it already
-      round-trips `Meal`'s fields via `dataclasses.asdict`/`**`).
+`infrastructure/documents/diet_plan_document.py` / `infrastructure/mappers/diet_plan_mapper.py`:
+- [x] `MealResult`/`MealResponse` gain `time: str | None`. `MealEmbed` gains
+      `time: str | None` too — **also a deviation from the original plan**:
+      MongoDB/BSON has no native "time-of-day" type (only full datetimes),
+      so a native `datetime.time` field on `MealEmbed` isn't actually
+      persistable. This means `DietPlanMapper` could **not** keep its
+      previous `dataclasses.asdict`/`**model_dump()` auto-propagation
+      shortcut once `Meal.time` (a `datetime.time`) needed to become a
+      string for storage — both mapper directions were rewritten with
+      explicit per-field construction (`time.fromisoformat(...)` /
+      `.isoformat(timespec="minutes")`) instead.
 
 Exit criteria: unit tests for the conflict-clamp function (meal inside an
 obligation window gets shifted; a meal outside any window is untouched;
-multiple same-day obligations handled); `GenerateDietPlanUseCase` tested
-against a fake LLM provider returning a colliding time, asserting the
-returned plan's meal time is shifted away from it; verified on the real
-Docker stack with Ollama — generate a plan for a profile with obligations,
-confirm meals carry a `time` and none collide.
+back-to-back same-day obligations handled); `GenerateDietPlanUseCase`
+tested against a fake LLM provider returning a colliding time, asserting
+the returned plan's meal time is shifted away from it; verified on the
+real Docker stack with Ollama — generate a plan for a profile with
+obligations, confirm meals carry a `time` and none collide.
+
+**Status: DONE.**
+
+- New tests: `test_meal_scheduler.py` (6), `test_generate_diet_plan_use_case.py`
+  gained 5 (AI-time-kept, time-omitted-defaults-to-None,
+  collision-gets-clamped, non-colliding-time-untouched,
+  malformed-AI-time-dropped-not-fatal — the collision test obligates
+  *every* weekday identically so it's deterministic regardless of which
+  actual weekday the test runs on, given day 1 = today),
+  `test_mongo_diet_plan_repository.py` gained 2 (real-Mongo round-trip
+  with and without a meal time). Full suite: 275 → **288 passed**.
+- Real Docker-stack verification with real Ollama (`llama3.2:1b`): created
+  a profile with a 09:00–17:00 obligation on every day of the week,
+  generated a 2-day plan — the model returned meals at `06:00` and `17:00`
+  (both outside/at-the-boundary of the obligation window, so the model
+  itself already avoided the conflict; the clamping logic's correctness
+  under an actual collision is proven deterministically by the unit tests
+  above, since a real LLM's output can't be forced to collide on demand).
+  Confirmed via a follow-up `GET` and a direct `mongosh` query that the
+  `time` strings persisted correctly. Cleaned up all test data (Mongo
+  profiles/plans, Postgres user) afterwards.
 
 ---
 

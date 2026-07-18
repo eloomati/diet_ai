@@ -6,6 +6,7 @@ from .exceptions import (
     NutritionDomainError,
 )
 from .repositories import DietPlanRepository, NutritionProfileRepository
+from .services import MealScheduler
 from .value_objects import ActivityLevel, DayOfWeek, DietDay, DietGoal, DietType, Meal, WeeklyObligation
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "Meal",
     "DayOfWeek",
     "WeeklyObligation",
+    "MealScheduler",
     "NutritionProfileRepository",
     "DietPlanRepository",
     "NutritionDomainError",

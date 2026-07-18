@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from datetime import time
 from uuid import uuid4
 
 import pytest
@@ -54,6 +55,34 @@ async def test_save_and_get_by_id_round_trips(repository: MongoDietPlanRepositor
     assert len(fetched.days) == 2
     assert fetched.days[0].meals[0].name == "Oatmeal"
     assert fetched.requirements == ("high protein",)
+
+
+@pytest.mark.asyncio
+async def test_save_and_get_round_trips_meal_time(repository: MongoDietPlanRepository) -> None:
+    plan = _plan(
+        duration_days=1,
+        days=(DietDay(day_number=1, meals=(Meal("Oatmeal", 400, 20, 60, 10, time=time(8, 0)),)),),
+    )
+
+    await repository.save(plan)
+    fetched = await repository.get_by_id(plan.id)
+
+    assert fetched is not None
+    assert fetched.days[0].meals[0].time == time(8, 0)
+
+
+@pytest.mark.asyncio
+async def test_save_and_get_round_trips_meal_with_no_time(repository: MongoDietPlanRepository) -> None:
+    plan = _plan(
+        duration_days=1,
+        days=(DietDay(day_number=1, meals=(Meal("Oatmeal", 400, 20, 60, 10),)),),
+    )
+
+    await repository.save(plan)
+    fetched = await repository.get_by_id(plan.id)
+
+    assert fetched is not None
+    assert fetched.days[0].meals[0].time is None
 
 
 @pytest.mark.asyncio

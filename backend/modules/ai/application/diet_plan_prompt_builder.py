@@ -4,7 +4,10 @@ _SYSTEM_PROMPT = (
     "You are a professional dietitian assistant. Generate a structured, realistic "
     "multi-day meal plan tailored to the given user profile, goal, and diet type. "
     "Keep portions and macros plausible for the stated goal — do not invent extreme "
-    "or unsafe calorie targets."
+    "or unsafe calorie targets. For each meal, also suggest a realistic time of day "
+    "(24-hour HH:MM format) to eat it. If the user profile mentions weekly "
+    "commitments (e.g. work or training hours), schedule meals around them so they "
+    "don't land in the middle of one."
 )
 
 
@@ -42,6 +45,12 @@ class DietPlanPromptBuilder:
                                         "protein": {"type": "number"},
                                         "carbohydrates": {"type": "number"},
                                         "fat": {"type": "number"},
+                                        # Not in "required": a small local model
+                                        # (Ollama) omitting it shouldn't hard-fail
+                                        # validation — see docs/architecture.md
+                                        # § Structured output for the documented
+                                        # small-model reliability findings.
+                                        "time": {"type": "string"},
                                     },
                                     "required": [
                                         "name",

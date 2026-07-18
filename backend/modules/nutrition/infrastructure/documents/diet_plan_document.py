@@ -12,6 +12,9 @@ class MealEmbed(BaseModel):
     protein: float
     carbohydrates: float
     fat: float
+    # str, not a native time type: MongoDB/BSON has no standalone "time-of-day"
+    # type (only full datetimes), so this stores "HH:MM" strings instead.
+    time: str | None = None
 
 
 class DietDayEmbed(BaseModel):

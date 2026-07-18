@@ -19,6 +19,7 @@ class MealResponse(BaseModel):
     protein: float
     carbohydrates: float
     fat: float
+    time: str | None
 
     @classmethod
     def from_result(cls, result: MealResult) -> "MealResponse":
@@ -28,6 +29,7 @@ class MealResponse(BaseModel):
             protein=result.protein,
             carbohydrates=result.carbohydrates,
             fat=result.fat,
+            time=result.time,
         )
 
 
