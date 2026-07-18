@@ -40,6 +40,7 @@ class DietPlanMapper:
                 for day in document.days
             ),
             created_at=document.created_at,
+            updated_at=document.updated_at,
         )
 
     @staticmethod
@@ -69,4 +70,5 @@ class DietPlanMapper:
                 for day in plan.days
             ],
             created_at=plan.created_at,
+            updated_at=plan.updated_at,
         )

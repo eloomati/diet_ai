@@ -8,11 +8,13 @@ from backend.modules.nutrition.api.dependencies import (
     get_diet_plan_use_case,
     get_generate_diet_plan_use_case,
     get_list_diet_plans_use_case,
+    get_reschedule_meal_use_case,
 )
 from backend.modules.nutrition.api.schemas import (
     DietPlanResponse,
     DietPlanSummaryResponse,
     GenerateDietPlanRequest,
+    RescheduleMealRequest,
 )
 from backend.modules.nutrition.application import (
     DietPlanNotFoundError,
@@ -23,7 +25,10 @@ from backend.modules.nutrition.application import (
     ListDietPlansQuery,
     ListDietPlansUseCase,
     NutritionProfileNotFoundError,
+    RescheduleMealCommand,
+    RescheduleMealUseCase,
 )
+from backend.modules.nutrition.domain import MealNotFoundError
 from backend.shared.exceptions import AppException, ErrorCode
 
 router = APIRouter(prefix="/diet-plans", tags=["nutrition"])
@@ -75,6 +80,39 @@ async def get_diet_plan(
             code=ErrorCode.NOT_FOUND,
             message=str(exc),
             status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+    return DietPlanResponse.from_result(result)
+
+
+@router.patch("/{diet_plan_id}/meals", response_model=DietPlanResponse, status_code=status.HTTP_200_OK)
+async def reschedule_meal(
+    diet_plan_id: UUID,
+    request: RescheduleMealRequest,
+    current_user: User = Depends(get_current_user),
+    use_case: RescheduleMealUseCase = Depends(get_reschedule_meal_use_case),
+) -> DietPlanResponse:
+    try:
+        result = await use_case.execute(
+            RescheduleMealCommand(
+                user_id=current_user.id,
+                plan_id=diet_plan_id,
+                day_number=request.day_number,
+                meal_name=request.meal_name,
+                new_time=request.new_time,
+            )
+        )
+    except DietPlanNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message=str(exc),
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+    except MealNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.BAD_REQUEST,
+            message=str(exc),
+            status_code=status.HTTP_400_BAD_REQUEST,
         ) from exc
 
     return DietPlanResponse.from_result(result)

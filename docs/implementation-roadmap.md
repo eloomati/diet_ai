@@ -1987,31 +1987,64 @@ obligations, confirm meals carry a `time` and none collide.
 ## Stage 3 — Editable meal schedule (the "calendar" mutation API)
 
 `domain/entities/diet_plan.py`:
-- [ ] `DietPlan` gains `updated_at` (first mutation ever on this aggregate
+- [x] `DietPlan` gains `updated_at` (first mutation ever on this aggregate
       — previously fully immutable post-generation, so there was nothing
-      to timestamp; now genuinely meaningful).
-- [ ] New `reschedule_meal(day_number: int, meal_name: str, new_time: time) -> None`
+      to timestamp; now genuinely meaningful). Defaulted on the Beanie
+      document (unlike `created_at`) so plans generated before this stage
+      still parse without a backfill migration.
+- [x] New `reschedule_meal(day_number: int, meal_name: str, new_time: time) -> None`
       — locates the day/meal, rebuilds the `Meal`/`DietDay`/`days` tuple
-      chain with the new time (everything here is frozen/immutable value
-      objects, so this is reconstruction, not in-place mutation), raises a
-      new `MealNotFoundError` for an unknown `day_number`/`meal_name` pair.
+      chain with the new time via `dataclasses.replace` (everything here is
+      frozen/immutable value objects, so this is reconstruction, not
+      in-place mutation), raises the new `MealNotFoundError` for an unknown
+      `day_number`/`meal_name` pair (added to `diet_plan_domain_errors.py`).
 
 `application/`:
-- [ ] New `RescheduleMealCommand(user_id, plan_id, day_number, meal_name, new_time)`.
-- [ ] New `RescheduleMealUseCase(diet_plan_repository)` — loads the plan
+- [x] New `RescheduleMealCommand(user_id, plan_id, day_number, meal_name, new_time)`
+      — `new_time` is a native `datetime.time`, not a string: unlike
+      `NutritionProfile`'s Create/Update commands (which stringify
+      enums/times because those DTOs also need to survive round-tripping
+      through API-facing Result types), this is a one-shot command with no
+      such requirement, so the native type is simpler.
+- [x] New `RescheduleMealUseCase(diet_plan_repository)` — loads the plan
       (same not-found-vs-not-yours 404 pattern as everywhere else), calls
-      `plan.reschedule_meal(...)`, saves.
+      `plan.reschedule_meal(...)`, saves. `DietPlanResult`/`DietPlanResponse`
+      both gained `updated_at` alongside this.
 
 `api/routers/diet_plan_router.py`:
-- [ ] New `PATCH /diet-plans/{diet_plan_id}/meals` (body:
+- [x] New `PATCH /diet-plans/{diet_plan_id}/meals` (body:
       `day_number`, `meal_name`, `new_time`) → updated `DietPlanResponse`.
-      404 (not found/not yours), 400/422 for an unknown day/meal or a
-      malformed time.
+      `DietPlanNotFoundError` → 404 (plan not found/not yours);
+      `MealNotFoundError` → 400 (the plan exists, but that day/meal
+      doesn't) — a deliberate split between "the resource doesn't exist"
+      (404) and "a sub-part of an existing resource doesn't exist" (400),
+      matching the `InvalidWeeklyObligationError` precedent from Stage 1.
 
 Exit criteria: unit tests for `reschedule_meal` (happy path, unknown day,
-unknown meal); use-case tests; API integration test on the real Mongo-backed
-stack — generate a plan, reschedule one meal, `GET` the plan again and
-confirm only that meal's time changed; verified on the real Docker stack.
+unknown meal, `updated_at` bump, sibling meals/days untouched); use-case
+tests (happy path + persistence, not-found, not-yours, unknown meal);
+API integration test on the real Mongo-backed stack — generate a plan,
+reschedule one meal, `GET` the plan again and confirm only that meal's
+time changed; verified on the real Docker stack.
+
+**Status: DONE.**
+
+- New tests: `test_diet_plan_entity.py` gained 6 (`updated_at`-equals-
+  `created_at` on create, reschedule happy path, sibling-meals-untouched,
+  `updated_at` bump, unknown-day, unknown-meal), `test_reschedule_meal_use_case.py`
+  (5, fakes-only: happy path, persistence, unknown plan, non-owner, unknown
+  meal), `test_diet_plan_api.py` gained 4 (real Mongo via `client`: happy
+  path + only-that-meal-changed, unknown plan → 404, other-user's plan →
+  404, unknown meal → 400). Full suite: 288 → **303 passed**.
+- Real Docker-stack verification with real Ollama: generated a 2-day plan
+  (this run, the model omitted `time` entirely for every meal — still
+  handled gracefully, all `null`); rescheduled day 1's "Breakfast" to
+  `07:30` via `PATCH` — response and a follow-up `GET` both confirm only
+  that exact meal changed (day 1's "Snack" and day 2's "Breakfast", same
+  name but a different day, both stayed untouched), `updated_at` moved
+  past `created_at`; confirmed the unknown-meal case returns `400
+  BAD_REQUEST` with the domain's own message. Cleaned up all test data
+  (Mongo plans/profiles, Postgres user) afterwards.
 
 ---
 

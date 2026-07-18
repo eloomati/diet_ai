@@ -9,6 +9,7 @@ from .dto import (
     ListDietPlansQuery,
     MealResult,
     NutritionProfileResult,
+    RescheduleMealCommand,
     UpdateNutritionProfileCommand,
     WeeklyObligationInput,
     WeeklyObligationResult,
@@ -23,6 +24,7 @@ from .use_cases import (
     NutritionApplicationError,
     NutritionProfileAlreadyExistsError,
     NutritionProfileNotFoundError,
+    RescheduleMealUseCase,
     UpdateNutritionProfileUseCase,
 )
 
@@ -50,4 +52,6 @@ __all__ = [
     "ListDietPlansUseCase",
     "GetDietPlanUseCase",
     "DietPlanNotFoundError",
+    "RescheduleMealCommand",
+    "RescheduleMealUseCase",
 ]

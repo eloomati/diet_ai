@@ -6,6 +6,7 @@ from .diet_plan_dto import (
     GetDietPlanQuery,
     ListDietPlansQuery,
     MealResult,
+    RescheduleMealCommand,
 )
 from .nutrition_profile_dto import (
     CreateNutritionProfileCommand,
@@ -30,4 +31,5 @@ __all__ = [
     "DietPlanSummaryResult",
     "DietDayResult",
     "MealResult",
+    "RescheduleMealCommand",
 ]

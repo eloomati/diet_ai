@@ -137,3 +137,73 @@ def test_get_diet_plan_from_other_user_returns_404(client: TestClient) -> None:
     )
 
     assert response.status_code == 404
+
+
+def test_reschedule_meal_updates_only_that_meal(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.reschedule")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 2}, headers=_auth_headers(token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}/meals",
+        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["days"][0]["meals"][0]["time"] == "08:00"
+    assert body["days"][1]["meals"][0]["time"] is None
+
+    refetched = client.get(f"/api/v1/diet-plans/{created['plan_id']}", headers=_auth_headers(token))
+    assert refetched.json()["days"][0]["meals"][0]["time"] == "08:00"
+    assert refetched.json()["days"][1]["meals"][0]["time"] is None
+
+
+def test_reschedule_meal_on_unknown_plan_returns_404(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.reschedule.unknown")
+
+    response = client.patch(
+        "/api/v1/diet-plans/00000000-0000-0000-0000-000000000000/meals",
+        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "NOT_FOUND"
+
+
+def test_reschedule_meal_on_other_users_plan_returns_404(client: TestClient) -> None:
+    owner_token = _register_and_login(client, "dietplan.reschedule.owner")
+    other_token = _register_and_login(client, "dietplan.reschedule.other")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(owner_token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(owner_token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}/meals",
+        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        headers=_auth_headers(other_token),
+    )
+
+    assert response.status_code == 404
+
+
+def test_reschedule_unknown_meal_returns_400(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.reschedule.badmeal")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}/meals",
+        json={"day_number": 1, "meal_name": "Nonexistent", "new_time": "08:00:00"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "BAD_REQUEST"

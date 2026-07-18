@@ -3,6 +3,7 @@ from .exceptions import (
     InvalidDietPlanError,
     InvalidNutritionProfileError,
     InvalidWeeklyObligationError,
+    MealNotFoundError,
     NutritionDomainError,
 )
 from .repositories import DietPlanRepository, NutritionProfileRepository
@@ -26,4 +27,5 @@ __all__ = [
     "InvalidNutritionProfileError",
     "InvalidWeeklyObligationError",
     "InvalidDietPlanError",
+    "MealNotFoundError",
 ]

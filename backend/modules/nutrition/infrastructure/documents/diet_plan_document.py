@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from beanie import Document
@@ -31,6 +31,9 @@ class DietPlanDocument(Document):
     requirements: list[str]
     days: list[DietDayEmbed]
     created_at: datetime
+    # Defaulted (unlike created_at): plans generated before Phase 9 Stage 3
+    # predate this field and have no value to backfill from.
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     class Settings:
         name = "diet_plans"

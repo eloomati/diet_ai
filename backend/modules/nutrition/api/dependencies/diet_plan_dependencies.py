@@ -9,6 +9,7 @@ from backend.modules.nutrition.application import (
     GenerateDietPlanUseCase,
     GetDietPlanUseCase,
     ListDietPlansUseCase,
+    RescheduleMealUseCase,
 )
 from backend.modules.nutrition.domain import DietPlanRepository, NutritionProfileRepository
 from backend.modules.nutrition.infrastructure.repository.mongo_diet_plan_repository import (
@@ -38,3 +39,9 @@ def get_diet_plan_use_case(
     repository: DietPlanRepository = Depends(get_diet_plan_repository),
 ) -> GetDietPlanUseCase:
     return GetDietPlanUseCase(repository)
+
+
+def get_reschedule_meal_use_case(
+    repository: DietPlanRepository = Depends(get_diet_plan_repository),
+) -> RescheduleMealUseCase:
+    return RescheduleMealUseCase(repository)

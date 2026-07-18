@@ -1,4 +1,4 @@
-from .diet_plan_domain_errors import InvalidDietPlanError
+from .diet_plan_domain_errors import InvalidDietPlanError, MealNotFoundError
 from .nutrition_domain_errors import (
     InvalidNutritionProfileError,
     InvalidWeeklyObligationError,
@@ -10,4 +10,5 @@ __all__ = [
     "InvalidNutritionProfileError",
     "InvalidWeeklyObligationError",
     "InvalidDietPlanError",
+    "MealNotFoundError",
 ]

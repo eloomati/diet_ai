@@ -3,6 +3,7 @@ from .diet_plan_dependencies import (
     get_diet_plan_use_case,
     get_generate_diet_plan_use_case,
     get_list_diet_plans_use_case,
+    get_reschedule_meal_use_case,
 )
 from .nutrition_dependencies import (
     get_create_nutrition_profile_use_case,
@@ -20,4 +21,5 @@ __all__ = [
     "get_generate_diet_plan_use_case",
     "get_list_diet_plans_use_case",
     "get_diet_plan_use_case",
+    "get_reschedule_meal_use_case",
 ]
