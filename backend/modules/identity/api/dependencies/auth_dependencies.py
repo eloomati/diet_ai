@@ -12,7 +12,11 @@ from backend.modules.identity.application import (
     RegisterUserUseCase,
     RequestPasswordResetUseCase,
 )
+from backend.modules.identity.application.ports.captcha_verifier import CaptchaVerifier
 from backend.modules.identity.application.ports.email_sender import EmailSender
+from backend.modules.identity.infrastructure.captcha.captcha_verifier_factory import (
+    build_captcha_verifier,
+)
 from backend.modules.identity.infrastructure.email.email_sender_factory import build_email_sender
 from backend.modules.identity.infrastructure.email.logging_email_sender import LoggingEmailSender
 from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_email_log_repository import (
@@ -69,14 +73,21 @@ def get_email_sender(session: AsyncSession = Depends(get_db_session)) -> EmailSe
     )
 
 
+def get_captcha_verifier() -> CaptchaVerifier:
+    # No per-request state needed (no DB session, no request-scoped resource)
+    # unlike get_email_sender — safe to build fresh per request regardless.
+    return build_captcha_verifier(get_settings())
+
+
 def get_register_user_use_case(
     session: AsyncSession = Depends(get_db_session),
     email_sender: EmailSender = Depends(get_email_sender),
+    captcha_verifier: CaptchaVerifier = Depends(get_captcha_verifier),
 ) -> RegisterUserUseCase:
     repo = SqlAlchemyUserRepository(session)
     hasher = BcryptPasswordHasher()
     email_verification_repo = SqlAlchemyEmailVerificationTokenRepository(session)
-    return RegisterUserUseCase(repo, hasher, email_verification_repo, email_sender)
+    return RegisterUserUseCase(repo, hasher, email_verification_repo, email_sender, captcha_verifier)
 
 
 def get_login_user_use_case(
@@ -114,10 +125,11 @@ def get_refresh_access_token_use_case(
 def get_request_password_reset_use_case(
     session: AsyncSession = Depends(get_db_session),
     email_sender: EmailSender = Depends(get_email_sender),
+    captcha_verifier: CaptchaVerifier = Depends(get_captcha_verifier),
 ) -> RequestPasswordResetUseCase:
     user_repo = SqlAlchemyUserRepository(session)
     reset_token_repo = SqlAlchemyPasswordResetTokenRepository(session)
-    return RequestPasswordResetUseCase(user_repo, reset_token_repo, email_sender)
+    return RequestPasswordResetUseCase(user_repo, reset_token_repo, email_sender, captcha_verifier)
 
 
 def get_confirm_password_reset_use_case(

@@ -33,7 +33,8 @@ def test_register_sends_exactly_one_verification_email(
     email = unique_email("verify.register")
 
     response = client.post(
-        "/api/v1/auth/register", json={"email": email, "password": "StrongPass123"}
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
     )
 
     assert response.status_code == 201
@@ -45,7 +46,10 @@ def test_confirm_email_verification_with_valid_token_marks_verified(
     client: TestClient, captured_email_sender: FakeEmailSender
 ) -> None:
     email = unique_email("verify.confirm")
-    client.post("/api/v1/auth/register", json={"email": email, "password": "StrongPass123"})
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
+    )
     raw_token = _extract_verification_token(captured_email_sender.sent[0].body)
 
     login = client.post("/api/v1/auth/login", json={"email": email, "password": "StrongPass123"})
@@ -72,7 +76,10 @@ def test_confirm_email_verification_with_already_used_token_returns_400(
     client: TestClient, captured_email_sender: FakeEmailSender
 ) -> None:
     email = unique_email("verify.reuse")
-    client.post("/api/v1/auth/register", json={"email": email, "password": "StrongPass123"})
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
+    )
     raw_token = _extract_verification_token(captured_email_sender.sent[0].body)
 
     first = client.post("/api/v1/auth/verify-email/confirm", json={"token": raw_token})

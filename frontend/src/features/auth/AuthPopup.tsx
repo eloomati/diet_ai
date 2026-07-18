@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 
+import { Captcha } from '@/components/Captcha'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -35,6 +36,7 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
   const [tab, setTab] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [captchaToken, setCaptchaToken] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -43,6 +45,7 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
     setTab('login')
     setEmail('')
     setPassword('')
+    setCaptchaToken('')
     setError(null)
   }
 
@@ -67,7 +70,7 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
         // The register endpoint only creates the account (no tokens) — log
         // in right after with the same credentials so registering also
         // starts a session, matching the mockup's one-step expectation.
-        await register(email, password)
+        await register(email, password, captchaToken)
         await login(email, password)
       }
       resetForm()
@@ -133,9 +136,15 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
                 />
               </div>
 
+              {tab === 'register' && <Captcha onToken={setCaptchaToken} />}
+
               {error && <p className="text-[12.5px] font-bold text-destructive">{error}</p>}
 
-              <Button type="submit" className="mt-1.5" disabled={submitting}>
+              <Button
+                type="submit"
+                className="mt-1.5"
+                disabled={submitting || (tab === 'register' && !captchaToken)}
+              >
                 {submitting ? 'Chwileczkę…' : tab === 'login' ? 'Zaloguj się' : 'Utwórz konto'}
               </Button>
             </form>

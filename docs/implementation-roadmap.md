@@ -2514,7 +2514,47 @@ auth against `docs/api.md`'s Authentication API.
       icon (mockup behavior: click while logged out re-opens the auth
       popup) and by history visibility in the left rail.
 
-## Stage 5 — Tests & docs sync
+## Stage 5 — CAPTCHA on registration & password-reset request
+
+Goal: stop bot signups and reset-email flooding, following the exact
+"swappable external-verification port" pattern already established for
+`EmailSender`/`SftpClient` (see `docs/architecture.md`) — not a bespoke
+mechanism.
+
+- [ ] Backend: new `application/ports/captcha_verifier.py` — `CaptchaVerifier`
+      port with `verify(token: str) -> bool`. Two implementations:
+      `MockCaptchaVerifier` (always `True` — default in dev/tests, no
+      external dependency) and a real one (Cloudflare Turnstile's
+      `siteverify` endpoint, chosen over reCAPTCHA for the simpler API and
+      no Google account requirement). Selected via `CAPTCHA_PROVIDER=mock|turnstile`,
+      matching `EMAIL_PROVIDER`/`SFTP_PROVIDER`'s existing convention.
+      New settings: `captcha_provider`, `captcha_secret_key`.
+- [ ] `RegisterUserUseCase` and `RequestPasswordResetUseCase` both require a
+      valid captcha token before doing anything else — a failed/missing
+      token is rejected before touching the domain layer (same "fail
+      before real work" shape as the diet-plan profile-required check).
+      **Not** added to login — login is already rate-limited by nothing
+      bot-specific being gained from it, and CAPTCHA-on-every-login is a
+      real UX cost for legitimate users; revisit only if brute-forcing
+      becomes an observed problem.
+- [ ] `RegisterRequest`/password-reset-request schemas gain a required
+      `captcha_token: str` field; a missing/invalid token is a 400
+      `BAD_REQUEST` (reusing the existing error code — this isn't a new
+      failure *kind*, it's the same "the request wasn't valid" shape).
+- [ ] Frontend: Cloudflare Turnstile's script + widget rendered in
+      `AuthPopup`'s register form and `ForgotPasswordFlow`'s request step;
+      the widget's token is sent alongside the existing fields. Site key
+      via `VITE_TURNSTILE_SITE_KEY`. No CSP constraint here (unlike the
+      earlier Artifact mockup) — this is a real app, loading a third-party
+      script is normal.
+
+Exit criteria: with `CAPTCHA_PROVIDER=mock` (default), registration and
+password-reset-request work exactly as before (mock always passes) — no
+regression to Stage 1/3's already-verified flows. Manually verified against
+a real Turnstile test site key that an invalid/missing token is rejected
+and a valid one is accepted.
+
+## Stage 6 — Tests & docs sync
 
 - [ ] Component tests for the auth flows (mocked API); `docs/api.md`
       cross-checked against actual request/response handling; roadmap

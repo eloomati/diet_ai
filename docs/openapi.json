@@ -1881,12 +1881,18 @@
             "maxLength": 128,
             "minLength": 8,
             "title": "Password"
+          },
+          "captcha_token": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Captcha Token"
           }
         },
         "type": "object",
         "required": [
           "email",
-          "password"
+          "password",
+          "captcha_token"
         ],
         "title": "RegisterRequest"
       },
@@ -1915,11 +1921,17 @@
             "type": "string",
             "format": "email",
             "title": "Email"
+          },
+          "captcha_token": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Captcha Token"
           }
         },
         "type": "object",
         "required": [
-          "email"
+          "email",
+          "captcha_token"
         ],
         "title": "RequestPasswordResetRequest"
       },

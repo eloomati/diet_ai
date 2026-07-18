@@ -3,6 +3,7 @@ import { apiFetch } from '@/lib/apiFetch'
 export interface RegisterRequest {
   email: string
   password: string
+  captcha_token: string
 }
 
 export interface RegisterResponse {
@@ -52,8 +53,12 @@ export function me(): Promise<MeResponse> {
   return apiFetch('/auth/me')
 }
 
-export function requestPasswordReset(email: string): Promise<MessageResponse> {
-  return apiFetch('/auth/password-reset/request', { method: 'POST', body: { email }, skipAuth: true })
+export function requestPasswordReset(email: string, captchaToken: string): Promise<MessageResponse> {
+  return apiFetch('/auth/password-reset/request', {
+    method: 'POST',
+    body: { email, captcha_token: captchaToken },
+    skipAuth: true,
+  })
 }
 
 export function confirmPasswordReset(token: string, newPassword: string): Promise<MessageResponse> {

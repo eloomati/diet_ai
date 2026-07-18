@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 
 import { confirmPasswordReset, requestPasswordReset } from '@/api/auth'
+import { Captcha } from '@/components/Captcha'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/apiFetch'
@@ -32,6 +33,7 @@ export function ForgotPasswordFlow({ onBackToLogin }: ForgotPasswordFlowProps) {
   const [email, setEmail] = useState('')
   const [token, setToken] = useState('')
   const [newPassword, setNewPassword] = useState('')
+  const [captchaToken, setCaptchaToken] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
@@ -40,7 +42,7 @@ export function ForgotPasswordFlow({ onBackToLogin }: ForgotPasswordFlowProps) {
     setError(null)
     setSubmitting(true)
     try {
-      await requestPasswordReset(email)
+      await requestPasswordReset(email, captchaToken)
       setStep('confirm')
     } catch (err) {
       setError(errorMessage(err))
@@ -126,8 +128,10 @@ export function ForgotPasswordFlow({ onBackToLogin }: ForgotPasswordFlowProps) {
             required
           />
         </div>
+        <Captcha onToken={setCaptchaToken} />
+
         {error && <p className="text-[12.5px] font-bold text-destructive">{error}</p>}
-        <Button type="submit" disabled={submitting}>
+        <Button type="submit" disabled={submitting || !captchaToken}>
           {submitting ? 'Wysyłanie…' : 'Wyślij kod resetujący'}
         </Button>
       </form>

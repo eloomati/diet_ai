@@ -25,7 +25,8 @@ Content-Type: application/json
 
 {
   "email": "{{email}}",
-  "password": "{{password}}"
+  "password": "{{password}}",
+  "captcha_token": "test-captcha-token"
 }
 
 ### =========================
@@ -162,7 +163,8 @@ POST {{baseUrl}}{{apiPrefix}}/password-reset/request
 Content-Type: application/json
 
 {
-  "email": "{{email}}"
+  "email": "{{email}}",
+  "captcha_token": "test-captcha-token"
 }
 
 ### =========================

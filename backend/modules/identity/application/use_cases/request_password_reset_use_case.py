@@ -1,7 +1,9 @@
 from backend.modules.identity.application.dto.request_password_reset_dto import (
     RequestPasswordResetCommand,
 )
+from backend.modules.identity.application.ports.captcha_verifier import CaptchaVerifier
 from backend.modules.identity.application.ports.email_sender import EmailSender
+from backend.modules.identity.application.use_cases.exceptions import InvalidCaptchaError
 from backend.modules.identity.domain import (
     Email,
     IdentityDomainError,
@@ -19,12 +21,19 @@ class RequestPasswordResetUseCase:
         user_repository: UserRepository,
         password_reset_token_repository: PasswordResetTokenRepository,
         email_sender: EmailSender,
+        captcha_verifier: CaptchaVerifier,
     ) -> None:
         self._user_repository = user_repository
         self._password_reset_token_repository = password_reset_token_repository
         self._email_sender = email_sender
+        self._captcha_verifier = captcha_verifier
 
     async def execute(self, command: RequestPasswordResetCommand) -> None:
+        # Checked before the don't-leak-existence logic below — a bad
+        # captcha fails outright and reveals nothing about the email either.
+        if not await self._captcha_verifier.verify(command.captcha_token):
+            raise InvalidCaptchaError("CAPTCHA verification failed.")
+
         # Never reveal whether the email exists — same don't-leak-existence
         # principle used everywhere else in this module (login, refresh).
         try:

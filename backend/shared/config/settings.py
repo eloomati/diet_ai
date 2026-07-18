@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     # .env value, which is awkward to hand-edit.
     cors_origins: str = "http://localhost:5173"
 
+    # CAPTCHA — provider selection: "mock" | "turnstile". Guards registration
+    # and password-reset requests against bots.
+    captcha_provider: str = "mock"
+    captcha_secret_key: str | None = None
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]

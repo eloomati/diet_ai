@@ -14,6 +14,7 @@ from backend.modules.identity.domain import InvalidPasswordError, InvalidPasswor
 from backend.modules.identity.domain.entities.password_reset_token import PasswordResetToken
 from backend.modules.identity.domain.entities.refresh_token import RefreshToken
 from backend.modules.identity.tests.fakes import (
+    FakeCaptchaVerifier,
     FakeEmailSender,
     FakePasswordHasher,
     InMemoryEmailVerificationTokenRepository,
@@ -25,8 +26,14 @@ from backend.modules.identity.tests.fakes import (
 
 async def _register(user_repo: InMemoryUserRepository, email: str) -> UUID:
     result = await RegisterUserUseCase(
-        user_repo, FakePasswordHasher(), InMemoryEmailVerificationTokenRepository(), FakeEmailSender()
-    ).execute(RegisterUserCommand(email=email, password="StrongPass123"))
+        user_repo,
+        FakePasswordHasher(),
+        InMemoryEmailVerificationTokenRepository(),
+        FakeEmailSender(),
+        FakeCaptchaVerifier(),
+    ).execute(
+        RegisterUserCommand(email=email, password="StrongPass123", captcha_token="test-captcha-token")
+    )
     return UUID(result.user_id)
 
 

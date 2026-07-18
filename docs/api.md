@@ -78,11 +78,18 @@ Creates a new user account.
 ```json
 {
   "email": "user@example.com",
-  "password": "StrongPass123"
+  "password": "StrongPass123",
+  "captcha_token": "<token from the CAPTCHA widget>"
 }
 ```
 
 Password: 8-128 characters, must satisfy `PasswordPolicy` (see domain-model.md).
+
+`captcha_token`: required, verified server-side against the configured
+provider (`CAPTCHA_PROVIDER` — `mock` always accepts in dev/tests,
+`turnstile` calls Cloudflare's `siteverify` for real) before anything else
+happens — same "fail before real work" shape as the diet-plan
+profile-required check.
 
 ### Response
 
@@ -105,7 +112,9 @@ Body:
 
 400 Bad Request — `INVALID_PASSWORD` (fails password policy)
 
-422 Unprocessable Entity — `VALIDATION_ERROR` (malformed email / missing fields)
+400 Bad Request — `BAD_REQUEST` (CAPTCHA verification failed)
+
+422 Unprocessable Entity — `VALIDATION_ERROR` (malformed email / missing fields, including a missing `captcha_token`)
 
 409 Conflict — `USER_ALREADY_EXISTS`
 
@@ -270,9 +279,14 @@ is registered.
 
 ```json
 {
-  "email": "user@example.com"
+  "email": "user@example.com",
+  "captcha_token": "<token from the CAPTCHA widget>"
 }
 ```
+
+`captcha_token`: required, checked before the don't-leak-existence logic
+below — a failed CAPTCHA rejects outright and reveals nothing about the
+email either (same provider/verification as `POST /auth/register`).
 
 ### Response
 
@@ -292,7 +306,11 @@ Body:
 
 ### Errors
 
-None — always `200`, whether or not the email exists.
+400 Bad Request — `BAD_REQUEST` (CAPTCHA verification failed)
+
+422 Unprocessable Entity — `VALIDATION_ERROR` (missing `captcha_token`)
+
+Otherwise always `200`, whether or not the email exists.
 
 ---
 
