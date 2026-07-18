@@ -139,6 +139,16 @@ class FakePasswordHasher:
         return password_hash == f"$2b$12${plain_password}"
 
 
+class FakeCaptchaVerifier:
+    def __init__(self, should_pass: bool = True) -> None:
+        self.should_pass = should_pass
+        self.verified_tokens: list[str] = []
+
+    async def verify(self, token: str) -> bool:
+        self.verified_tokens.append(token)
+        return self.should_pass
+
+
 class FakeTokenService:
     def create_access_token(self, user_id: str, email: str) -> str:
         return f"access::{user_id}::{email}"

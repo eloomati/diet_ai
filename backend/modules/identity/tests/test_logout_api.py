@@ -9,7 +9,10 @@ def unique_email(prefix: str) -> str:
 
 def test_logout_revokes_refresh_token(client: TestClient) -> None:
     email = unique_email("logout.user")
-    client.post("/api/v1/auth/register", json={"email": email, "password": "StrongPass123"})
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
+    )
     login = client.post("/api/v1/auth/login", json={"email": email, "password": "StrongPass123"})
     refresh_token = login.json()["refresh_token"]
 
@@ -28,7 +31,10 @@ def test_logout_with_unknown_token_returns_200(client: TestClient) -> None:
 
 def test_logout_twice_with_same_token_is_idempotent(client: TestClient) -> None:
     email = unique_email("logout.twice")
-    client.post("/api/v1/auth/register", json={"email": email, "password": "StrongPass123"})
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
+    )
     login = client.post("/api/v1/auth/login", json={"email": email, "password": "StrongPass123"})
     refresh_token = login.json()["refresh_token"]
 
@@ -41,7 +47,10 @@ def test_logout_twice_with_same_token_is_idempotent(client: TestClient) -> None:
 
 def test_other_sessions_survive_logout(client: TestClient) -> None:
     email = unique_email("logout.multisession")
-    client.post("/api/v1/auth/register", json={"email": email, "password": "StrongPass123"})
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
+    )
 
     session_a = client.post("/api/v1/auth/login", json={"email": email, "password": "StrongPass123"})
     session_b = client.post("/api/v1/auth/login", json={"email": email, "password": "StrongPass123"})

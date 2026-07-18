@@ -34,6 +34,7 @@ from backend.modules.identity.application import (
     ConfirmEmailVerificationUseCase,
     ConfirmPasswordResetCommand,
     ConfirmPasswordResetUseCase,
+    InvalidCaptchaError,
     InvalidCredentialsError,
     InvalidRefreshTokenError,
     LoginUserCommand,
@@ -70,6 +71,7 @@ async def register(
             RegisterUserCommand(
                 email=request.email,
                 password=request.password,
+                captcha_token=request.captcha_token,
             )
         )
         return RegisterResponse(user_id=result.user_id, email=result.email)
@@ -82,6 +84,12 @@ async def register(
     except InvalidPasswordError as exc:
         raise AppException(
             code=ErrorCode.INVALID_PASSWORD,
+            message=str(exc),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        ) from exc
+    except InvalidCaptchaError as exc:
+        raise AppException(
+            code=ErrorCode.BAD_REQUEST,
             message=str(exc),
             status_code=status.HTTP_400_BAD_REQUEST,
         ) from exc
@@ -177,9 +185,18 @@ async def request_password_reset(
     request: RequestPasswordResetRequest,
     use_case: RequestPasswordResetUseCase = Depends(get_request_password_reset_use_case),
 ) -> PasswordResetRequestedResponse:
-    # Always 200 with a generic body — never reveals whether the email exists.
-    await use_case.execute(RequestPasswordResetCommand(email=request.email))
-    return PasswordResetRequestedResponse()
+    try:
+        # Always 200 with a generic body — never reveals whether the email exists.
+        await use_case.execute(
+            RequestPasswordResetCommand(email=request.email, captcha_token=request.captcha_token)
+        )
+        return PasswordResetRequestedResponse()
+    except InvalidCaptchaError as exc:
+        raise AppException(
+            code=ErrorCode.BAD_REQUEST,
+            message=str(exc),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        ) from exc
 
 
 @router.post(

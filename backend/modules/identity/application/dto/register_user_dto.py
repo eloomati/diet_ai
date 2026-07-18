@@ -5,6 +5,7 @@ from dataclasses import dataclass
 class RegisterUserCommand:
     email: str
     password: str
+    captcha_token: str
 
 
 @dataclass(frozen=True, slots=True)

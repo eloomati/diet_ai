@@ -19,6 +19,7 @@ from backend.modules.identity.application import (
 from backend.modules.identity.domain import Email
 from backend.modules.identity.infrastructure.security import JwtTokenService
 from backend.modules.identity.tests.fakes import (
+    FakeCaptchaVerifier,
     FakeEmailSender,
     FakePasswordHasher,
     FakeTokenService,
@@ -41,7 +42,11 @@ def _build_test_client() -> TestClient:
 
     def _override_register_uc() -> RegisterUserUseCase:
         return RegisterUserUseCase(
-            user_repo, hasher, InMemoryEmailVerificationTokenRepository(), FakeEmailSender()
+            user_repo,
+            hasher,
+            InMemoryEmailVerificationTokenRepository(),
+            FakeEmailSender(),
+            FakeCaptchaVerifier(),
         )
 
     def _override_login_uc() -> LoginUserUseCase:
@@ -75,7 +80,11 @@ def test_me_with_valid_token_returns_200() -> None:
     try:
         reg = client.post(
             "/api/v1/auth/register",
-            json={"email": "me.user@example.com", "password": "StrongPass123"},
+            json={
+                "email": "me.user@example.com",
+                "password": "StrongPass123",
+                "captcha_token": "test-captcha-token",
+            },
         )
         assert reg.status_code == 201
 
@@ -144,7 +153,7 @@ def test_me_real_flow_returns_current_user(client: TestClient) -> None:
     email = unique_email("me.real")
     register = client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": "StrongPass123"},
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
     )
     assert register.status_code == 201
     user_id = register.json()["user_id"]
@@ -181,7 +190,7 @@ def test_me_real_with_refresh_token_used_as_access_returns_401(client: TestClien
     email = unique_email("me.typeconfusion")
     client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": "StrongPass123"},
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
     )
     login = client.post(
         "/api/v1/auth/login",

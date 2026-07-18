@@ -1,6 +1,9 @@
+import { useEffect } from 'react'
+
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { useAuth } from '@/lib/auth'
 
 import { KalendarzTab } from './tabs/KalendarzTab'
 import { PlanyTab } from './tabs/PlanyTab'
@@ -12,6 +15,14 @@ interface ProfileModalProps {
 }
 
 export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
+  const { isAuthenticated } = useAuth()
+
+  // Logging out from inside the modal (Profil tab) shouldn't leave a
+  // signed-out user staring at their own Plany/Kalendarz tabs.
+  useEffect(() => {
+    if (open && !isAuthenticated) onOpenChange(false)
+  }, [open, isAuthenticated, onOpenChange])
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[80vh] max-h-[640px] w-full flex-col overflow-hidden p-0 sm:max-w-3xl">

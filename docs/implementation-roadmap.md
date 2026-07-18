@@ -2479,46 +2479,178 @@ the frontend image verified the dev server actually starts and responds
 
 ---
 
-# Etap 1 — Autentykacja
+# Etap 1 — Autentykacja — DONE (Stages 1-6/6)
 
 Goal: replace Etap 0's non-functional `AuthPopup`/profile-gating with real
 auth against `docs/api.md`'s Authentication API.
 
-## Stage 1 — Register + login
+## Stage 1 — Register + login — DONE
 
-- [ ] `AuthPopup`'s login/register tabs call real `POST /auth/register` /
+- [x] `AuthPopup`'s login/register tabs call real `POST /auth/register` /
       `POST /auth/login`; success stores tokens via `AuthContext` and
       closes the popup (mirrors the mockup's mock-login behavior).
-- [ ] Error states surfaced inline (409 `USER_ALREADY_EXISTS`, 401
-      `INVALID_CREDENTIALS`, 422 `VALIDATION_ERROR`, 400
-      `INVALID_PASSWORD`).
+      **Deviation**: `POST /auth/register` doesn't return tokens (only
+      `user_id`/`email`), so a successful register immediately chains a
+      `login()` call with the same credentials — registering also starts a
+      session in one step, matching the mockup's expectation, without the
+      backend needing to change its response shape.
+- [x] Error states surfaced inline via an `ERROR_MESSAGES` code→Polish-text
+      map (409 `USER_ALREADY_EXISTS`, 401 `INVALID_CREDENTIALS`, 403
+      `INACTIVE_USER`, 422 `VALIDATION_ERROR`, 400 `INVALID_PASSWORD`).
 
-## Stage 2 — Session bootstrap, refresh, logout
+**Real problems hit and fixed**: live-browser testing surfaced that
+`ProfileModal` didn't close itself when a "Wyloguj się" click flipped
+`isAuthenticated` to `false` while the modal was open — a logged-out user
+would keep seeing their own profile tabs. Fixed with a `useEffect` in
+`ProfileModal.tsx` that closes the modal whenever `!isAuthenticated` while
+`open`.
 
-- [ ] On app load, if a refresh token exists in `localStorage`, silently
-      redeem it (`POST /auth/refresh`) to restore a session without
-      forcing re-login.
-- [ ] Real logout (`POST /auth/logout`) wired to the profile modal's
-      "Wyloguj się" button from the mockup.
+Exit criteria met: verified live in Chrome (`claude-in-chrome`) against the
+real Dockerized backend — register→auto-login, login, and each inline
+error path (wrong password, duplicate email) all confirmed, console clean.
 
-## Stage 3 — Password reset & email verification
+---
 
-- [ ] `POST /auth/password-reset/request` + `/confirm` — simple linked
-      screens/forms (not modeled in the mockup; low-traffic flows, kept
-      minimal).
-- [ ] `POST /auth/verify-email/confirm`.
+## Stage 2 — Session bootstrap, refresh, logout — DONE
 
-## Stage 4 — Session-aware gating
+- [x] On app load, `AuthProvider` silently redeems a stored refresh token
+      (`POST /auth/refresh` via `attemptTokenRefresh()`, exported from
+      `apiFetch.ts` and shared with the reactive 401-retry path) to restore
+      a session without forcing re-login; `isBootstrapping` gates the UI
+      until this resolves.
+- [x] Real logout (`POST /auth/logout`) wired to the profile modal's
+      "Wyloguj się" button — clears tokens/user state locally first (so the
+      UI reacts instantly), then best-effort revokes the refresh token
+      server-side (idempotent either way).
+- [x] `isAuthenticated` upgraded from "a token is present" to "a confirmed
+      `GET /auth/me` succeeded" — closes a gap where a stale/soon-to-expire
+      token would optimistically render a logged-in UI.
 
-- [ ] `GET /auth/me` backs the "am I logged in" check used by the profile
-      icon (mockup behavior: click while logged out re-opens the auth
-      popup) and by history visibility in the left rail.
+Exit criteria met: confirmed live — refreshing the page mid-session
+silently restores it (no popup flash), and an expired/invalid refresh
+token correctly falls back to guest mode.
 
-## Stage 5 — Tests & docs sync
+---
 
-- [ ] Component tests for the auth flows (mocked API); `docs/api.md`
-      cross-checked against actual request/response handling; roadmap
-      status updated.
+## Stage 3 — Password reset & email verification — DONE
+
+- [x] `POST /auth/password-reset/request` + `/confirm` via a dedicated
+      `ForgotPasswordFlow` (`request` → `confirm` → `done` steps).
+      **Deviation from the plan's "simple linked screens"**: the backend
+      only ever emails a *raw token* (see `EmailSender` in
+      `docs/architecture.md`), not a clickable link, so this had to be a
+      two-step in-popup form (paste the emailed code + new password)
+      rather than a separate reset-confirmation route/page.
+- [x] `POST /auth/verify-email/confirm` — a small form in the profile
+      modal's Profil tab; on success, re-fetches `GET /auth/me`
+      (`refreshUser()`) rather than flipping a local flag, so the
+      "✓ zweryfikowany" badge reflects real backend state if the tab is
+      reopened later.
+
+Exit criteria met: verified end-to-end against the real Mailhog inbox
+(`GET http://localhost:8025/api/v2/messages`) — extracted a real
+password-reset token and a real welcome/verification token from actual
+sent emails and completed both flows live, not just with mocked responses.
+
+---
+
+## Stage 4 — Session-aware gating — DONE
+
+- [x] `GET /auth/me` (via the Stage 2 `isAuthenticated`) backs the profile
+      icon's gating (logged out → re-opens `AuthPopup`; logged in → opens
+      `ProfileModal`) and left-rail history visibility.
+- [x] Avatar initials in `LeftRail` now derived from the real
+      `user?.email` (first two characters, uppercased) instead of a
+      placeholder.
+
+Exit criteria met: confirmed live in-browser across logged-out/logged-in
+states — profile icon behavior, avatar initials, and history-panel gating
+all matched the mockup's intended behavior with no regressions to Stage
+1-3 flows.
+
+---
+
+## Stage 5 — CAPTCHA on registration & password-reset request — DONE
+
+Goal: stop bot signups and reset-email flooding, following the exact
+"swappable external-verification port" pattern already established for
+`EmailSender`/`SftpClient` (see `docs/architecture.md`) — not a bespoke
+mechanism.
+
+- [x] Backend: new `application/ports/captcha_verifier.py` — `CaptchaVerifier`
+      port with `verify(token: str) -> bool`. Two implementations:
+      `MockCaptchaVerifier` (always `True` — default in dev/tests, no
+      external dependency) and `TurnstileCaptchaVerifier` (Cloudflare
+      Turnstile's `siteverify` endpoint via an injectable `httpx.AsyncClient`,
+      chosen over reCAPTCHA for the simpler API and no Google account
+      requirement). Selected via `CAPTCHA_PROVIDER=mock|turnstile`, matching
+      `EMAIL_PROVIDER`/`SFTP_PROVIDER`'s existing convention. New settings:
+      `captcha_provider`, `captcha_secret_key`.
+- [x] `RegisterUserUseCase` and `RequestPasswordResetUseCase` both require a
+      valid captcha token before doing anything else — a failed/missing
+      token is rejected before touching the domain layer (same "fail
+      before real work" shape as the diet-plan profile-required check;
+      for the reset-request flow specifically, the captcha check happens
+      *before* the existing don't-leak-existence logic, so a failed
+      captcha still reveals nothing about the email). **Not** added to
+      login, per the original plan — no bot-specific benefit gained there,
+      and CAPTCHA-on-every-login is a real UX cost for legitimate users.
+- [x] `RegisterRequest`/`RequestPasswordResetRequest` schemas gain a
+      required `captcha_token: str` field; a missing token is 422
+      `VALIDATION_ERROR`, a failed one is 400 `BAD_REQUEST` (reusing the
+      existing error code — this isn't a new failure *kind*).
+- [x] Frontend: a new `Captcha` component wraps Cloudflare Turnstile's
+      script/widget, rendered in `AuthPopup`'s register form and
+      `ForgotPasswordFlow`'s request step; the widget's token is sent
+      alongside the existing fields, and submit is disabled until a token
+      is present. Site key via `VITE_TURNSTILE_SITE_KEY`. **Deviation**:
+      when the site key is unset (local dev without a Cloudflare account,
+      and the test environment), `Captcha` renders nothing and
+      auto-resolves with a fixed placeholder token instead of blocking the
+      form — mirrors the existing `EMAIL_PROVIDER=mock` philosophy, and
+      the backend's default `CAPTCHA_PROVIDER=mock` accepts it.
+
+**Real problems hit and fixed**: propagating the new required
+`captcha_token` field touched ~15 backend test files (every place
+constructing `RegisterUserCommand`/`RequestPasswordResetCommand` or calling
+the two endpoints) — handled with the same "implement production code
+first, run the full suite for the definitive failure list, fix
+systematically file by file" technique already proven on the earlier
+multi-category migration.
+
+Exit criteria met: with `CAPTCHA_PROVIDER=mock` (default), registration and
+password-reset-request work exactly as before — no regression to Stage
+1/3's already-verified flows. Backend suite green at 353/353. Frontend
+`Captcha` behavior (auto-resolve with the dev placeholder token) covered by
+a dedicated component test in Stage 6.
+
+---
+
+## Stage 6 — Tests & docs sync — DONE
+
+- [x] Component tests added for the auth flows (mocked `fetch`, real
+      `AuthProvider`): `AuthPopup.test.tsx` (login success/error,
+      register success chaining into login, duplicate-email error,
+      guest-skip, forgot-password navigation), `ForgotPasswordFlow.test.tsx`
+      (full request→confirm→done flow, invalid-token error, "Mam już kod"
+      shortcut), `ProfilTab.test.tsx` (unverified→verify→badge transition,
+      already-verified badge, invalid-token error, logout), and
+      `Captcha.test.tsx` (dev-placeholder-token auto-resolve when no site
+      key is configured).
+- [x] `docs/api.md` cross-checked against `auth_router.py`'s actual
+      request/response/error handling for all 8 auth endpoints — no
+      discrepancies found (the `captcha_token` docs added in Stage 5 were
+      already accurate).
+- [x] Roadmap status updated (this section).
+
+**Real problems hit and fixed**: writing `ForgotPasswordFlow.test.tsx`
+with `getByLabelText` surfaced a genuine accessibility defect — `<label>`
+elements in `ForgotPasswordFlow.tsx`, `AuthPopup.tsx`, and `ProfilTab.tsx`
+had no `htmlFor`/`id` association with their `<Input>` fields. Fixed all
+three (6 field pairs total), not just worked around in the tests.
+
+Exit criteria met: `npm run build`, `npm run test` (30/30), and
+`npm run lint` all green.
 
 ---
 

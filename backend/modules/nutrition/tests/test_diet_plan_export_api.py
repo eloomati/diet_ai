@@ -14,7 +14,10 @@ def unique_email(prefix: str) -> str:
 
 def _register_and_login(client: TestClient, prefix: str) -> str:
     email = unique_email(prefix)
-    client.post("/api/v1/auth/register", json={"email": email, "password": "StrongPass123"})
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
+    )
     login = client.post("/api/v1/auth/login", json={"email": email, "password": "StrongPass123"})
     return login.json()["access_token"]
 

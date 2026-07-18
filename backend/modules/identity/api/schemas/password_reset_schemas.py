@@ -3,6 +3,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 class RequestPasswordResetRequest(BaseModel):
     email: EmailStr
+    captcha_token: str = Field(min_length=1)
 
 
 class PasswordResetRequestedResponse(BaseModel):

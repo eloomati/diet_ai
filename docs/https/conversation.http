@@ -16,7 +16,8 @@ Content-Type: application/json
 
 {
   "email": "{{email}}",
-  "password": "{{password}}"
+  "password": "{{password}}",
+  "captcha_token": "test-captcha-token"
 }
 
 ### =========================
@@ -124,7 +125,8 @@ Content-Type: application/json
 
 {
   "email": "convo.other@example.com",
-  "password": "StrongPass123"
+  "password": "StrongPass123",
+  "captcha_token": "test-captcha-token"
 }
 
 ###

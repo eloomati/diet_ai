@@ -7,6 +7,7 @@ from .email_retry_strategies import (
 )
 from .exceptions import (
     IdentityApplicationError,
+    InvalidCaptchaError,
     InvalidCredentialsError,
     UserAlreadyExistsError,
     UserNotFoundError,
@@ -26,6 +27,7 @@ __all__ = [
     "IdentityApplicationError",
     "UserAlreadyExistsError",
     "InvalidCredentialsError",
+    "InvalidCaptchaError",
     "UserNotFoundError",
     "RefreshAccessTokenUseCase",
     "InvalidRefreshTokenError",

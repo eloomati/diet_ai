@@ -14,6 +14,7 @@ from backend.modules.identity.application import (
     RegisterUserUseCase,
 )
 from backend.modules.identity.tests.fakes import (
+    FakeCaptchaVerifier,
     FakeEmailSender,
     FakePasswordHasher,
     FakeTokenService,
@@ -31,7 +32,11 @@ def _build_test_client() -> TestClient:
 
     def _override_register_uc() -> RegisterUserUseCase:
         return RegisterUserUseCase(
-            user_repo, hasher, InMemoryEmailVerificationTokenRepository(), FakeEmailSender()
+            user_repo,
+            hasher,
+            InMemoryEmailVerificationTokenRepository(),
+            FakeEmailSender(),
+            FakeCaptchaVerifier(),
         )
 
     def _override_login_uc() -> LoginUserUseCase:
@@ -57,7 +62,11 @@ def test_refresh_flow_returns_new_tokens() -> None:
     try:
         reg = client.post(
             "/api/v1/auth/register",
-            json={"email": "refresh.user@example.com", "password": "StrongPass123"},
+            json={
+                "email": "refresh.user@example.com",
+                "password": "StrongPass123",
+                "captcha_token": "test-captcha-token",
+            },
         )
         assert reg.status_code == 201
 
@@ -96,7 +105,11 @@ def test_refresh_reuse_old_token_after_rotation_returns_401() -> None:
     try:
         reg = client.post(
             "/api/v1/auth/register",
-            json={"email": "rotate.user@example.com", "password": "StrongPass123"},
+            json={
+                "email": "rotate.user@example.com",
+                "password": "StrongPass123",
+                "captcha_token": "test-captcha-token",
+            },
         )
         assert reg.status_code == 201
 
