@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 
 import { AuthPopup } from '@/features/auth/AuthPopup'
@@ -11,15 +11,24 @@ import { LeftRail } from './LeftRail'
 import { RightRail } from './RightRail'
 
 export function AppShell() {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, isBootstrapping } = useAuth()
   const { conversationId } = useParams<{ conversationId?: string }>()
   const navigate = useNavigate()
 
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
-  const [authPopupOpen, setAuthPopupOpen] = useState(true)
+  const [authPopupOpen, setAuthPopupOpen] = useState(false)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
   const [activeCategories, setActiveCategories] = useState<ConversationCategory[]>([])
+
+  useEffect(() => {
+    // Only prompt for login once we know a stored session couldn't be
+    // silently restored — otherwise a returning logged-in user would see
+    // the popup flash open for a moment on every page load.
+    if (!isBootstrapping && !isAuthenticated) {
+      setAuthPopupOpen(true)
+    }
+  }, [isBootstrapping, isAuthenticated])
 
   function handleProfileClick() {
     if (isAuthenticated) {
