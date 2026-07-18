@@ -44,7 +44,7 @@ GET {{baseUrl}}{{profilePrefix}}
 Authorization: Bearer {{access_token}}
 
 ### =========================
-### 4) Create profile
+### 4) Create profile (z harmonogramem tygodniowym — Faza 9)
 ### =========================
 POST {{baseUrl}}{{profilePrefix}}
 Authorization: Bearer {{access_token}}
@@ -56,11 +56,25 @@ Content-Type: application/json
   "weight_kg": 80,
   "activity_level": "HIGH",
   "goal": "MUSCLE_GAIN",
-  "diet_type": "VEGETARIAN"
+  "diet_type": "VEGETARIAN",
+  "weekly_obligations": [
+    {
+      "day_of_week": "MON",
+      "start_time": "09:00:00",
+      "end_time": "17:00:00",
+      "label": "Work"
+    },
+    {
+      "day_of_week": "WED",
+      "start_time": "18:00:00",
+      "end_time": "19:00:00",
+      "label": "Training"
+    }
+  ]
 }
 
 ### =========================
-### 5) Get profile po utworzeniu
+### 5) Get profile po utworzeniu — powinien zawierać weekly_obligations
 ### =========================
 GET {{baseUrl}}{{profilePrefix}}
 Authorization: Bearer {{access_token}}
@@ -95,7 +109,37 @@ Content-Type: application/json
 }
 
 ### =========================
-### 8) Negatywny test: nieprawidłowy wiek
+### 8) Update: wyczyść harmonogram tygodniowy (pusta lista = brak, nie "bez zmian")
+### =========================
+PUT {{baseUrl}}{{profilePrefix}}
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "weekly_obligations": []
+}
+
+### =========================
+### 9) Negatywny test: end_time <= start_time w weekly_obligations
+### Oczekiwane: 400 + code BAD_REQUEST (walidacja domenowa, nie schema — patrz architecture.md)
+### =========================
+PUT {{baseUrl}}{{profilePrefix}}
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "weekly_obligations": [
+    {
+      "day_of_week": "MON",
+      "start_time": "17:00:00",
+      "end_time": "09:00:00",
+      "label": "Bad range"
+    }
+  ]
+}
+
+### =========================
+### 10) Negatywny test: nieprawidłowy wiek
 ### Oczekiwane: 422 + code VALIDATION_ERROR
 ### =========================
 POST {{baseUrl}}{{profilePrefix}}
@@ -112,13 +156,13 @@ Content-Type: application/json
 }
 
 ### =========================
-### 9) Negatywny test: brak tokena
+### 11) Negatywny test: brak tokena
 ### Oczekiwane: 401 + code INVALID_ACCESS_TOKEN
 ### =========================
 GET {{baseUrl}}{{profilePrefix}}
 
 ### =========================
-### 10) Drugi użytkownik — bez profilu (izolacja danych)
+### 12) Drugi użytkownik — bez profilu (izolacja danych)
 ### =========================
 POST {{baseUrl}}{{authPrefix}}/register
 Content-Type: application/json
@@ -143,14 +187,14 @@ Content-Type: application/json
 %}
 
 ### =========================
-### 11) Drugi user nie widzi cudzego profilu
+### 13) Drugi user nie widzi cudzego profilu
 ### Oczekiwane: 404 + code NOT_FOUND (własny profil nie istnieje)
 ### =========================
 GET {{baseUrl}}{{profilePrefix}}
 Authorization: Bearer {{other_access_token}}
 
 ### =========================
-### 12) Weryfikacja Stage 5: profil wpływa na odpowiedź AI
+### 14) Weryfikacja: profil wpływa na odpowiedź AI
 ### Utwórz konwersację i wyślij wiadomość — odpowiedź powinna
 ### uwzględniać ustawiony profil (np. VEGETARIAN z kroku 4/7).
 ### =========================

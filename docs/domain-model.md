@@ -463,6 +463,8 @@ goal
 
 diet_type
 
+weekly_obligations   — tuple of WeeklyObligation (Phase 9, see below)
+
 created_at
 
 updated_at
@@ -476,6 +478,9 @@ data.
 `ai.PromptBuilder` when composing the AI system prompt (see Conversation
 Domain / AI Module in architecture.md) — decoupled from the `ai` module the
 same way `Message.role` stays a plain value rather than a shared type.
+When `weekly_obligations` is non-empty, it appends a "weekly commitments"
+clause, which is also how that schedule reaches `DietPlanPromptBuilder`
+(no separate parameter — see `DietPlan`/`Meal` below).
 
 ---
 
@@ -489,6 +494,33 @@ same way `Message.role` stays a plain value rather than a shared type.
 - `weight_kg` must be between 20 and 400.
 - Validation runs both on `create()` and on `update()` (a partial update
   re-validates the merged result, not just the changed fields).
+- `weekly_obligations` follows the same partial-update convention as every
+  other field: omit it on `PUT /profile` to leave the schedule untouched,
+  send `[]` to explicitly clear it (`None` vs. `()` are distinguishable).
+
+---
+
+## WeeklyObligation
+
+Value Object (embedded in `NutritionProfile`, no identity of its own).
+`modules/nutrition/domain/value_objects/weekly_obligation.py`. Phase 9.
+
+A recurring weekly time block — work, training, or any other commitment
+the user wants diet-plan generation to avoid scheduling meals into.
+
+Example:
+
+```
+WeeklyObligation
+
+day_of_week    — MON | TUE | WED | THU | FRI | SAT | SUN
+
+start_time
+
+end_time       — must be after start_time
+
+label          — free text, e.g. "Work", "Training"
+```
 
 ---
 
@@ -541,12 +573,17 @@ requirements    — tuple of free-text hints supplied at generation time
 days            — tuple of DietDay
 
 created_at
+
+updated_at      — Phase 9; starts equal to created_at, moves only on reschedule_meal()
 ```
 
-A plan is immutable once generated — there is no `update()`; regenerating
-produces a new `DietPlan` (a user can have many). `create()` validates
-`duration_days` is between 1 and 14, that `days` has exactly that many
-entries, and that no meal has a negative macro value.
+`create()` validates `duration_days` is between 1 and 14, that `days` has
+exactly that many entries, and that no meal has a negative macro value.
+Regenerating always produces a new `DietPlan` (a user can have many) — that
+part hasn't changed. What changed in Phase 9: a plan is **not** fully
+immutable anymore. `reschedule_meal(day_number, meal_name, new_time)` is
+the one mutation it supports — everything else about a plan (macros, meal
+identity, day count) still can't change after generation.
 
 ---
 
@@ -559,6 +596,11 @@ entries, and that no meal has a negative macro value.
   sensible default goal to fall back to).
 - `len(days)` must equal `duration_days` exactly.
 - No `Meal` may have a negative `calories`/`protein`/`carbohydrates`/`fat`.
+- `reschedule_meal()` (Phase 9) locates the target day/meal and rebuilds
+  the `Meal`/`DietDay`/`days` chain with the new time (via
+  `dataclasses.replace` — the value objects it touches are frozen, so this
+  is reconstruction, not in-place mutation of them); an unknown
+  `day_number`/`meal_name` raises `MealNotFoundError`.
 
 ---
 
@@ -578,6 +620,11 @@ day_number     — 1-indexed
 
 meals          — tuple of Meal
 ```
+
+`day_number` has no calendar date of its own — `day_number = 1` is treated
+as the plan's `created_at` date, counting forward, wherever a real date is
+needed (conflict-clamping against `WeeklyObligation`, the CSV export's
+`date` column). A one-line assumption if it ever needs to change.
 
 ---
 
@@ -602,11 +649,48 @@ protein
 carbohydrates
 
 fat
+
+time    — Phase 9; AI-suggested "HH:MM", nullable — the model isn't required
+          to provide one, and Ollama in particular sometimes doesn't
 ```
 
 No `description`/`ingredients` fields — kept to exactly what the AI
 generates and what the API surfaces; not modeled as a nested `Ingredient`
 value object (deferred — see Future Extensions).
+
+`time` is suggested by the AI at generation and nudged away from any
+`WeeklyObligation` it collides with (a bounded heuristic, not a full
+scheduler — see architecture.md), then freely editable afterward via
+`DietPlan.reschedule_meal()`.
+
+---
+
+## DietPlanExport
+
+Entity. `modules/nutrition/domain/entities/diet_plan_export.py`. Phase 9.
+
+Metadata for one CSV export of a `DietPlan`, archived on an SFTP server —
+this entity itself holds no file content, only a pointer to it.
+
+Example:
+
+```
+DietPlanExport
+
+id
+
+user_id
+
+diet_plan_id
+
+filename       — the archived file's name on the SFTP server
+
+created_at
+```
+
+A plan can be exported more than once (e.g. after rescheduling a meal) —
+each export is a distinct `DietPlanExport`/file, never an overwrite of a
+previous one.
 
 ---
 
@@ -816,6 +900,8 @@ Nutrition context:
 nutrition_profiles
 
 diet_plans
+
+diet_plan_exports   — Phase 9; metadata only, files live on SFTP
 ```
 
 ---

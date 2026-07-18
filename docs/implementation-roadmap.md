@@ -55,26 +55,30 @@ Phase 8  - Conversation Lifecycle &  DONE (Stages 1-8/8) — post-Phase-7
                                      empty `shared/security`/`shared/utils`
                                      packages, once noticed they existed
                                      but were never used.
-Phase 9  - Meal Scheduling &         IN PROGRESS (Stage 1/6) — pre-frontend
+Phase 9  - Meal Scheduling &         DONE (Stages 1-6/6) — pre-frontend
            Calendar Export           feature: AI-suggested + user-editable
                                      meal times (a calendar/meetings-style
                                      view), a weekly "obligations" schedule
                                      (work/training hours) fed into the
                                      diet-plan prompt so generation builds
-                                     around it, CSV export of a plan, and
-                                     date-range filtering of plan history
-                                     for a profile "plans" tab. See the
-                                     6-stage breakdown below.
+                                     around it, CSV export of a plan
+                                     archived to SFTP for later re-download
+                                     (scope grew mid-Stage-4, per user
+                                     request, from a stateless serializer),
+                                     and date-range filtering of plan
+                                     history. See the 6-stage breakdown
+                                     below.
 Phase 10+ - Frontend/Testing/Future  NOT STARTED
 ```
 
-**Phases 3 through 8 are complete** — Identity (including account
+**Phases 3 through 9 are complete** — Identity (including account
 recovery), Nutrition Profile, Conversation + AI chat (including lifecycle
-management), and Diet Plan generation all work end-to-end against the real
-Docker stack, with docs (`architecture.md`, `domain-model.md`, `api.md`,
-`docs/https/*.http`) and `README.md` synced to match. Phase 9 (Meal
-Scheduling & Calendar Export) is in progress — see that section below.
-Phase 10+ (Frontend, broader Reporting) comes after.
+management), Diet Plan generation, and Meal Scheduling & Calendar Export
+all work end-to-end against the real Docker stack, with docs
+(`architecture.md`, `domain-model.md`, `api.md`, `docs/https/*.http`) and
+`README.md` synced to match. Phase 10+ (Frontend, broader Reporting) is
+next — see that section below for the sparse original draft, not yet
+split into stages.
 
 ---
 
@@ -2216,20 +2220,65 @@ Docker stack.
 
 ## Stage 6 — Tests & docs sync
 
-- [ ] `docs/https/nutrition.http` / `diet-plan.http` — extended with
-      weekly-obligations profile updates, a reschedule-meal step, a CSV
-      export request, and date-range-filtered list requests.
-- [ ] `docs/api.md` — new/changed endpoints and response shapes
-      (`weekly_obligations` on profile, `time` on meals, `PATCH
-      /diet-plans/{id}/meals`, `GET /diet-plans/{id}/export`, `GET
-      /diet-plans?from&to`).
-- [ ] `docs/architecture.md` — `WeeklyObligation`, meal scheduling +
-      conflict-clamping heuristic and its day-number-to-weekday
-      assumption, the reschedule capability (DietPlan's first-ever
-      mutator), CSV export, date-range filtering.
-- [ ] `docs/domain-model.md` — `Meal`/`DietDay`/`NutritionProfile`/
-      `DietPlan` entries updated; `WeeklyObligation` documented.
-- [ ] Roadmap status table updated.
+- [x] `docs/https/nutrition.http` — extended to 14 steps: added
+      `weekly_obligations` to profile creation, a `GET` confirming they
+      round-trip, a `PUT` clearing them (`[]`), and a negative
+      `end_time <= start_time` → 400 case.
+- [x] `docs/https/diet-plan.http` — extended to 21 steps: profile creation
+      now includes a weekly obligation (so conflict-clamping is visible in
+      the generated plan), plus a reschedule-meal step (with a
+      `CHANGE_ME_FROM_STEP_7_RESPONSE` placeholder, since AI-generated meal
+      names aren't deterministic between runs), a reschedule-unknown-meal
+      400 case, export → list-exports → download-export, date-range
+      `from`/`to` filtering (+ its `from > to` 400 case), and a
+      second-user isolation check specifically for export/download (404
+      on both).
+- [x] `docs/api.md` — Nutrition Profile section: `weekly_obligations`
+      documented on all three endpoints + the domain-level 400 case. Diet
+      Plan section: `time`/`updated_at` on the generate response, new
+      `PATCH .../meals`, `GET /diet-plans`'s `from`/`to` query params +
+      400 case, and all three export endpoints
+      (`POST .../export`, `GET .../exports`, `GET .../exports/{id}/download`).
+- [x] `docs/architecture.md` — Nutrition Module rewritten with three new
+      subsections: "Weekly obligations & AI-suggested meal scheduling"
+      (the day-number-to-weekday assumption, conflict-clamping, and
+      `reschedule_meal()` as `DietPlan`'s one mutation), "CSV export,
+      archived to SFTP" (the `SftpClient` port mirroring `EmailSender`,
+      the mock-vs-real split, the deliberate fakes-only automated-test
+      strategy), and "Date-range filtering for plan history". Also fixed
+      two pieces of **pre-existing drift found during this pass**: a
+      stale `ollama/schema_validation.py` path reference (the file moved
+      to `shared/utils/` back in Phase 8) and the "Docker" section's
+      services list, which was still the original Phase 0 sparse draft
+      (`backend, frontend, postgres, mongodb`) and never reflected Ollama,
+      Mailhog, or now SFTP.
+- [x] `docs/domain-model.md` — `NutritionProfile` gained
+      `weekly_obligations` + a new `WeeklyObligation` value-object section;
+      `DietPlan`'s "immutable once generated, no `update()`" line corrected
+      (now has exactly one: `reschedule_meal()`) and gained `updated_at`;
+      `DietDay` documents the day-number-to-date assumption; `Meal` gained
+      `time`; new `DietPlanExport` entity section; `diet_plan_exports`
+      added to the MongoDB persistence-mapping list.
+- [x] `README.md` — six containers now (added `sftp`), `.http` file
+      descriptions updated, Business Goals and Current Project Status
+      updated, repo-tree one-liner synced.
+- [x] Roadmap status table updated (see the top-level Phase 9 line and
+      this file's own stage list).
+
+**Status: DONE.** Docs-only stage — no production code changed, full
+suite stays at the Stage 5 count (338 passed).
+
+**Addendum, added right after this stage per user request**: a
+machine-readable API doc, alongside the hand-written `api.md`. New
+`scripts/export_openapi.py` calls the live FastAPI app's `app.openapi()`
+(importing `backend.app.main` only constructs the app/registers routes —
+no lifespan, no real DB/AI-provider connection needed) and writes the full
+OpenAPI 3.1 schema to `docs/openapi.json` (21 endpoints as of this write).
+Committed as a point-in-time snapshot, not auto-regenerated on a schedule
+— re-run the script after any endpoint change so it doesn't quietly
+drift; `docs/api.md` gained a short section pointing to it and clarifying
+the division of labor (schema = exact shapes, `api.md` = the *why* behind
+each endpoint's behavior).
 
 ---
 
