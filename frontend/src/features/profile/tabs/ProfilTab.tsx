@@ -6,6 +6,8 @@ import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/apiFetch'
 import { useAuth } from '@/lib/auth'
 
+import { NutritionProfileForm } from './NutritionProfileForm'
+
 function verifyErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.code === 'BAD_REQUEST') {
     return 'Kod jest nieprawidłowy, wygasł lub został już użyty.'
@@ -39,10 +41,12 @@ export function ProfilTab() {
     <div className="flex flex-col gap-6">
       {user && <p className="text-sm text-foreground">Zalogowano jako <b>{user.email}</b></p>}
 
-      <p className="text-sm text-muted-foreground">
-        Formularz profilu żywieniowego (wiek, wzrost, waga, cel, typ diety, cotygodniowe
-        zobowiązania) pojawi się w Etapie 2.
-      </p>
+      <div className="rounded-xl border border-border p-4">
+        <p className="mb-3 text-xs font-bold tracking-wide text-muted-foreground uppercase">
+          Profil żywieniowy
+        </p>
+        <NutritionProfileForm />
+      </div>
 
       <div className="rounded-xl border border-border p-4">
         <p className="mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">

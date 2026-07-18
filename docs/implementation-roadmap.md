@@ -2659,10 +2659,42 @@ Exit criteria met: `npm run build`, `npm run test` (30/30), and
 Goal: wire the profile modal's "Profil" tab to
 `docs/api.md`'s Nutrition Profile API.
 
-## Stage 1 — Profile form
+## Stage 1 — Profile form — DONE
 
-- [ ] `GET/POST/PUT /profile` — form fields: age, height_cm, weight_kg,
+- [x] `GET/POST/PUT /profile` — form fields: age, height_cm, weight_kg,
       activity_level, goal, diet_type (matches the mockup's form layout).
+      `NutritionProfileForm` (new, rendered inside `ProfilTab`) uses
+      TanStack Query: `useQuery(['profile'], getProfile)` with `retry:
+      false` (a 404 here is "no profile yet" — an expected first state,
+      not a transient failure) drives create-vs-edit mode; `useMutation`
+      calls `createProfile`/`updateProfile` depending on whether a profile
+      already exists, and writes the result straight into the query cache
+      on success (`queryClient.setQueryData`) instead of refetching.
+- [x] Enum dropdowns (`activity_level`, `goal`, `diet_type`) via a new
+      shadcn `select` component; Polish labels sourced from a new
+      `src/lib/profileOptions.ts` (same `{value, label}` +
+      `LABEL_BY_VALUE`-map shape as the existing `categoryOptions.ts`, for
+      consistency).
+- [x] `weekly_obligations` intentionally omitted from this stage's
+      create/update payloads — per `docs/api.md`, omitting the field
+      entirely leaves the existing schedule untouched, so this stage's
+      payload shape doesn't collide with Stage 2's editor.
+
+**Real problems hit and fixed**: Base UI's `<Select>` only echoes the raw
+enum value in its trigger by default (`<SelectValue />` shows the string
+itself, not the matching `<SelectItem>`'s label) — first live check showed
+literal `"MODERATE"`/`"MAINTENANCE"`/`"STANDARD"` in the closed dropdowns
+instead of Polish text. Fixed by giving `<SelectValue>` a render-function
+child (`{(value) => activityLevelLabel(value)}`, etc.) that looks the
+label up from `profileOptions.ts`.
+
+Exit criteria met: 3 new Vitest component tests (`NutritionProfileForm.test.tsx`
+— create-when-missing, pre-fill-and-PUT-when-existing, inline error on an
+unexpected failure); full suite 33/33, `npm run build`/`npm run lint`
+green. Verified live against the real Dockerized backend: created a
+profile, confirmed it survives a full page reload (`GET /profile`), then
+edited the weight and confirmed the `PUT /profile` request body and the
+"Zapisano ✓" confirmation, with a clean browser console throughout.
 
 ## Stage 2 — Weekly obligations editor
 
