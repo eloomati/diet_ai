@@ -86,7 +86,7 @@ async def test_ollama_provider_maps_response_to_ai_response() -> None:
     provider = OllamaProvider(base_url="http://localhost:11434", model="llama3.2:1b", client=fake_client)
 
     response = await provider.generate_response(
-        Prompt(question="What should I eat?", category="BREAKFAST")
+        Prompt(question="What should I eat?", categories=("BREAKFAST",))
     )
 
     assert response.content == "Try oatmeal."
@@ -107,7 +107,7 @@ async def test_ollama_provider_sends_system_prompt_as_first_message() -> None:
     await provider.generate_response(
         Prompt(
             question="What should I eat?",
-            category="BREAKFAST",
+            categories=("BREAKFAST",),
             system_prompt="You are a nutrition assistant. Category: BREAKFAST.",
         )
     )
@@ -134,7 +134,7 @@ async def test_ollama_provider_generate_structured_response_parses_and_validates
     provider = OllamaProvider(base_url="http://localhost:11434", model="llama3.2:1b", client=fake_client)
 
     result = await provider.generate_structured_response(
-        Prompt(question="Generate a 1-day diet plan.", category="DIET"), _DIET_PLAN_SCHEMA
+        Prompt(question="Generate a 1-day diet plan.", categories=("DIET",)), _DIET_PLAN_SCHEMA
     )
 
     assert result["days"][0]["day_number"] == 1
@@ -150,7 +150,7 @@ async def test_ollama_provider_retries_once_on_invalid_json_then_succeeds() -> N
     provider = OllamaProvider(base_url="http://localhost:11434", model="llama3.2:1b", client=fake_client)
 
     result = await provider.generate_structured_response(
-        Prompt(question="Generate a 1-day diet plan.", category="DIET"), _DIET_PLAN_SCHEMA
+        Prompt(question="Generate a 1-day diet plan.", categories=("DIET",)), _DIET_PLAN_SCHEMA
     )
 
     assert fake_client.call_count == 2
@@ -166,7 +166,7 @@ async def test_ollama_provider_raises_after_retry_also_fails() -> None:
 
     with pytest.raises(RuntimeError, match="did not return valid structured JSON"):
         await provider.generate_structured_response(
-            Prompt(question="Generate a 1-day diet plan.", category="DIET"), _DIET_PLAN_SCHEMA
+            Prompt(question="Generate a 1-day diet plan.", categories=("DIET",)), _DIET_PLAN_SCHEMA
         )
 
     assert fake_client.call_count == 2

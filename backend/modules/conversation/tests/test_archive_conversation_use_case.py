@@ -19,7 +19,7 @@ from backend.modules.nutrition.tests.fakes import InMemoryNutritionProfileReposi
 
 async def _create_conversation(repo: InMemoryConversationRepository, user_id) -> UUID:
     result = await CreateConversationUseCase(repo).execute(
-        CreateConversationCommand(user_id=user_id, title="Breakfast ideas", category="BREAKFAST")
+        CreateConversationCommand(user_id=user_id, title="Breakfast ideas", categories=["BREAKFAST"])
     )
     return UUID(result.conversation_id)
 

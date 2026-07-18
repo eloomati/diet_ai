@@ -19,7 +19,7 @@ class DietPlanPromptBuilder:
             f"Generate a {duration_days}-day diet plan for this user: {user_profile_text}. "
             f"Additional requirements: {requirements_text}."
         )
-        return Prompt(question=question, category="DIET", system_prompt=_SYSTEM_PROMPT)
+        return Prompt(question=question, categories=("DIET",), system_prompt=_SYSTEM_PROMPT)
 
     @staticmethod
     def build_schema() -> dict:

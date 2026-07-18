@@ -16,7 +16,7 @@ class ListConversationsUseCase:
             ConversationSummary(
                 conversation_id=str(conversation.id),
                 title=conversation.title,
-                category=conversation.category.value,
+                categories=[c.value for c in conversation.categories],
                 status=conversation.status.value,
                 updated_at=conversation.updated_at.isoformat(),
             )

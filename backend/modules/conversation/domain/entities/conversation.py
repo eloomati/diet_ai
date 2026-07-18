@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from uuid import UUID, uuid4
@@ -9,6 +10,7 @@ from backend.modules.conversation.domain.events.conversation_events import (
 )
 from backend.modules.conversation.domain.exceptions.conversation_domain_errors import (
     ArchivedConversationError,
+    InvalidConversationError,
 )
 from backend.modules.conversation.domain.value_objects.conversation_category import (
     ConversationCategory,
@@ -24,7 +26,7 @@ class Conversation:
     id: UUID
     user_id: UUID
     title: str
-    category: ConversationCategory
+    categories: tuple[ConversationCategory, ...]
     status: ConversationStatus = ConversationStatus.ACTIVE
     messages: list[Message] = field(default_factory=list)
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -32,13 +34,19 @@ class Conversation:
     domain_events: list[object] = field(default_factory=list)
 
     @classmethod
-    def create(cls, user_id: UUID, title: str, category: ConversationCategory) -> "Conversation":
+    def create(
+        cls, user_id: UUID, title: str, categories: Sequence[ConversationCategory]
+    ) -> "Conversation":
+        deduped = tuple(dict.fromkeys(categories))
+        if not deduped:
+            raise InvalidConversationError("A conversation needs at least one category.")
+
         now = datetime.now(UTC)
         conversation = cls(
             id=uuid4(),
             user_id=user_id,
             title=title,
-            category=category,
+            categories=deduped,
             created_at=now,
             updated_at=now,
         )

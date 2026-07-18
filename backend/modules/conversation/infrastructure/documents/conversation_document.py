@@ -18,7 +18,7 @@ class ConversationDocument(Document):
     id: UUID = Field(default_factory=uuid4)
     user_id: UUID
     title: str
-    category: str
+    categories: list[str]
     status: str
     messages: list[MessageEmbedded] = Field(default_factory=list)
     created_at: datetime

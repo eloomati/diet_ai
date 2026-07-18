@@ -1178,9 +1178,12 @@
             "type": "string",
             "title": "Title"
           },
-          "category": {
-            "type": "string",
-            "title": "Category"
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Categories"
           },
           "status": {
             "type": "string",
@@ -1198,7 +1201,7 @@
         "required": [
           "conversation_id",
           "title",
-          "category",
+          "categories",
           "status",
           "messages"
         ],
@@ -1214,9 +1217,12 @@
             "type": "string",
             "title": "Title"
           },
-          "category": {
-            "type": "string",
-            "title": "Category"
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Categories"
           },
           "status": {
             "type": "string",
@@ -1231,7 +1237,7 @@
         "required": [
           "conversation_id",
           "title",
-          "category",
+          "categories",
           "status",
           "updated_at"
         ],
@@ -1245,14 +1251,19 @@
             "minLength": 1,
             "title": "Title"
           },
-          "category": {
-            "$ref": "#/components/schemas/ConversationCategory"
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/ConversationCategory"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Categories"
           }
         },
         "type": "object",
         "required": [
           "title",
-          "category"
+          "categories"
         ],
         "title": "CreateConversationRequest"
       },
@@ -1266,9 +1277,12 @@
             "type": "string",
             "title": "Title"
           },
-          "category": {
-            "type": "string",
-            "title": "Category"
+          "categories": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Categories"
           },
           "status": {
             "type": "string",
@@ -1279,7 +1293,7 @@
         "required": [
           "conversation_id",
           "title",
-          "category",
+          "categories",
           "status"
         ],
         "title": "CreateConversationResponse"

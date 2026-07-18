@@ -6,12 +6,12 @@ from uuid import UUID
 class CreateConversationCommand:
     user_id: UUID
     title: str
-    category: str
+    categories: list[str]
 
 
 @dataclass(frozen=True, slots=True)
 class CreateConversationResult:
     conversation_id: str
     title: str
-    category: str
+    categories: list[str]
     status: str

@@ -18,14 +18,30 @@ async def test_create_conversation_success() -> None:
         CreateConversationCommand(
             user_id=uuid4(),
             title="Breakfast ideas",
-            category="BREAKFAST",
+            categories=["BREAKFAST"],
         )
     )
 
     assert result.conversation_id is not None
     assert result.title == "Breakfast ideas"
-    assert result.category == "BREAKFAST"
+    assert result.categories == ["BREAKFAST"]
     assert result.status == "ACTIVE"
+
+
+@pytest.mark.asyncio
+async def test_create_conversation_with_multiple_categories() -> None:
+    repo = InMemoryConversationRepository()
+    use_case = CreateConversationUseCase(repo)
+
+    result = await use_case.execute(
+        CreateConversationCommand(
+            user_id=uuid4(),
+            title="Cutting + race prep",
+            categories=["DIET", "RUNNING"],
+        )
+    )
+
+    assert result.categories == ["DIET", "RUNNING"]
 
 
 @pytest.mark.asyncio
@@ -34,7 +50,7 @@ async def test_create_conversation_persists_it() -> None:
     use_case = CreateConversationUseCase(repo)
 
     result = await use_case.execute(
-        CreateConversationCommand(user_id=uuid4(), title="Leg day", category="GYM")
+        CreateConversationCommand(user_id=uuid4(), title="Leg day", categories=["GYM"])
     )
 
     stored = await repo.get_by_id(UUID(result.conversation_id))

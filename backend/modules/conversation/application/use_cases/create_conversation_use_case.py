@@ -13,7 +13,7 @@ class CreateConversationUseCase:
         conversation = Conversation.create(
             user_id=command.user_id,
             title=command.title,
-            category=ConversationCategory(command.category),
+            categories=[ConversationCategory(c) for c in command.categories],
         )
 
         await self._conversation_repository.save(conversation)
@@ -21,6 +21,6 @@ class CreateConversationUseCase:
         return CreateConversationResult(
             conversation_id=str(conversation.id),
             title=conversation.title,
-            category=conversation.category.value,
+            categories=[c.value for c in conversation.categories],
             status=conversation.status.value,
         )

@@ -20,6 +20,6 @@ class MessageView:
 class GetConversationHistoryResult:
     conversation_id: str
     title: str
-    category: str
+    categories: list[str]
     status: str
     messages: list[MessageView]

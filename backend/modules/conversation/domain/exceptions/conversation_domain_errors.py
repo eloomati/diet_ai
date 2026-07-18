@@ -4,3 +4,7 @@ class ConversationDomainError(Exception):
 
 class ArchivedConversationError(ConversationDomainError):
     pass
+
+
+class InvalidConversationError(ConversationDomainError):
+    pass
