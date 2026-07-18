@@ -2654,29 +2654,149 @@ Exit criteria met: `npm run build`, `npm run test` (30/30), and
 
 ---
 
-# Etap 2 — Profil żywieniowy
+# Etap 2 — Profil żywieniowy — DONE (Stages 1-4/4)
 
 Goal: wire the profile modal's "Profil" tab to
 `docs/api.md`'s Nutrition Profile API.
 
-## Stage 1 — Profile form
+## Stage 1 — Profile form — DONE
 
-- [ ] `GET/POST/PUT /profile` — form fields: age, height_cm, weight_kg,
+- [x] `GET/POST/PUT /profile` — form fields: age, height_cm, weight_kg,
       activity_level, goal, diet_type (matches the mockup's form layout).
+      `NutritionProfileForm` (new, rendered inside `ProfilTab`) uses
+      TanStack Query: `useQuery(['profile'], getProfile)` with `retry:
+      false` (a 404 here is "no profile yet" — an expected first state,
+      not a transient failure) drives create-vs-edit mode; `useMutation`
+      calls `createProfile`/`updateProfile` depending on whether a profile
+      already exists, and writes the result straight into the query cache
+      on success (`queryClient.setQueryData`) instead of refetching.
+- [x] Enum dropdowns (`activity_level`, `goal`, `diet_type`) via a new
+      shadcn `select` component; Polish labels sourced from a new
+      `src/lib/profileOptions.ts` (same `{value, label}` +
+      `LABEL_BY_VALUE`-map shape as the existing `categoryOptions.ts`, for
+      consistency).
+- [x] `weekly_obligations` intentionally omitted from this stage's
+      create/update payloads — per `docs/api.md`, omitting the field
+      entirely leaves the existing schedule untouched, so this stage's
+      payload shape doesn't collide with Stage 2's editor.
 
-## Stage 2 — Weekly obligations editor
+**Real problems hit and fixed**: Base UI's `<Select>` only echoes the raw
+enum value in its trigger by default (`<SelectValue />` shows the string
+itself, not the matching `<SelectItem>`'s label) — first live check showed
+literal `"MODERATE"`/`"MAINTENANCE"`/`"STANDARD"` in the closed dropdowns
+instead of Polish text. Fixed by giving `<SelectValue>` a render-function
+child (`{(value) => activityLevelLabel(value)}`, etc.) that looks the
+label up from `profileOptions.ts`.
 
-- [ ] Editable list of `weekly_obligations` (day_of_week, start_time,
+Exit criteria met: 3 new Vitest component tests (`NutritionProfileForm.test.tsx`
+— create-when-missing, pre-fill-and-PUT-when-existing, inline error on an
+unexpected failure); full suite 33/33, `npm run build`/`npm run lint`
+green. Verified live against the real Dockerized backend: created a
+profile, confirmed it survives a full page reload (`GET /profile`), then
+edited the weight and confirmed the `PUT /profile` request body and the
+"Zapisano ✓" confirmation, with a clean browser console throughout.
+
+## Stage 2 — Weekly obligations editor — DONE
+
+- [x] Editable list of `weekly_obligations` (day_of_week, start_time,
       end_time, label) — the mockup shows these as read-only tag rows;
-      this stage makes them add/edit/remove.
+      this stage makes them add/edit/remove. New `WeeklyObligationsEditor`
+      (controlled `value`/`onChange`, lifted into `NutritionProfileForm`'s
+      form state) renders existing entries as removable rows and a small
+      add-row (day `<Select>`, two `<input type="time">`, a label input,
+      "Dodaj" button disabled until day/start/end/label are all filled
+      and `end_time > start_time`).
+- [x] `weekly_obligations` now included in both the create (`POST`) and
+      update (`PUT`) payloads — Stage 1 deliberately omitted it; this
+      stage closes that gap.
+- [x] Day-of-week Polish labels added to `profileOptions.ts`
+      (`DAY_OF_WEEK_OPTIONS` + `dayOfWeekLabel`), same shape as the
+      Stage 1 enum options. Time fields round-trip as plain `"HH:MM"`
+      strings — matches the backend's `time.fromisoformat`/
+      `isoformat(timespec="minutes")` on both ends, no seconds needed.
 
-## Stage 3 — Validation & error states
+Exit criteria met: 3 new `WeeklyObligationsEditor.test.tsx` tests (add
+clears the mini-form, disabled+hint when `end <= start`, remove) plus the
+existing `NutritionProfileForm` tests updated for the new field; full
+suite 36/36, `npm run build`/`npm run lint` green. Verified live against
+the real backend: added a Monday 09:00–17:00 "Praca" obligation, saved,
+reloaded the page and confirmed it survived (`GET /profile`), then removed
+it and saved an empty list back successfully — clean console throughout.
 
-- [ ] 422 range validation (age 1-120, height_cm 50-250, weight_kg
-      20-400), 409 on duplicate `POST`, 404 on `GET`/`PUT` with no
-      profile yet, 400 on an obligation's `end_time <= start_time`.
+## Stage 3 — Validation & error states — DONE
 
-## Stage 4 — Tests & docs sync
+- [x] 422 range validation (age 1-120, height_cm 50-250, weight_kg
+      20-400) — prevention-first: native HTML5 `min`/`max`/`required`
+      on the number inputs blocks an out-of-range submit before any
+      request fires (confirmed live — typing `999` into "Waga" and
+      clicking "Zapisz zmiany" sent zero network requests), plus a new
+      range hint (`"1-120 lat"`, `"50-250 cm"`, `"20-400 kg"`) under each
+      field. A backend `VALIDATION_ERROR` that gets through anyway (e.g.
+      a stale form bypassing client checks) now maps to a friendly Polish
+      message instead of the raw pydantic error text.
+- [x] 409 on duplicate `POST`, 404 on `PUT` with no profile yet — both
+      now resync instead of just displaying an error: `saveMutation`'s
+      `onError` calls `queryClient.invalidateQueries(['profile'])`
+      whenever the code is `CONFLICT` or `NOT_FOUND`, since either one
+      means the cached create-vs-edit assumption is stale (a profile was
+      created/deleted concurrently). The refetch flips the form between
+      create/edit mode to match server reality instead of leaving it
+      retrying the wrong request type.
+- [x] 400 on an obligation's `end_time <= start_time` — already prevented
+      client-side by `WeeklyObligationsEditor`'s "Dodaj" (Stage 2); the
+      matching backend `BAD_REQUEST` (if it ever reaches the server, e.g.
+      a race) now maps to the same friendly message rather than the raw
+      domain-exception text.
+- [x] A shared `ERROR_MESSAGES` code→Polish-text map added to
+      `NutritionProfileForm` (`VALIDATION_ERROR`, `CONFLICT`, `NOT_FOUND`,
+      `BAD_REQUEST`), mirroring the existing pattern in `AuthPopup`/
+      `ForgotPasswordFlow`.
+
+Exit criteria met: real backend hit directly (`curl`) to confirm the exact
+`code`/`message` shape for all three error paths (409 `CONFLICT`, 422
+`VALIDATION_ERROR`, 400 `BAD_REQUEST`) before wiring the map — no
+guessing. 3 new Vitest cases (422 friendly message, 409 resync-to-edit,
+404-during-PUT resync-to-create); full suite 39/39, `npm run build`/
+`npm run lint` green. Verified live: native validation blocking an
+out-of-range save (zero requests sent, confirmed via network-request
+inspection), then a valid save succeeding normally right after.
+
+## Stage 4 — Tests & docs sync — DONE
+
+- [x] Component test coverage assembled across Stages 1-3 reviewed as a
+      whole: `NutritionProfileForm.test.tsx` (6 cases — create-when-missing,
+      pre-fill-and-PUT, unexpected-fetch-error, 422 friendly message, 409
+      resync-to-edit, 404-during-PUT resync-to-create) and
+      `WeeklyObligationsEditor.test.tsx` (3 cases — add-and-clear,
+      disabled+hint on `end <= start`, remove). No gaps found; no new
+      tests needed beyond what each stage already added.
+- [x] `docs/api.md`'s Nutrition Profile API section cross-checked against
+      `profile_router.py`'s actual request/response/error handling for
+      `GET`/`POST`/`PUT /profile` — status codes, error codes
+      (`CONFLICT`, `NOT_FOUND`, `BAD_REQUEST`), and all four enums
+      (`ActivityLevel`, `DietGoal`, `DietType`, `DayOfWeek`) diffed
+      directly against the domain value objects — no discrepancies found.
+- [x] Roadmap status updated (this section) — Etap 2 marked DONE.
+
+**Real problems hit and fixed**: none new in this stage — the accessibility
+and Select-label bugs were caught and fixed in Stages 1-2 as they were
+introduced, not deferred here.
+
+**Noted but out of scope**: a full backend suite run surfaced 2 pre-existing
+failures in `test_diet_plan_api.py`
+(`test_list_diet_plans_from_today_includes_todays_plan`,
+`test_list_diet_plans_to_in_the_past_excludes_todays_plan`), unrelated to
+this Etap — no backend files were touched (`git status backend/` empty
+throughout). Root cause appears to be a UTC-vs-local-timezone boundary
+mismatch between the test's `date.today()` (local time) and however diet
+plans are timestamped/queried, only visible when the local clock has
+crossed midnight but UTC hasn't yet. Left unfixed as out of scope for a
+frontend nutrition-profile stage; worth a dedicated look when Etap 4
+(Plany dietetyczne) is underway.
+
+Exit criteria met: frontend suite 39/39, `npm run build`/`npm run lint`
+green. Backend nutrition module 137/139 (2 pre-existing, unrelated
+failures noted above, not introduced by this Etap).
 
 ---
 
@@ -2686,11 +2806,60 @@ Goal: wire the chat canvas and left-rail history to
 `docs/api.md`'s Conversation API (`categories` is a list — see the
 multi-category backend change already shipped).
 
-## Stage 1 — List + create
+## Stage 1 — List + create — DONE
 
-- [ ] "Nowy czat" category picker (multi-select, matches the mockup) →
-      `POST /conversations` with `categories: [...]`; `GET /conversations`
-      backs the left-rail history list.
+- [x] "Nowy czat" category picker (already built in Etap 0) now wired to
+      real `POST /conversations` — `AppShell` gained a `useMutation` that
+      posts `{ title, categories }` and, on success, sets `activeCategories`
+      from the response, navigates to `/{conversation_id}`, and invalidates
+      the `['conversations']` query so the new chat shows up in the sidebar
+      immediately.
+- [x] `title` auto-derived from the selected categories
+      (`formatCategories(categories, CATEGORY_OPTIONS.length)`, e.g.
+      "Dieta, Fitness") — the mockup's category picker never designed a
+      separate title field, and `POST /conversations` requires a non-empty
+      `title`, so deriving it from the (always non-empty) category
+      selection avoids inventing UI the mockup didn't call for.
+- [x] `GET /conversations` backs the left-rail history list —
+      `LeftRail` gained a `useQuery(['conversations'], listConversations,
+      { enabled: isAuthenticated })` with loading/error/empty states,
+      replacing Etap 0's static "Brak jeszcze żadnych rozmów." placeholder
+      with the real (possibly still-empty) list. Rows show title +
+      `formatCategories(...)` + an "· zarchiwizowana" suffix for archived
+      conversations, and highlight the currently open conversation.
+      **Deferred to Stage 4 on purpose**: the richer per-category tag
+      chips + "+N" overflow badge styling from the mockup — this stage's
+      rows are a plain (but fully real-data-backed) list.
+- [x] Clicking a sidebar row (`onSelectConversation`) sets
+      `activeCategories` from the already-fetched `ConversationSummary`
+      and navigates to `/{conversation_id}` — no extra fetch needed since
+      the list summary already carries `categories`.
+- [x] A minimal inline error banner ("Nie udało się utworzyć rozmowy.
+      Spróbuj ponownie.") under the category picker on a failed create —
+      not deferred entirely to Etap 5's global toast system, since a
+      silent failure here would look like a dead button.
+
+**Real problems hit and fixed**: the first `AppShell.test.tsx` draft
+logged in by calling `useAuth().login()` directly from a mounted-once
+helper component (the same trick used in `ProfilTab.test.tsx`). That
+collided with `AppShell`'s own "open the auth popup while logged out"
+effect — the popup opened during the brief window between bootstrap
+finishing and `login()` resolving, and Base UI's dialog marked the rest of
+the page `inert`, hiding every other role-query target and failing the
+test. Fixed by logging in through the real `AuthPopup` UI (typing
+credentials and clicking its submit button, which already closes itself
+on success) instead of bypassing it — also a more faithful test of the
+actual user flow.
+
+Exit criteria met: 4 new `AppShell.test.tsx` cases (list renders, empty
+state, create-and-navigate with a verified `POST` body, error banner on a
+failed create); full suite 43/43, `npm run build`/`npm run lint` green.
+Verified live against the real backend: created two conversations with
+different categories from the category picker, confirmed each appeared
+immediately in the sidebar with correct highlighting, confirmed the list
+and the selected conversation's URL both survive a full page reload, and
+switching between sidebar rows correctly re-navigates and re-highlights —
+clean console throughout.
 
 ## Stage 2 — Chat window
 
