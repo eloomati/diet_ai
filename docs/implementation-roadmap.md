@@ -55,16 +55,30 @@ Phase 8  - Conversation Lifecycle &  DONE (Stages 1-8/8) — post-Phase-7
                                      empty `shared/security`/`shared/utils`
                                      packages, once noticed they existed
                                      but were never used.
-Phase 9+ - Frontend/Testing/Future  NOT STARTED
+Phase 9  - Meal Scheduling &         DONE (Stages 1-6/6) — pre-frontend
+           Calendar Export           feature: AI-suggested + user-editable
+                                     meal times (a calendar/meetings-style
+                                     view), a weekly "obligations" schedule
+                                     (work/training hours) fed into the
+                                     diet-plan prompt so generation builds
+                                     around it, CSV export of a plan
+                                     archived to SFTP for later re-download
+                                     (scope grew mid-Stage-4, per user
+                                     request, from a stateless serializer),
+                                     and date-range filtering of plan
+                                     history. See the 6-stage breakdown
+                                     below.
+Phase 10+ - Frontend/Testing/Future  NOT STARTED
 ```
 
-**Phases 3 through 8 are complete** — Identity (including account
+**Phases 3 through 9 are complete** — Identity (including account
 recovery), Nutrition Profile, Conversation + AI chat (including lifecycle
-management), and Diet Plan generation all work end-to-end against the real
-Docker stack, with docs (`architecture.md`, `domain-model.md`, `api.md`,
-`docs/https/*.http`) and `README.md` synced to match. Phase 9+ (Frontend,
-broader Reporting) is next — see that section below for the sparse
-original draft, not yet split into stages.
+management), Diet Plan generation, and Meal Scheduling & Calendar Export
+all work end-to-end against the real Docker stack, with docs
+(`architecture.md`, `domain-model.md`, `api.md`, `docs/https/*.http`) and
+`README.md` synced to match. Phase 10+ (Frontend, broader Reporting) is
+next — see that section below for the sparse original draft, not yet
+split into stages.
 
 ---
 
@@ -1764,7 +1778,511 @@ stays at the Stage 7 count (257 passed).
 
 ---
 
-# Phase 9 - Frontend
+# Phase 9 - Meal Scheduling & Calendar Export
+
+Pre-frontend feature request: a calendar-style view where an AI-generated
+diet plan's meals show up like calendar appointments (day + time), with
+the user able to drag/edit individual meal times afterward; a weekly
+"obligations" schedule (work/training hours) on the profile that feeds the
+diet-plan prompt so generation builds around real commitments; CSV export
+of a plan; and date-range filtering of plan history for a profile "plans"
+tab. Resolved as a hybrid: **AI suggests times, user can edit them
+afterward** (not purely AI-fixed, not purely manual). Plan history
+filtering is a user-chosen display range, **not** a retention/auto-delete
+policy — nothing gets deleted in the background.
+
+Confirmed via a module survey before writing this plan: none of this
+exists today. `Meal` has exactly 5 fields (name/calories/protein/carbs/fat,
+frozen dataclass, no time); `DietDay` only has a relative `day_number`, no
+calendar date; `DietPlan` has no mutator at all (`create()` only — this
+phase adds its first-ever in-place update capability); `NutritionProfile`
+has no schedule concept; `ListDietPlansUseCase`/`DietPlanRepository` take
+no filter params of any kind.
+
+`modules/nutrition/domain/` structure being extended (file paths, for
+reference across all 6 stages):
+
+```
+domain/value_objects/meal.py                  — Meal (add `time`)
+domain/value_objects/diet_day.py              — DietDay (day_number, meals)
+domain/entities/diet_plan.py                  — DietPlan (add reschedule_meal(), updated_at)
+domain/entities/nutrition_profile.py          — NutritionProfile (add weekly_obligations)
+domain/repositories/diet_plan_repository.py   — add date-range params to list_by_user_id
+modules/ai/application/diet_plan_prompt_builder.py — build()/build_schema()
+```
+
+---
+
+## Stage 1 — Weekly obligations schedule on NutritionProfile
+
+`domain/value_objects/weekly_obligation.py` (NEW):
+- [x] `WeeklyObligation` (frozen dataclass): `day_of_week` (new `DayOfWeek`
+      StrEnum, MON..SUN), `start_time: time`, `end_time: time`, `label: str`.
+      Validates `end_time > start_time` and non-empty `label`, raising a
+      new `InvalidWeeklyObligationError` (nutrition domain error base).
+
+`domain/entities/nutrition_profile.py`:
+- [x] `NutritionProfile` gains `weekly_obligations: tuple[WeeklyObligation, ...] = ()`.
+- [x] `update()` gains `weekly_obligations: tuple[WeeklyObligation, ...] | None = None`
+      — same "`None` means keep current value" partial-update convention
+      already used for every other field here; `()` (explicit clear) and
+      `None` (no change) are distinguishable, so clearing the schedule
+      entirely is still possible.
+- [x] `as_prompt_text()` appends a "weekly commitments" clause when
+      obligations exist (empty schedule → output unchanged from today).
+
+`application/dto/nutrition_profile_dto.py`:
+- [x] `CreateNutritionProfileCommand`/`UpdateNutritionProfileCommand` gain
+      `weekly_obligations` as a tuple of `WeeklyObligationInput` at the DTO
+      boundary (day/start/end/label strings — same "raw strings in, domain
+      enums/value objects out" pattern already used for
+      `activity_level`/`goal`/`diet_type`, with `.to_domain()` doing the
+      conversion); `NutritionProfileResult` gains
+      `tuple[WeeklyObligationResult, ...]` for round-tripping to the API layer.
+
+`infrastructure/`:
+- [x] `documents/nutrition_profile_document.py` — new `WeeklyObligationEmbed`
+      sub-document + `weekly_obligations: list[...]` field on
+      `NutritionProfileDocument`.
+- [x] `mappers/nutrition_profile_mapper.py` — both directions updated
+      explicitly (this mapper is a manual field-by-field one, unlike
+      `DietPlanMapper`'s `dataclasses.asdict`/`**`-based auto-propagation).
+
+`api/schemas/nutrition_schemas.py`:
+- [x] `CreateNutritionProfileRequest`/`UpdateNutritionProfileRequest`/
+      `NutritionProfileResponse` gain `weekly_obligations` (`WeeklyObligationRequest`
+      uses native Pydantic `time` fields, so a malformed time string 422s at
+      the schema layer for free). `profile_router.py` also gained an
+      `except InvalidWeeklyObligationError` → 400 in both `create_profile`
+      and `update_profile` — a genuine gap, not pre-existing: unlike the
+      numeric age/height/weight fields (whose domain ranges are already
+      covered by the schema's own `Field(ge=..., le=...)`, making the
+      domain-level `InvalidNutritionProfileError` practically unreachable
+      via the API), "`end_time` after `start_time`" has no equivalent
+      simple Pydantic field constraint, so the domain error is the only
+      thing catching it and needed an explicit handler.
+
+Exit criteria: unit tests for `WeeklyObligation` validation and
+`NutritionProfile.update()`'s obligations handling (including the
+None-vs-empty-tuple distinction); API integration tests — create/update a
+profile with obligations, `GET /profile` returns them, invalid time range →
+400; a real-Mongo repository test confirming round-trip; verified on the
+real Docker stack (Mongo) that a profile with several obligations persists
+and round-trips correctly via curl + a direct `mongosh` check.
+
+**Status: DONE.**
+
+- New tests: `test_weekly_obligation.py` (5), `test_nutrition_profile_entity.py`
+  gained 7 obligations-related cases, `test_nutrition_api.py` gained 6,
+  `test_mongo_nutrition_profile_repository.py` gained 1 (real-Mongo
+  round-trip). Full suite: 257 → **275 passed**.
+- Real Docker-stack verification: created a profile with two obligations
+  (MON work, WED training) via curl, confirmed the response and a
+  follow-up `GET` both echo them back correctly; confirmed via a direct
+  `mongosh` query against the dev Mongo that the document persisted with
+  the `weekly_obligations` array; `PUT` with an empty list correctly
+  cleared it (confirmed via response body); a second test user's `POST
+  /profile` with `start_time > end_time` correctly returned `400
+  BAD_REQUEST` with the domain's own message. Cleaned up all test data
+  (Mongo profiles, Postgres users) afterwards.
+
+---
+
+## Stage 2 — AI-suggested meal times + prompt integration + conflict clamping
+
+**Design decision, flagged transparently**: `DietDay.day_number` is
+relative (1, 2, 3...), with no calendar date of its own — but
+`weekly_obligations` are day-of-week based, so checking a meal for
+conflicts requires mapping `day_number` to an actual weekday. Resolved by
+treating `day_number = 1` as the plan's `created_at` date and counting
+forward — the natural reading of "generate my plan starting today." If
+this assumption is wrong for how plans actually get used, it's an easy
+one-line change (this stage is exactly where to redirect it).
+
+`domain/value_objects/meal.py`:
+- [x] `Meal` gains `time: datetime.time | None = None`. Still frozen —
+      rescheduling (Stage 3) reconstructs a new `Meal`, never mutates in
+      place. **Real bug hit and fixed while implementing**: writing this as
+      `from datetime import time` + `time: time | None = None` crashes at
+      class-definition time (`TypeError: unsupported operand type(s) for
+      |: 'NoneType' and 'NoneType'`) — a genuine CPython footgun: in a
+      class-body annotated assignment, the value (`None`) is bound to the
+      field name *before* the annotation expression is evaluated, so a
+      field literally named `time` with a bare `time` annotation resolves
+      against the value just assigned, not the imported type. Fixed by
+      `import datetime` + `time: datetime.time | None = None` (qualified
+      reference, doesn't touch the shadowed bare name).
+- [x] New `domain/services/meal_scheduler.py` (new `domain/services/`
+      package for this module, mirroring identity's) — `MealScheduler`:
+      `resolve_weekday(plan_start_date, day_number)` (day 1 = start date)
+      and `clamp_meal_time(meal_time, weekday, weekly_obligations)` (the
+      conflict-clamping heuristic, bounded-iteration to handle back-to-back
+      same-day obligations without looping forever).
+
+`modules/ai/application/diet_plan_prompt_builder.py`:
+- [x] `build_schema()`'s meal item gains a `"time"` string property
+      (format `"HH:MM"`) — **not** added to `"required"`, so a small local
+      model (Ollama) omitting it doesn't hard-fail validation, consistent
+      with this module's documented small-model reliability findings
+      (see `docs/architecture.md` § Structured output). `_SYSTEM_PROMPT`
+      instructs the model to include a time and schedule around any weekly
+      commitments mentioned in the profile text.
+- [x] **Deviation from the original plan above**: no separate
+      `obligations_text` param was added to `build()`. Stage 1 already made
+      `NutritionProfile.as_prompt_text()` append the weekly-commitments
+      clause, and that text is already passed as `user_profile_text` — a
+      second explicit parameter would just duplicate the same information
+      in the prompt for no benefit. `_SYSTEM_PROMPT` alone now asks the
+      model to schedule around "any weekly commitments mentioned in the
+      user profile."
+
+`application/use_cases/generate_diet_plan_use_case.py`:
+- [x] New `_build_meal()` step: parses the AI's optional `"time"` string
+      (drops it silently on a malformed value rather than failing the
+      whole generation over a cosmetic field), resolves the meal's weekday
+      via `MealScheduler.resolve_weekday(plan_start_date, day_number)` using
+      `datetime.now(UTC).date()` as `plan_start_date`, and clamps via
+      `MealScheduler.clamp_meal_time()` against `profile.weekly_obligations`.
+
+`application/dto/diet_plan_dto.py` / `api/schemas/diet_plan_schemas.py` /
+`infrastructure/documents/diet_plan_document.py` / `infrastructure/mappers/diet_plan_mapper.py`:
+- [x] `MealResult`/`MealResponse` gain `time: str | None`. `MealEmbed` gains
+      `time: str | None` too — **also a deviation from the original plan**:
+      MongoDB/BSON has no native "time-of-day" type (only full datetimes),
+      so a native `datetime.time` field on `MealEmbed` isn't actually
+      persistable. This means `DietPlanMapper` could **not** keep its
+      previous `dataclasses.asdict`/`**model_dump()` auto-propagation
+      shortcut once `Meal.time` (a `datetime.time`) needed to become a
+      string for storage — both mapper directions were rewritten with
+      explicit per-field construction (`time.fromisoformat(...)` /
+      `.isoformat(timespec="minutes")`) instead.
+
+Exit criteria: unit tests for the conflict-clamp function (meal inside an
+obligation window gets shifted; a meal outside any window is untouched;
+back-to-back same-day obligations handled); `GenerateDietPlanUseCase`
+tested against a fake LLM provider returning a colliding time, asserting
+the returned plan's meal time is shifted away from it; verified on the
+real Docker stack with Ollama — generate a plan for a profile with
+obligations, confirm meals carry a `time` and none collide.
+
+**Status: DONE.**
+
+- New tests: `test_meal_scheduler.py` (6), `test_generate_diet_plan_use_case.py`
+  gained 5 (AI-time-kept, time-omitted-defaults-to-None,
+  collision-gets-clamped, non-colliding-time-untouched,
+  malformed-AI-time-dropped-not-fatal — the collision test obligates
+  *every* weekday identically so it's deterministic regardless of which
+  actual weekday the test runs on, given day 1 = today),
+  `test_mongo_diet_plan_repository.py` gained 2 (real-Mongo round-trip
+  with and without a meal time). Full suite: 275 → **288 passed**.
+- Real Docker-stack verification with real Ollama (`llama3.2:1b`): created
+  a profile with a 09:00–17:00 obligation on every day of the week,
+  generated a 2-day plan — the model returned meals at `06:00` and `17:00`
+  (both outside/at-the-boundary of the obligation window, so the model
+  itself already avoided the conflict; the clamping logic's correctness
+  under an actual collision is proven deterministically by the unit tests
+  above, since a real LLM's output can't be forced to collide on demand).
+  Confirmed via a follow-up `GET` and a direct `mongosh` query that the
+  `time` strings persisted correctly. Cleaned up all test data (Mongo
+  profiles/plans, Postgres user) afterwards.
+
+---
+
+## Stage 3 — Editable meal schedule (the "calendar" mutation API)
+
+`domain/entities/diet_plan.py`:
+- [x] `DietPlan` gains `updated_at` (first mutation ever on this aggregate
+      — previously fully immutable post-generation, so there was nothing
+      to timestamp; now genuinely meaningful). Defaulted on the Beanie
+      document (unlike `created_at`) so plans generated before this stage
+      still parse without a backfill migration.
+- [x] New `reschedule_meal(day_number: int, meal_name: str, new_time: time) -> None`
+      — locates the day/meal, rebuilds the `Meal`/`DietDay`/`days` tuple
+      chain with the new time via `dataclasses.replace` (everything here is
+      frozen/immutable value objects, so this is reconstruction, not
+      in-place mutation), raises the new `MealNotFoundError` for an unknown
+      `day_number`/`meal_name` pair (added to `diet_plan_domain_errors.py`).
+
+`application/`:
+- [x] New `RescheduleMealCommand(user_id, plan_id, day_number, meal_name, new_time)`
+      — `new_time` is a native `datetime.time`, not a string: unlike
+      `NutritionProfile`'s Create/Update commands (which stringify
+      enums/times because those DTOs also need to survive round-tripping
+      through API-facing Result types), this is a one-shot command with no
+      such requirement, so the native type is simpler.
+- [x] New `RescheduleMealUseCase(diet_plan_repository)` — loads the plan
+      (same not-found-vs-not-yours 404 pattern as everywhere else), calls
+      `plan.reschedule_meal(...)`, saves. `DietPlanResult`/`DietPlanResponse`
+      both gained `updated_at` alongside this.
+
+`api/routers/diet_plan_router.py`:
+- [x] New `PATCH /diet-plans/{diet_plan_id}/meals` (body:
+      `day_number`, `meal_name`, `new_time`) → updated `DietPlanResponse`.
+      `DietPlanNotFoundError` → 404 (plan not found/not yours);
+      `MealNotFoundError` → 400 (the plan exists, but that day/meal
+      doesn't) — a deliberate split between "the resource doesn't exist"
+      (404) and "a sub-part of an existing resource doesn't exist" (400),
+      matching the `InvalidWeeklyObligationError` precedent from Stage 1.
+
+Exit criteria: unit tests for `reschedule_meal` (happy path, unknown day,
+unknown meal, `updated_at` bump, sibling meals/days untouched); use-case
+tests (happy path + persistence, not-found, not-yours, unknown meal);
+API integration test on the real Mongo-backed stack — generate a plan,
+reschedule one meal, `GET` the plan again and confirm only that meal's
+time changed; verified on the real Docker stack.
+
+**Status: DONE.**
+
+- New tests: `test_diet_plan_entity.py` gained 6 (`updated_at`-equals-
+  `created_at` on create, reschedule happy path, sibling-meals-untouched,
+  `updated_at` bump, unknown-day, unknown-meal), `test_reschedule_meal_use_case.py`
+  (5, fakes-only: happy path, persistence, unknown plan, non-owner, unknown
+  meal), `test_diet_plan_api.py` gained 4 (real Mongo via `client`: happy
+  path + only-that-meal-changed, unknown plan → 404, other-user's plan →
+  404, unknown meal → 400). Full suite: 288 → **303 passed**.
+- Real Docker-stack verification with real Ollama: generated a 2-day plan
+  (this run, the model omitted `time` entirely for every meal — still
+  handled gracefully, all `null`); rescheduled day 1's "Breakfast" to
+  `07:30` via `PATCH` — response and a follow-up `GET` both confirm only
+  that exact meal changed (day 1's "Snack" and day 2's "Breakfast", same
+  name but a different day, both stayed untouched), `updated_at` moved
+  past `created_at`; confirmed the unknown-meal case returns `400
+  BAD_REQUEST` with the domain's own message. Cleaned up all test data
+  (Mongo plans/profiles, Postgres user) afterwards.
+
+---
+
+## Stage 4 — CSV export, archived to SFTP
+
+**Scope changed mid-stage, per user request**: originally planned as a
+stateless `GET .../export` that just serializes and returns CSV on the
+fly. Revised so every export is durably archived on an SFTP server (not
+just generated on demand) — the actual value being: a user can come back
+later and re-download a previously generated export without regenerating
+it. This turned a one-route serializer into new domain/application/
+infrastructure layers, mirroring how `EmailSender`/Mailhog were built in
+Phase 8 (a swappable port + a real local dev target via Docker Compose).
+
+`domain/`:
+- [x] New `entities/diet_plan_export.py` — `DietPlanExport` (id, user_id,
+      diet_plan_id, filename, created_at). No domain validation needed
+      beyond construction — the filename is server-generated, not user input.
+- [x] New `repositories/diet_plan_export_repository.py` —
+      `DietPlanExportRepository` port: `save`, `get_by_id`,
+      `list_by_diet_plan_id`.
+
+`application/`:
+- [x] New `ports/sftp_client.py` — `SftpClient` port (`upload`, `download`),
+      identity's `EmailSender` shape (a swappable external-delivery port).
+- [x] `csv_export.py` (moved here from a first draft under `api/` once the
+      SFTP pivot meant a *use case*, not just a router, needed to build the
+      CSV — application code can't depend on the API layer).
+      `build_diet_plan_csv(DietPlanResult) -> str`: day_number, date
+      (plan `created_at` + `day_number`, same assumption as Stage 2), time,
+      meal name, calories, protein, carbohydrates, fat.
+- [x] New `ExportDietPlanUseCase` — loads the plan (not-found-vs-not-yours),
+      builds the CSV, uploads it under a per-export filename
+      (`{plan_id}-{random suffix}.csv` — a plan can be exported more than
+      once, e.g. after a reschedule, and each export is its own archived
+      file, not an overwrite), records a `DietPlanExport`.
+- [x] New `ListDietPlanExportsUseCase` / `DownloadDietPlanExportUseCase` —
+      the latter fetches the file from SFTP by the export's stored filename;
+      ownership is checked against *both* the export and the plan id in the
+      URL, not just the export.
+
+`infrastructure/`:
+- [x] `sftp/asyncssh_sftp_client.py` — real delivery via `asyncssh`
+      (matches this stack's async-everywhere convention: Mongo, Postgres,
+      SMTP). `known_hosts=None` — acceptable for a local/throwaway dev
+      target, would need host key pinning for a real external one.
+- [x] `sftp/mock_sftp_client.py` + `sftp_client_factory.py` — `SFTP_PROVIDER`
+      setting (`mock` default / `sftp` for docker-compose.yml), mirroring
+      `EMAIL_PROVIDER`. The mock is constructed fresh per request (same as
+      `MockEmailSender`) so it does **not** actually persist uploads across
+      requests — documented in its own docstring, since that's the opposite
+      of this feature's entire point; it exists only so the app can boot
+      without a live SFTP connection, not to replicate the archive behavior.
+- [x] New Mongo collection `diet_plan_exports` (`DietPlanExportDocument` +
+      mapper + `MongoDietPlanExportRepository`), registered in `main.py`'s
+      `init_beanie_documents`.
+- [x] `docker-compose.yml` — new `sftp` service (`atmoz/sftp:alpine`,
+      user `dietai`/`dietai`, `upload` dir), analogous to Mailhog. Backend
+      depends on it via `service_healthy` (unlike Mailhog's `service_started`
+      — this image has a real shell, so a `nc -z 127.0.0.1 22` healthcheck
+      works).
+
+`api/`:
+- [x] `POST /diet-plans/{diet_plan_id}/export` → 201, `DietPlanExportResponse`
+      (metadata, not the file itself).
+- [x] `GET /diet-plans/{diet_plan_id}/exports` → 200, list of previous exports.
+- [x] `GET /diet-plans/{diet_plan_id}/exports/{export_id}/download` → 200,
+      `text/csv` with `Content-Disposition: attachment` — SFTP has no
+      presigned-URL equivalent, so the backend proxies: fetch server-side,
+      stream back over HTTP.
+
+**Test strategy, decided deliberately**: automated tests never touch a real
+SFTP server. Use-case tests get a plain `FakeSftpClient` (in-memory dict,
+`tests/fakes.py`) constructed once and reused across calls within a test —
+unlike the production `MockSftpClient`, this one *does* need to survive
+an export-then-download round trip inside a single test. API-level tests
+override just the `get_sftp_client` FastAPI dependency with a shared
+`FakeSftpClient` per test, the same pattern already used for
+`get_email_sender` in Phase 8 Stage 7 — real persistence is only verified
+manually against the real Docker stack's `atmoz/sftp` container, matching
+how Mailhog was never part of the automated suite either.
+
+Exit criteria: unit tests for the CSV serialization (header row, correct
+values, correct quoting for a comma in a meal name, date advancing with
+day_number); use-case tests for export/list/download (happy path,
+not-found, not-yours, exporting twice produces two distinct files); API
+integration tests for all three endpoints; verified on the real Docker
+stack — exported a real generated plan, confirmed the file physically
+exists on the `sftp` container's filesystem with byte-correct content,
+downloaded it back through the API and confirmed it matches exactly.
+
+**Status: DONE.**
+
+- New dependency: `asyncssh==2.24.0` (+ transitive `cryptography`, `cffi`,
+  `pycparser`) added to `requirements.txt`.
+- New tests: `test_csv_export.py` (6), `test_diet_plan_export_use_cases.py`
+  (9, fakes-only), `test_diet_plan_export_api.py` (8, real Mongo via
+  `client` + a shared `FakeSftpClient` override). Full suite:
+  303 → **326 passed**.
+- Real Docker-stack verification: registered a user, generated a real
+  Ollama-backed plan, `POST .../export` → 201 with export metadata;
+  confirmed via `docker compose exec sftp ls`/`cat` that the CSV file
+  physically landed in `/home/dietai/upload/` with the exact expected
+  content; `GET .../exports` listed it; `GET .../exports/{id}/download`
+  returned byte-identical content with the correct `Content-Disposition`
+  header; unknown export id on an existing plan → 404. Cleaned up all
+  test data (SFTP file, Mongo collections, Postgres user) afterwards.
+
+---
+
+## Stage 5 — Date-range filtering for plan history
+
+`domain/repositories/diet_plan_repository.py`:
+- [x] `list_by_user_id` gains optional `start_date: date | None = None`,
+      `end_date: date | None = None` — omitting both keeps today's
+      behavior exactly (backward compatible, no breaking change for any
+      existing caller).
+
+`infrastructure/repository/mongo_diet_plan_repository.py`:
+- [x] Adds `created_at` range clauses to the `find()` query when provided.
+      `end_date` uses an exclusive upper bound at the start of the *next*
+      day (`created_at < end_date + 1 day`), so the whole `end_date`
+      calendar day is included regardless of time-of-day.
+- [x] **Refinement over the original plan**: added a *compound*
+      `(user_id, created_at)` index, not a standalone `created_at` one —
+      every query already filters by `user_id` first, and Mongo can use a
+      compound index's leading prefix for the existing unfiltered
+      `list_by_user_id` calls too, so one index covers both cases. The old
+      `ix_diet_plans_user_id` index was manually dropped from the dev Mongo
+      after verification (Beanie doesn't auto-drop superseded indexes on
+      its own — noted here so it's not a mystery later).
+
+`application/dto/diet_plan_dto.py` / `use_cases/list_diet_plans_use_case.py`:
+- [x] `ListDietPlansQuery` gains `start_date`/`end_date`; use case forwards
+      them to the repository unchanged.
+
+`api/routers/diet_plan_router.py`:
+- [x] `GET /diet-plans` gains optional `from`/`to` query params (ISO date
+      strings) — implemented as `from_date`/`to_date` FastAPI parameters
+      with `Query(alias=...)`, since `from` is a reserved Python keyword
+      and can't be a parameter name directly. Validated (`from <= to` →
+      400 `BAD_REQUEST` otherwise). No deletion/retention logic anywhere in
+      this stage — purely an additive display filter, exactly as decided
+      when this feature was first scoped ("let the user pick the range").
+
+Exit criteria: unit/repository tests for date-range filtering (start only,
+end only, both bounds, end-date-inclusive-of-whole-day, no-filter still
+returns everything); use-case test with fakes; API integration test
+creating a plan and confirming `from`/`to` filter it in/out correctly
+around today's date, plus the `from > to` 400 case; verified on the real
+Docker stack.
+
+**Status: DONE.**
+
+- New tests: `test_mongo_diet_plan_repository.py` gained 6 (real Mongo:
+  start-only, end-only, both-bounds, end-date-inclusive, no-filter),
+  `test_diet_plan_query_use_cases.py` gained 1 (fakes), `test_diet_plan_api.py`
+  gained 6 (real Mongo via `client`: no-filter, from-future excludes,
+  from-today includes, to-past excludes, to-today includes, from-after-to
+  → 400). Full suite: 326 → **338 passed**.
+- Real Docker-stack verification: generated a real plan (created "today"),
+  confirmed via curl that no filter returns it, `from=tomorrow` excludes
+  it, `to=yesterday` excludes it, `from=today&to=today` includes it, and
+  `from=tomorrow&to=today` correctly 400s. Confirmed via `mongosh` that the
+  new compound index exists and manually dropped the now-redundant old
+  `ix_diet_plans_user_id` index. Cleaned up all test data afterwards.
+
+---
+
+## Stage 6 — Tests & docs sync
+
+- [x] `docs/https/nutrition.http` — extended to 14 steps: added
+      `weekly_obligations` to profile creation, a `GET` confirming they
+      round-trip, a `PUT` clearing them (`[]`), and a negative
+      `end_time <= start_time` → 400 case.
+- [x] `docs/https/diet-plan.http` — extended to 21 steps: profile creation
+      now includes a weekly obligation (so conflict-clamping is visible in
+      the generated plan), plus a reschedule-meal step (with a
+      `CHANGE_ME_FROM_STEP_7_RESPONSE` placeholder, since AI-generated meal
+      names aren't deterministic between runs), a reschedule-unknown-meal
+      400 case, export → list-exports → download-export, date-range
+      `from`/`to` filtering (+ its `from > to` 400 case), and a
+      second-user isolation check specifically for export/download (404
+      on both).
+- [x] `docs/api.md` — Nutrition Profile section: `weekly_obligations`
+      documented on all three endpoints + the domain-level 400 case. Diet
+      Plan section: `time`/`updated_at` on the generate response, new
+      `PATCH .../meals`, `GET /diet-plans`'s `from`/`to` query params +
+      400 case, and all three export endpoints
+      (`POST .../export`, `GET .../exports`, `GET .../exports/{id}/download`).
+- [x] `docs/architecture.md` — Nutrition Module rewritten with three new
+      subsections: "Weekly obligations & AI-suggested meal scheduling"
+      (the day-number-to-weekday assumption, conflict-clamping, and
+      `reschedule_meal()` as `DietPlan`'s one mutation), "CSV export,
+      archived to SFTP" (the `SftpClient` port mirroring `EmailSender`,
+      the mock-vs-real split, the deliberate fakes-only automated-test
+      strategy), and "Date-range filtering for plan history". Also fixed
+      two pieces of **pre-existing drift found during this pass**: a
+      stale `ollama/schema_validation.py` path reference (the file moved
+      to `shared/utils/` back in Phase 8) and the "Docker" section's
+      services list, which was still the original Phase 0 sparse draft
+      (`backend, frontend, postgres, mongodb`) and never reflected Ollama,
+      Mailhog, or now SFTP.
+- [x] `docs/domain-model.md` — `NutritionProfile` gained
+      `weekly_obligations` + a new `WeeklyObligation` value-object section;
+      `DietPlan`'s "immutable once generated, no `update()`" line corrected
+      (now has exactly one: `reschedule_meal()`) and gained `updated_at`;
+      `DietDay` documents the day-number-to-date assumption; `Meal` gained
+      `time`; new `DietPlanExport` entity section; `diet_plan_exports`
+      added to the MongoDB persistence-mapping list.
+- [x] `README.md` — six containers now (added `sftp`), `.http` file
+      descriptions updated, Business Goals and Current Project Status
+      updated, repo-tree one-liner synced.
+- [x] Roadmap status table updated (see the top-level Phase 9 line and
+      this file's own stage list).
+
+**Status: DONE.** Docs-only stage — no production code changed, full
+suite stays at the Stage 5 count (338 passed).
+
+**Addendum, added right after this stage per user request**: a
+machine-readable API doc, alongside the hand-written `api.md`. New
+`scripts/export_openapi.py` calls the live FastAPI app's `app.openapi()`
+(importing `backend.app.main` only constructs the app/registers routes —
+no lifespan, no real DB/AI-provider connection needed) and writes the full
+OpenAPI 3.1 schema to `docs/openapi.json` (21 endpoints as of this write).
+Committed as a point-in-time snapshot, not auto-regenerated on a schedule
+— re-run the script after any endpoint change so it doesn't quietly
+drift; `docs/api.md` gained a short section pointing to it and clarifying
+the division of labor (schema = exact shapes, `api.md` = the *why* behind
+each endpoint's behavior).
+
+---
+
+# Phase 10 - Frontend
 
 Goal:
 
@@ -1810,7 +2328,7 @@ Supplements
 
 ---
 
-# Phase 10 - Testing
+# Phase 11 - Testing
 
 Goal:
 
@@ -1863,7 +2381,7 @@ Receive AI Response
 
 ---
 
-# Phase 11 - Future Improvements
+# Phase 12 - Future Improvements
 
 Only after MVP.
 

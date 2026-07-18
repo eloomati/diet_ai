@@ -29,6 +29,11 @@ class UpdateNutritionProfileUseCase:
             activity_level=ActivityLevel(command.activity_level) if command.activity_level else None,
             goal=DietGoal(command.goal) if command.goal else None,
             diet_type=DietType(command.diet_type) if command.diet_type else None,
+            weekly_obligations=(
+                tuple(o.to_domain() for o in command.weekly_obligations)
+                if command.weekly_obligations is not None
+                else None
+            ),
         )
         await self._repository.save(profile)
 

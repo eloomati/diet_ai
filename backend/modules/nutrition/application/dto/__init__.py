@@ -6,12 +6,22 @@ from .diet_plan_dto import (
     GetDietPlanQuery,
     ListDietPlansQuery,
     MealResult,
+    RescheduleMealCommand,
+)
+from .diet_plan_export_dto import (
+    DietPlanExportContent,
+    DietPlanExportResult,
+    DownloadDietPlanExportQuery,
+    ExportDietPlanCommand,
+    ListDietPlanExportsQuery,
 )
 from .nutrition_profile_dto import (
     CreateNutritionProfileCommand,
     GetNutritionProfileQuery,
     NutritionProfileResult,
     UpdateNutritionProfileCommand,
+    WeeklyObligationInput,
+    WeeklyObligationResult,
 )
 
 __all__ = [
@@ -19,6 +29,8 @@ __all__ = [
     "UpdateNutritionProfileCommand",
     "GetNutritionProfileQuery",
     "NutritionProfileResult",
+    "WeeklyObligationInput",
+    "WeeklyObligationResult",
     "GenerateDietPlanCommand",
     "ListDietPlansQuery",
     "GetDietPlanQuery",
@@ -26,4 +38,10 @@ __all__ = [
     "DietPlanSummaryResult",
     "DietDayResult",
     "MealResult",
+    "RescheduleMealCommand",
+    "ExportDietPlanCommand",
+    "ListDietPlanExportsQuery",
+    "DownloadDietPlanExportQuery",
+    "DietPlanExportResult",
+    "DietPlanExportContent",
 ]

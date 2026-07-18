@@ -35,6 +35,15 @@ class Settings(BaseSettings):
     email_retry_max_attempts: int = 10
     email_retry_batch_limit: int = 50
 
+    # SFTP — provider selection: "mock" | "sftp". Diet-plan CSV exports are
+    # archived here so a user can re-download a previously generated export.
+    sftp_provider: str = "mock"
+    sftp_host: str = "localhost"
+    sftp_port: int = 2222
+    sftp_username: str = "dietai"
+    sftp_password: str = "dietai"
+    sftp_remote_dir: str = "/upload"
+
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
     jwt_access_ttl_minutes: int = 15

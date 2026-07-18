@@ -1,3 +1,5 @@
+from datetime import time
+
 from pydantic import BaseModel, Field
 
 from backend.modules.nutrition.application.dto.diet_plan_dto import (
@@ -13,12 +15,19 @@ class GenerateDietPlanRequest(BaseModel):
     requirements: list[str] | None = None
 
 
+class RescheduleMealRequest(BaseModel):
+    day_number: int = Field(ge=1)
+    meal_name: str = Field(min_length=1)
+    new_time: time
+
+
 class MealResponse(BaseModel):
     name: str
     calories: float
     protein: float
     carbohydrates: float
     fat: float
+    time: str | None
 
     @classmethod
     def from_result(cls, result: MealResult) -> "MealResponse":
@@ -28,6 +37,7 @@ class MealResponse(BaseModel):
             protein=result.protein,
             carbohydrates=result.carbohydrates,
             fat=result.fat,
+            time=result.time,
         )
 
 
@@ -52,6 +62,7 @@ class DietPlanResponse(BaseModel):
     requirements: list[str]
     days: list[DietDayResponse]
     created_at: str
+    updated_at: str
 
     @classmethod
     def from_result(cls, result: DietPlanResult) -> "DietPlanResponse":
@@ -64,6 +75,7 @@ class DietPlanResponse(BaseModel):
             requirements=list(result.requirements),
             days=[DietDayResponse.from_result(day) for day in result.days],
             created_at=result.created_at,
+            updated_at=result.updated_at,
         )
 
 

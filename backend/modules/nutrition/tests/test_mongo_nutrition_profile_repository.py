@@ -1,11 +1,19 @@
 from collections.abc import AsyncGenerator
+from datetime import time
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 from pymongo.errors import DuplicateKeyError
 
-from backend.modules.nutrition.domain import ActivityLevel, DietGoal, DietType, NutritionProfile
+from backend.modules.nutrition.domain import (
+    ActivityLevel,
+    DayOfWeek,
+    DietGoal,
+    DietType,
+    NutritionProfile,
+    WeeklyObligation,
+)
 from backend.modules.nutrition.infrastructure.documents import NutritionProfileDocument
 from backend.modules.nutrition.infrastructure.repository.mongo_nutrition_profile_repository import (
     MongoNutritionProfileRepository,
@@ -51,6 +59,22 @@ async def test_save_and_get_by_user_id_round_trips(repository: MongoNutritionPro
     assert fetched.user_id == profile.user_id
     assert fetched.age == 29
     assert fetched.activity_level == ActivityLevel.HIGH
+
+
+@pytest.mark.asyncio
+async def test_save_and_get_round_trips_weekly_obligations(
+    repository: MongoNutritionProfileRepository,
+) -> None:
+    obligation = WeeklyObligation(
+        day_of_week=DayOfWeek.TUE, start_time=time(9, 0), end_time=time(17, 0), label="Work"
+    )
+    profile = _profile(weekly_obligations=(obligation,))
+
+    await repository.save(profile)
+    fetched = await repository.get_by_user_id(profile.user_id)
+
+    assert fetched is not None
+    assert fetched.weekly_obligations == (obligation,)
 
 
 @pytest.mark.asyncio

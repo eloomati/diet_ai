@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from datetime import UTC, date, datetime, time
 from uuid import uuid4
 
 import pytest
@@ -57,6 +58,34 @@ async def test_save_and_get_by_id_round_trips(repository: MongoDietPlanRepositor
 
 
 @pytest.mark.asyncio
+async def test_save_and_get_round_trips_meal_time(repository: MongoDietPlanRepository) -> None:
+    plan = _plan(
+        duration_days=1,
+        days=(DietDay(day_number=1, meals=(Meal("Oatmeal", 400, 20, 60, 10, time=time(8, 0)),)),),
+    )
+
+    await repository.save(plan)
+    fetched = await repository.get_by_id(plan.id)
+
+    assert fetched is not None
+    assert fetched.days[0].meals[0].time == time(8, 0)
+
+
+@pytest.mark.asyncio
+async def test_save_and_get_round_trips_meal_with_no_time(repository: MongoDietPlanRepository) -> None:
+    plan = _plan(
+        duration_days=1,
+        days=(DietDay(day_number=1, meals=(Meal("Oatmeal", 400, 20, 60, 10),)),),
+    )
+
+    await repository.save(plan)
+    fetched = await repository.get_by_id(plan.id)
+
+    assert fetched is not None
+    assert fetched.days[0].meals[0].time is None
+
+
+@pytest.mark.asyncio
 async def test_get_by_id_returns_none_for_unknown_plan(repository: MongoDietPlanRepository) -> None:
     assert await repository.get_by_id(uuid4()) is None
 
@@ -84,3 +113,86 @@ async def test_list_by_user_id_returns_empty_for_user_with_no_plans(
     repository: MongoDietPlanRepository,
 ) -> None:
     assert await repository.list_by_user_id(uuid4()) == []
+
+
+@pytest.mark.asyncio
+async def test_list_by_user_id_filters_by_start_date(repository: MongoDietPlanRepository) -> None:
+    user_id = uuid4()
+    early = _plan(user_id=user_id, duration_days=1, days=(DietDay(1, (Meal("Early", 1, 1, 1, 1),)),))
+    early.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    late = _plan(user_id=user_id, duration_days=1, days=(DietDay(1, (Meal("Late", 1, 1, 1, 1),)),))
+    late.created_at = datetime(2026, 1, 10, tzinfo=UTC)
+    await repository.save(early)
+    await repository.save(late)
+
+    plans = await repository.list_by_user_id(user_id, start_date=date(2026, 1, 5))
+
+    assert {p.id for p in plans} == {late.id}
+
+
+@pytest.mark.asyncio
+async def test_list_by_user_id_filters_by_end_date(repository: MongoDietPlanRepository) -> None:
+    user_id = uuid4()
+    early = _plan(user_id=user_id, duration_days=1, days=(DietDay(1, (Meal("Early", 1, 1, 1, 1),)),))
+    early.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    late = _plan(user_id=user_id, duration_days=1, days=(DietDay(1, (Meal("Late", 1, 1, 1, 1),)),))
+    late.created_at = datetime(2026, 1, 10, tzinfo=UTC)
+    await repository.save(early)
+    await repository.save(late)
+
+    plans = await repository.list_by_user_id(user_id, end_date=date(2026, 1, 5))
+
+    assert {p.id for p in plans} == {early.id}
+
+
+@pytest.mark.asyncio
+async def test_list_by_user_id_end_date_includes_the_whole_day(
+    repository: MongoDietPlanRepository,
+) -> None:
+    user_id = uuid4()
+    late_in_day = _plan(
+        user_id=user_id, duration_days=1, days=(DietDay(1, (Meal("Late", 1, 1, 1, 1),)),)
+    )
+    late_in_day.created_at = datetime(2026, 1, 5, 23, 59, 59, tzinfo=UTC)
+    await repository.save(late_in_day)
+
+    plans = await repository.list_by_user_id(user_id, end_date=date(2026, 1, 5))
+
+    assert {p.id for p in plans} == {late_in_day.id}
+
+
+@pytest.mark.asyncio
+async def test_list_by_user_id_filters_by_both_bounds(repository: MongoDietPlanRepository) -> None:
+    user_id = uuid4()
+    before = _plan(user_id=user_id, duration_days=1, days=(DietDay(1, (Meal("Before", 1, 1, 1, 1),)),))
+    before.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    within = _plan(user_id=user_id, duration_days=1, days=(DietDay(1, (Meal("Within", 1, 1, 1, 1),)),))
+    within.created_at = datetime(2026, 1, 5, tzinfo=UTC)
+    after = _plan(user_id=user_id, duration_days=1, days=(DietDay(1, (Meal("After", 1, 1, 1, 1),)),))
+    after.created_at = datetime(2026, 1, 10, tzinfo=UTC)
+    await repository.save(before)
+    await repository.save(within)
+    await repository.save(after)
+
+    plans = await repository.list_by_user_id(
+        user_id, start_date=date(2026, 1, 3), end_date=date(2026, 1, 7)
+    )
+
+    assert {p.id for p in plans} == {within.id}
+
+
+@pytest.mark.asyncio
+async def test_list_by_user_id_without_date_filters_returns_everything(
+    repository: MongoDietPlanRepository,
+) -> None:
+    user_id = uuid4()
+    early = _plan(user_id=user_id, duration_days=1, days=(DietDay(1, (Meal("Early", 1, 1, 1, 1),)),))
+    early.created_at = datetime(2026, 1, 1, tzinfo=UTC)
+    late = _plan(user_id=user_id, duration_days=1, days=(DietDay(1, (Meal("Late", 1, 1, 1, 1),)),))
+    late.created_at = datetime(2026, 1, 10, tzinfo=UTC)
+    await repository.save(early)
+    await repository.save(late)
+
+    plans = await repository.list_by_user_id(user_id)
+
+    assert {p.id for p in plans} == {early.id, late.id}

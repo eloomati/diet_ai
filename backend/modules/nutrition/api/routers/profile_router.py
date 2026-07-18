@@ -11,6 +11,7 @@ from backend.modules.nutrition.api.schemas import (
     CreateNutritionProfileRequest,
     NutritionProfileResponse,
     UpdateNutritionProfileRequest,
+    WeeklyObligationRequest,
 )
 from backend.modules.nutrition.application import (
     CreateNutritionProfileCommand,
@@ -21,10 +22,21 @@ from backend.modules.nutrition.application import (
     NutritionProfileNotFoundError,
     UpdateNutritionProfileCommand,
     UpdateNutritionProfileUseCase,
+    WeeklyObligationInput,
 )
+from backend.modules.nutrition.domain import InvalidWeeklyObligationError
 from backend.shared.exceptions import AppException, ErrorCode
 
 router = APIRouter(prefix="/profile", tags=["nutrition"])
+
+
+def _to_obligation_input(obligation: WeeklyObligationRequest) -> WeeklyObligationInput:
+    return WeeklyObligationInput(
+        day_of_week=obligation.day_of_week.value,
+        start_time=obligation.start_time.isoformat(timespec="minutes"),
+        end_time=obligation.end_time.isoformat(timespec="minutes"),
+        label=obligation.label,
+    )
 
 
 @router.post("", response_model=NutritionProfileResponse, status_code=status.HTTP_201_CREATED)
@@ -43,6 +55,9 @@ async def create_profile(
                 activity_level=request.activity_level.value,
                 goal=request.goal.value,
                 diet_type=request.diet_type.value,
+                weekly_obligations=tuple(
+                    _to_obligation_input(o) for o in request.weekly_obligations
+                ),
             )
         )
     except NutritionProfileAlreadyExistsError as exc:
@@ -50,6 +65,12 @@ async def create_profile(
             code=ErrorCode.CONFLICT,
             message=str(exc),
             status_code=status.HTTP_409_CONFLICT,
+        ) from exc
+    except InvalidWeeklyObligationError as exc:
+        raise AppException(
+            code=ErrorCode.BAD_REQUEST,
+            message=str(exc),
+            status_code=status.HTTP_400_BAD_REQUEST,
         ) from exc
 
     return NutritionProfileResponse.from_result(result)
@@ -88,6 +109,11 @@ async def update_profile(
                 activity_level=request.activity_level.value if request.activity_level else None,
                 goal=request.goal.value if request.goal else None,
                 diet_type=request.diet_type.value if request.diet_type else None,
+                weekly_obligations=(
+                    tuple(_to_obligation_input(o) for o in request.weekly_obligations)
+                    if request.weekly_obligations is not None
+                    else None
+                ),
             )
         )
     except NutritionProfileNotFoundError as exc:
@@ -95,6 +121,12 @@ async def update_profile(
             code=ErrorCode.NOT_FOUND,
             message=str(exc),
             status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+    except InvalidWeeklyObligationError as exc:
+        raise AppException(
+            code=ErrorCode.BAD_REQUEST,
+            message=str(exc),
+            status_code=status.HTTP_400_BAD_REQUEST,
         ) from exc
 
     return NutritionProfileResponse.from_result(result)

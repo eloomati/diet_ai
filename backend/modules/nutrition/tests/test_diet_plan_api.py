@@ -1,4 +1,5 @@
 import uuid
+from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -99,6 +100,92 @@ def test_list_diet_plans_returns_only_own_plans(client: TestClient) -> None:
     assert response_b.json() == []
 
 
+def test_list_diet_plans_without_date_filters_returns_everything(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.nofilter")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    )
+
+    response = client.get("/api/v1/diet-plans", headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+def test_list_diet_plans_from_in_the_future_excludes_todays_plan(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.futurefrom")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    )
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+
+    response = client.get(
+        "/api/v1/diet-plans", params={"from": tomorrow}, headers=_auth_headers(token)
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_diet_plans_from_today_includes_todays_plan(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.fromtoday")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    )
+    today = date.today().isoformat()
+
+    response = client.get("/api/v1/diet-plans", params={"from": today}, headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+def test_list_diet_plans_to_in_the_past_excludes_todays_plan(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.pastto")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    )
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+
+    response = client.get("/api/v1/diet-plans", params={"to": yesterday}, headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_diet_plans_to_today_includes_todays_plan(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.totoday")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    )
+    today = date.today().isoformat()
+
+    response = client.get("/api/v1/diet-plans", params={"to": today}, headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+def test_list_diet_plans_from_after_to_returns_400(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.badrange")
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    today = date.today().isoformat()
+
+    response = client.get(
+        "/api/v1/diet-plans",
+        params={"from": tomorrow, "to": today},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "BAD_REQUEST"
+
+
 def test_get_diet_plan_returns_full_plan(client: TestClient) -> None:
     token = _register_and_login(client, "dietplan.get")
     client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
@@ -137,3 +224,73 @@ def test_get_diet_plan_from_other_user_returns_404(client: TestClient) -> None:
     )
 
     assert response.status_code == 404
+
+
+def test_reschedule_meal_updates_only_that_meal(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.reschedule")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 2}, headers=_auth_headers(token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}/meals",
+        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["days"][0]["meals"][0]["time"] == "08:00"
+    assert body["days"][1]["meals"][0]["time"] is None
+
+    refetched = client.get(f"/api/v1/diet-plans/{created['plan_id']}", headers=_auth_headers(token))
+    assert refetched.json()["days"][0]["meals"][0]["time"] == "08:00"
+    assert refetched.json()["days"][1]["meals"][0]["time"] is None
+
+
+def test_reschedule_meal_on_unknown_plan_returns_404(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.reschedule.unknown")
+
+    response = client.patch(
+        "/api/v1/diet-plans/00000000-0000-0000-0000-000000000000/meals",
+        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "NOT_FOUND"
+
+
+def test_reschedule_meal_on_other_users_plan_returns_404(client: TestClient) -> None:
+    owner_token = _register_and_login(client, "dietplan.reschedule.owner")
+    other_token = _register_and_login(client, "dietplan.reschedule.other")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(owner_token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(owner_token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}/meals",
+        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        headers=_auth_headers(other_token),
+    )
+
+    assert response.status_code == 404
+
+
+def test_reschedule_unknown_meal_returns_400(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.reschedule.badmeal")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}/meals",
+        json={"day_number": 1, "meal_name": "Nonexistent", "new_time": "08:00:00"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "BAD_REQUEST"

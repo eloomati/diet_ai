@@ -2,8 +2,15 @@ from datetime import datetime
 from uuid import UUID, uuid4
 
 from beanie import Document
-from pydantic import Field
+from pydantic import BaseModel, Field
 from pymongo import ASCENDING, IndexModel
+
+
+class WeeklyObligationEmbed(BaseModel):
+    day_of_week: str
+    start_time: str
+    end_time: str
+    label: str
 
 
 class NutritionProfileDocument(Document):
@@ -15,6 +22,7 @@ class NutritionProfileDocument(Document):
     activity_level: str
     goal: str
     diet_type: str
+    weekly_obligations: list[WeeklyObligationEmbed] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

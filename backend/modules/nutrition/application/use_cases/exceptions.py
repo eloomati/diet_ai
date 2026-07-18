@@ -12,3 +12,7 @@ class NutritionProfileNotFoundError(NutritionApplicationError):
 
 class DietPlanNotFoundError(NutritionApplicationError):
     pass
+
+
+class DietPlanExportNotFoundError(NutritionApplicationError):
+    pass

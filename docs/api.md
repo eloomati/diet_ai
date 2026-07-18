@@ -3,15 +3,19 @@
 ## Overview
 
 This document defines the REST API contract for the Diet AI application.
+It's a hand-written, narrative companion to the machine-generated
+OpenAPI/Swagger schema — see **Machine-readable schema** below for where
+that lives and how the two relate.
 
 The API provides functionality for:
 
 - user registration and authentication,
 - password reset and email verification,
-- nutrition profile management,
+- nutrition profile management, including a weekly obligations schedule,
 - AI conversations,
 - conversation history, archiving, and deletion,
-- diet plan generation.
+- diet plan generation, AI-suggested + user-editable meal scheduling,
+- diet plan CSV export (archived for later re-download) and date-range filtering of plan history.
 
 Base URL:
 
@@ -26,6 +30,26 @@ Protected endpoints require JWT authentication:
 ```
 Authorization: Bearer {access_token}
 ```
+
+## Machine-readable schema
+
+`docs/openapi.json` is the full OpenAPI 3.1 schema, generated directly
+from the running FastAPI app (`app.openapi()`) — not hand-maintained, so
+it can't drift from the actual request/response shapes the way a
+hand-written doc can. Regenerate it after any endpoint change:
+
+```bash
+PYTHONPATH=. python scripts/export_openapi.py
+```
+
+The same schema is also always available live at `/openapi.json`
+(and rendered interactively at `/docs`) whenever the app is running — the
+committed file is a point-in-time snapshot for browsing/diffing without
+starting the server, or importing into external tools (Postman, client
+generators, etc.). This document (`api.md`) stays the place for prose:
+*why* an endpoint behaves the way it does (e.g. the not-found-vs-not-yours
+ambiguity, the generic password-reset response) — detail the schema alone
+can't carry.
 
 ---
 
@@ -382,6 +406,17 @@ diet_type:      STANDARD | VEGETARIAN | VEGAN | KETO | PALEO | GLUTEN_FREE
 
 One profile per user — `POST` on a user who already has one returns `409`.
 
+`weekly_obligations` (Phase 9): a list of recurring weekly time blocks
+(work, training, ...) the caller wants diet-plan generation to schedule
+meals around (see `POST /diet-plans/generate` below). Optional — omit or
+send `[]` for none.
+
+```
+day_of_week: MON | TUE | WED | THU | FRI | SAT | SUN
+start_time / end_time: "HH:MM:SS" (end must be after start)
+label: free text, 1-100 chars
+```
+
 ## GET /profile
 
 Returns the authenticated user's nutrition profile.
@@ -406,6 +441,14 @@ Body:
   "activity_level": "HIGH",
   "goal": "MUSCLE_GAIN",
   "diet_type": "VEGETARIAN",
+  "weekly_obligations": [
+    {
+      "day_of_week": "MON",
+      "start_time": "09:00",
+      "end_time": "17:00",
+      "label": "Work"
+    }
+  ],
   "created_at": "2026-01-01T10:00:00Z",
   "updated_at": "2026-01-01T10:00:00Z"
 }
@@ -433,12 +476,23 @@ Creates the authenticated user's nutrition profile.
   "weight_kg": 80,
   "activity_level": "HIGH",
   "goal": "MUSCLE_GAIN",
-  "diet_type": "VEGETARIAN"
+  "diet_type": "VEGETARIAN",
+  "weekly_obligations": [
+    {
+      "day_of_week": "MON",
+      "start_time": "09:00:00",
+      "end_time": "17:00:00",
+      "label": "Work"
+    }
+  ]
 }
 ```
 
 Validation: `age` 1-120, `height_cm` 50-250, `weight_kg` 20-400 (422
-`VALIDATION_ERROR` otherwise).
+`VALIDATION_ERROR` otherwise); each `weekly_obligations` entry's `end_time`
+must be after `start_time` (400 `BAD_REQUEST` otherwise — not a simple
+field-range check, so it's caught at the domain layer, not by schema
+validation).
 
 ### Response
 
@@ -454,6 +508,7 @@ Errors:
 
 ```
 409 Conflict code=CONFLICT — profile already exists for this user
+400 Bad Request code=BAD_REQUEST — a weekly_obligations entry has end_time <= start_time
 ```
 
 ---
@@ -461,7 +516,9 @@ Errors:
 ## PUT /profile
 
 Partially updates the authenticated user's nutrition profile — only the
-provided fields change, the rest are kept as-is.
+provided fields change, the rest are kept as-is. `weekly_obligations`
+follows the same rule: omit the field entirely to leave the existing
+schedule untouched, or send `[]` to clear it.
 
 ### Request
 
@@ -486,6 +543,7 @@ Errors:
 
 ```
 404 Not Found code=NOT_FOUND — user has no profile to update yet
+400 Bad Request code=BAD_REQUEST — a weekly_obligations entry has end_time <= start_time
 ```
 
 ---
@@ -760,14 +818,24 @@ Body:
           "calories": 600,
           "protein": 45,
           "carbohydrates": 70,
-          "fat": 15
+          "fat": 15,
+          "time": "08:00"
         }
       ]
     }
   ],
-  "created_at": "2026-01-01T10:00:00Z"
+  "created_at": "2026-01-01T10:00:00Z",
+  "updated_at": "2026-01-01T10:00:00Z"
 }
 ```
+
+`time` (Phase 9): AI-suggested time of day for the meal, `"HH:MM"` or
+`null` if the model didn't provide one (never required — see
+architecture.md for why). If the caller's profile has
+`weekly_obligations`, a suggested time colliding with one is nudged to the
+nearest free slot after generation — see architecture.md's conflict-clamping
+note. `updated_at` starts equal to `created_at` and only moves once a meal
+is rescheduled (see `PATCH .../meals` below).
 
 Errors:
 
@@ -785,10 +853,59 @@ Errors:
 
 ---
 
+## PATCH /diet-plans/{diet_plan_id}/meals
+
+Reschedules a single meal's time within an already-generated plan. The
+only mutation a plan ever undergoes after generation — everything else
+about it (macros, meal identity, day count) is immutable.
+
+### Request
+
+```json
+{
+  "day_number": 1,
+  "meal_name": "Protein oatmeal",
+  "new_time": "07:30:00"
+}
+```
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `POST /diet-plans/generate`, with only the targeted
+meal's `time` changed and `updated_at` bumped.
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another user
+400 Bad Request code=BAD_REQUEST — day_number or meal_name doesn't exist
+                within this plan (the plan itself is fine, so this is 400,
+                not 404 — see architecture.md)
+```
+
+---
+
 ## GET /diet-plans
 
 Lists the caller's own generated diet plans, newest first (summary only —
 no `days`/`meals`).
+
+### Query parameters
+
+```
+from: ISO date ("2026-01-01") — only plans created on/after this date
+to:   ISO date — only plans created on/before this date (inclusive of the
+      whole day)
+```
+
+Both optional; omit either or both to not filter on that bound. Purely a
+display filter — nothing is ever deleted based on this range.
 
 ### Response
 
@@ -810,6 +927,95 @@ Body:
     "created_at": "2026-01-01T10:00:00Z"
   }
 ]
+```
+
+Errors:
+
+```
+400 Bad Request code=BAD_REQUEST — from is after to
+```
+
+---
+
+## POST /diet-plans/{diet_plan_id}/export
+
+Builds a CSV export of the plan (day, date, time, meal, macros) and
+archives it on the configured SFTP server — this does **not** return the
+file itself, only its metadata, so it can be re-downloaded later without
+regenerating it (see `GET .../exports/{export_id}/download`). A plan can
+be exported more than once (e.g. after rescheduling a meal); each export
+is its own separate archived file, never an overwrite.
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body:
+
+```json
+{
+  "export_id": "uuid",
+  "diet_plan_id": "uuid",
+  "filename": "3fa8...-a1b2c3d4.csv",
+  "created_at": "2026-01-01T10:05:00Z"
+}
+```
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another user
+```
+
+---
+
+## GET /diet-plans/{diet_plan_id}/exports
+
+Lists previous exports of this plan, newest first.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: array of the same shape as `POST .../export`'s response.
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another user
+```
+
+---
+
+## GET /diet-plans/{diet_plan_id}/exports/{export_id}/download
+
+Streams a previously archived export back as a CSV file
+(`Content-Type: text/csv`, `Content-Disposition: attachment`). The backend
+fetches the file from the SFTP server server-side — SFTP has no
+presigned-URL equivalent, so this always proxies through the API rather
+than redirecting.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — export doesn't exist, doesn't belong to the
+                caller, or doesn't belong to the diet_plan_id in the URL
 ```
 
 ---

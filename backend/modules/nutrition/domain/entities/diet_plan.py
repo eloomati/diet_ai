@@ -1,8 +1,11 @@
-from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime, time
 from uuid import UUID, uuid4
 
-from backend.modules.nutrition.domain.exceptions.diet_plan_domain_errors import InvalidDietPlanError
+from backend.modules.nutrition.domain.exceptions.diet_plan_domain_errors import (
+    InvalidDietPlanError,
+    MealNotFoundError,
+)
 from backend.modules.nutrition.domain.value_objects.diet_day import DietDay
 from backend.modules.nutrition.domain.value_objects.diet_goal import DietGoal
 from backend.modules.nutrition.domain.value_objects.diet_type import DietType
@@ -20,6 +23,7 @@ class DietPlan:
     requirements: tuple[str, ...]
     days: tuple[DietDay, ...]
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     @classmethod
     def create(
@@ -32,6 +36,7 @@ class DietPlan:
         requirements: tuple[str, ...] = (),
     ) -> "DietPlan":
         cls._validate(duration_days, days)
+        now = datetime.now(UTC)
         return cls(
             id=uuid4(),
             user_id=user_id,
@@ -40,8 +45,32 @@ class DietPlan:
             duration_days=duration_days,
             requirements=requirements,
             days=days,
-            created_at=datetime.now(UTC),
+            created_at=now,
+            updated_at=now,
         )
+
+    def reschedule_meal(self, day_number: int, meal_name: str, new_time: time) -> None:
+        day_index = next(
+            (i for i, day in enumerate(self.days) if day.day_number == day_number), None
+        )
+        if day_index is None:
+            raise MealNotFoundError(f"Day {day_number} not found in this plan.")
+
+        day = self.days[day_index]
+        meal_index = next(
+            (i for i, meal in enumerate(day.meals) if meal.name == meal_name), None
+        )
+        if meal_index is None:
+            raise MealNotFoundError(f"Meal '{meal_name}' not found on day {day_number}.")
+
+        new_meals = list(day.meals)
+        new_meals[meal_index] = replace(new_meals[meal_index], time=new_time)
+        new_day = replace(day, meals=tuple(new_meals))
+
+        new_days = list(self.days)
+        new_days[day_index] = new_day
+        self.days = tuple(new_days)
+        self.updated_at = datetime.now(UTC)
 
     @staticmethod
     def _validate(duration_days: int, days: tuple[DietDay, ...]) -> None:

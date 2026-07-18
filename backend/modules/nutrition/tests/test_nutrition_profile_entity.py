@@ -1,13 +1,16 @@
+from datetime import time
 from uuid import uuid4
 
 import pytest
 
 from backend.modules.nutrition.domain import (
     ActivityLevel,
+    DayOfWeek,
     DietGoal,
     DietType,
     InvalidNutritionProfileError,
     NutritionProfile,
+    WeeklyObligation,
 )
 
 
@@ -87,3 +90,61 @@ def test_as_prompt_text_includes_key_fields() -> None:
     assert "HIGH" in text
     assert "MUSCLE_GAIN" in text
     assert "VEGETARIAN" in text
+
+
+def test_as_prompt_text_omits_commitments_clause_when_no_obligations() -> None:
+    profile = _create()
+
+    assert "commitments" not in profile.as_prompt_text()
+
+
+def test_as_prompt_text_includes_weekly_obligations() -> None:
+    obligation = WeeklyObligation(
+        day_of_week=DayOfWeek.WED, start_time=time(18, 0), end_time=time(19, 0), label="Training"
+    )
+    profile = _create(weekly_obligations=(obligation,))
+
+    text = profile.as_prompt_text()
+
+    assert "WED" in text
+    assert "18:00-19:00" in text
+    assert "Training" in text
+
+
+def test_create_defaults_to_no_obligations() -> None:
+    profile = _create()
+
+    assert profile.weekly_obligations == ()
+
+
+def test_update_sets_weekly_obligations() -> None:
+    profile = _create()
+    obligation = WeeklyObligation(
+        day_of_week=DayOfWeek.MON, start_time=time(9, 0), end_time=time(17, 0), label="Work"
+    )
+
+    profile.update(weekly_obligations=(obligation,))
+
+    assert profile.weekly_obligations == (obligation,)
+
+
+def test_update_without_obligations_keeps_existing_ones() -> None:
+    obligation = WeeklyObligation(
+        day_of_week=DayOfWeek.MON, start_time=time(9, 0), end_time=time(17, 0), label="Work"
+    )
+    profile = _create(weekly_obligations=(obligation,))
+
+    profile.update(weight_kg=82)
+
+    assert profile.weekly_obligations == (obligation,)
+
+
+def test_update_can_clear_obligations_with_empty_tuple() -> None:
+    obligation = WeeklyObligation(
+        day_of_week=DayOfWeek.MON, start_time=time(9, 0), end_time=time(17, 0), label="Work"
+    )
+    profile = _create(weekly_obligations=(obligation,))
+
+    profile.update(weekly_obligations=())
+
+    assert profile.weekly_obligations == ()

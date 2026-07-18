@@ -1,7 +1,19 @@
+from datetime import time
+
 from pydantic import BaseModel, Field
 
-from backend.modules.nutrition.application.dto.nutrition_profile_dto import NutritionProfileResult
-from backend.modules.nutrition.domain import ActivityLevel, DietGoal, DietType
+from backend.modules.nutrition.application.dto.nutrition_profile_dto import (
+    NutritionProfileResult,
+    WeeklyObligationResult,
+)
+from backend.modules.nutrition.domain import ActivityLevel, DayOfWeek, DietGoal, DietType
+
+
+class WeeklyObligationRequest(BaseModel):
+    day_of_week: DayOfWeek
+    start_time: time
+    end_time: time
+    label: str = Field(min_length=1, max_length=100)
 
 
 class CreateNutritionProfileRequest(BaseModel):
@@ -11,6 +23,7 @@ class CreateNutritionProfileRequest(BaseModel):
     activity_level: ActivityLevel
     goal: DietGoal
     diet_type: DietType
+    weekly_obligations: list[WeeklyObligationRequest] = Field(default_factory=list)
 
 
 class UpdateNutritionProfileRequest(BaseModel):
@@ -20,6 +33,23 @@ class UpdateNutritionProfileRequest(BaseModel):
     activity_level: ActivityLevel | None = None
     goal: DietGoal | None = None
     diet_type: DietType | None = None
+    weekly_obligations: list[WeeklyObligationRequest] | None = None
+
+
+class WeeklyObligationResponse(BaseModel):
+    day_of_week: str
+    start_time: str
+    end_time: str
+    label: str
+
+    @classmethod
+    def from_result(cls, result: WeeklyObligationResult) -> "WeeklyObligationResponse":
+        return cls(
+            day_of_week=result.day_of_week,
+            start_time=result.start_time,
+            end_time=result.end_time,
+            label=result.label,
+        )
 
 
 class NutritionProfileResponse(BaseModel):
@@ -31,6 +61,7 @@ class NutritionProfileResponse(BaseModel):
     activity_level: str
     goal: str
     diet_type: str
+    weekly_obligations: list[WeeklyObligationResponse]
     created_at: str
     updated_at: str
 
@@ -45,6 +76,9 @@ class NutritionProfileResponse(BaseModel):
             activity_level=result.activity_level,
             goal=result.goal,
             diet_type=result.diet_type,
+            weekly_obligations=[
+                WeeklyObligationResponse.from_result(o) for o in result.weekly_obligations
+            ],
             created_at=result.created_at,
             updated_at=result.updated_at,
         )

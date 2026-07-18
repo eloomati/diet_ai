@@ -69,6 +69,24 @@ services:
       - "8025:8025" # Web UI + API
     restart: unless-stopped
 
+  # Local SFTP server — diet-plan CSV exports are archived here (see Phase 9
+  # Stage 4) so a user can re-download a previously generated export without
+  # regenerating it. "dietai:dietai:::upload" creates user dietai/password
+  # dietai with an "upload" dir that appears as /upload from the SFTP side
+  # (chrooted to the user's home).
+  sftp:
+    image: atmoz/sftp:alpine
+    container_name: diet_ai_sftp
+    ports:
+      - "2222:22"
+    command: ["dietai:dietai:::upload"]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 22"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -83,6 +101,8 @@ services:
         condition: service_healthy
       mailhog:
         condition: service_started
+      sftp:
+        condition: service_healthy
     environment:
       APP_ENV: dev
       APP_DEBUG: "true"
@@ -106,6 +126,13 @@ services:
       SMTP_HOST: mailhog
       SMTP_PORT: "1025"
       SMTP_FROM_ADDRESS: noreply@dietai.local
+
+      SFTP_PROVIDER: sftp
+      SFTP_HOST: sftp
+      SFTP_PORT: "22"
+      SFTP_USERNAME: dietai
+      SFTP_PASSWORD: dietai
+      SFTP_REMOTE_DIR: /upload
     ports:
       - "8000:8000"
     volumes:

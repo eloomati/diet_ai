@@ -9,7 +9,11 @@ from backend.app.api_router import api_router
 from backend.modules.ai.infrastructure import close_llm_provider, init_llm_provider
 from backend.modules.conversation.infrastructure.documents import ConversationDocument
 from backend.modules.identity.infrastructure.email.email_retry_scheduler import run_email_retry_loop
-from backend.modules.nutrition.infrastructure.documents import DietPlanDocument, NutritionProfileDocument
+from backend.modules.nutrition.infrastructure.documents import (
+    DietPlanDocument,
+    DietPlanExportDocument,
+    NutritionProfileDocument,
+)
 from backend.shared.config import get_settings
 from backend.shared.database import (
     close_mongo,
@@ -31,7 +35,9 @@ async def lifespan(app: FastAPI):
     try:
         await init_postgres(settings.postgres_url)
         await init_mongo(settings.mongo_url)
-        await init_beanie_documents([ConversationDocument, NutritionProfileDocument, DietPlanDocument])
+        await init_beanie_documents(
+            [ConversationDocument, NutritionProfileDocument, DietPlanDocument, DietPlanExportDocument]
+        )
         await init_llm_provider(settings)
     except Exception as e:
         logging.error(f"Failed to initialize databases: {e}")
