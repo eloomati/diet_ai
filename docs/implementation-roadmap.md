@@ -2800,7 +2800,7 @@ failures noted above, not introduced by this Etap).
 
 ---
 
-# Etap 3 — Konwersacje/Chat
+# Etap 3 — Konwersacje/Chat — DONE (Stages 1-5/5)
 
 Goal: wire the chat canvas and left-rail history to
 `docs/api.md`'s Conversation API (`categories` is a list — see the
@@ -2861,24 +2861,164 @@ and the selected conversation's URL both survive a full page reload, and
 switching between sidebar rows correctly re-navigates and re-highlights —
 clean console throughout.
 
-## Stage 2 — Chat window
+## Stage 2 — Chat window — DONE
 
-- [ ] `GET /conversations/{id}` (history) + `POST .../messages` (send +
-      AI response) wired to `ChatCanvas`.
+- [x] `GET /conversations/{id}` — `ChatCanvas` gained
+      `useQuery(['conversation', conversationId], ..., { retry: false,
+      enabled: !!conversationId })`; a 404/deleted conversation is a
+      permanent state, not worth retrying. This also closes the gap Stage 1
+      left on purpose: the header now shows the conversation's *real*
+      categories (fetched, not just locally-remembered) on every entry
+      point — fresh creation, a sidebar click, a direct URL visit, or a
+      full page reload — instead of the `Rozmowa #12345678` placeholder.
+- [x] `POST .../messages` — a `useMutation` that sends the composer's text,
+      then appends both the user message and the AI's reply straight into
+      the `['conversation', id]` query cache from the response (no refetch
+      needed): `SendMessageResponse` only returns ids + the assistant's
+      text, so the two `Message` objects are constructed client-side with
+      `new Date().toISOString()` for `created_at` — good enough for
+      immediate display; the next real fetch (e.g. a reload) gets the
+      server's authoritative timestamps anyway.
+- [x] `AppShell`'s local `activeCategories` state (and the
+      `onSuccess`/`onSelectConversation` code that maintained it) removed
+      entirely — now that `ChatCanvas` fetches its own conversation detail,
+      duplicating categories in two places was unnecessary. The one
+      remaining optimization: `AppShell`'s create-mutation still
+      pre-seeds `['conversation', id]` with `{ ...conversation, messages:
+      [] }` right after creation (a brand-new conversation always starts
+      with zero messages), so navigating to it never shows a loading flash.
+- [x] Message bubbles (`MessageBubble`): user messages right-aligned on
+      `bg-primary`, assistant left-aligned on `bg-card`, a `SYSTEM` role
+      rendered as small centered text (unused today, but the schema
+      allows it). A "Diet AI pisze odpowiedź…" line shows while the
+      mutation is in flight.
+- [x] 409 `CONFLICT` (archived conversation — full handling is Stage 3,
+      but the error needs *some* message now that sending is real) maps to
+      "Ta rozmowa jest zarchiwizowana — nie można już do niej pisać.";
+      anything else falls back to a generic retry message.
 
-## Stage 3 — Archive & delete
+**Real problems hit and fixed**: (1) jsdom has no `Element.scrollTo`, so
+the auto-scroll-to-latest-message effect crashed every test that reached
+the message list — guarded with `scrollRef.current?.scrollTo?.(...)`.
+(2) The first cut of `showHero` (`messages.length === 0`) hid the
+"pisze odpowiedź…" indicator for a brand-new conversation's first message,
+since `messages` only grows *after* the mutation succeeds — the hero
+would stay on screen through the entire wait with no feedback. Fixed by
+also gating on `sendMessageMutation.isIdle`, so hero disappears the
+instant a send starts. (3) That same condition then hid the *error* state
+for a conversation that failed to load (0 messages + never sent = looked
+identical to "genuinely empty") — fixed by also requiring
+`conversationQuery.isSuccess`, so hero only shows once the fetch is
+confirmed successful.
 
-- [ ] `POST .../archive`, `DELETE /conversations/{id}` — archived
-      conversations reject new messages (409, surfaced as a disabled
-      composer or inline notice).
+Exit criteria met: 6 new `ChatCanvas.test.tsx` cases (hero with no
+conversation, hero for an empty freshly-created one, history render +
+send, archived-conversation error, failed-load error state, composer
+disabled while pending) plus updated `AppShell.test.tsx` cases; full suite
+49/49, `npm run build`/`npm run lint` green. Verified live against the
+real backend with `AI_PROVIDER=ollama` (not mocked) — sent a real message
+in an existing conversation, watched the "pisze odpowiedź…" indicator,
+got a genuine Ollama-generated reply rendered in a bubble, confirmed both
+messages survive a full page reload via `GET /conversations/{id}`, and
+confirmed the header now shows real fetched categories instead of the
+Stage 1 placeholder — clean console throughout.
 
-## Stage 4 — Real history in the left rail
+## Stage 3 — Archive & delete — DONE
 
-- [ ] Replace Etap 0's placeholder history with the real
-      `GET /conversations` list (title + categories tag, matching the
-      mockup's "+N" overflow badge for 3+ categories).
+- [x] Two small icon buttons added to `ChatCanvas`'s header, next to the
+      category chips (only rendered once a conversation is loaded):
+      `Archive` (hidden once already archived — a "Zarchiwizowana" badge
+      takes its place) and `Trash2` (always available). Both are
+      `useMutation`s; archive writes the returned `ConversationDetail`
+      straight into the `['conversation', id]` cache and delete removes
+      that cache entry, invalidates `['conversations']`, and navigates
+      back to `/` — the sidebar and the canvas both update from the same
+      cache invalidation, no extra prop wiring needed between them.
+- [x] Deleting requires a native `window.confirm` ("Czy na pewno chcesz
+      usunąć tę rozmowę? Tej operacji nie można cofnąć.") — per
+      `docs/api.md`, deletion has no undo/restore endpoint, so an
+      accidental click needs a real speed bump. Archiving doesn't prompt —
+      it's non-destructive (history stays readable per the API docs), just
+      one-directional (no unarchive endpoint exists).
+- [x] Archived conversations proactively disable the composer and show
+      "Ta rozmowa jest zarchiwizowana — nie można już do niej pisać." as
+      soon as the fetched conversation's `status` is `ARCHIVED` — not just
+      reactively after a rejected `POST .../messages` (that 409 → the same
+      message path from Stage 2 still exists as a fallback for the race
+      where a conversation gets archived from another tab mid-type).
 
-## Stage 5 — Tests & docs sync
+Exit criteria met: 4 new `ChatCanvas.test.tsx` cases (archive disables the
+composer, an already-archived conversation shows the disabled state
+immediately on load, delete-after-confirm fires the request, delete
+dismissed does not) plus a new `AppShell.test.tsx` integration case
+(deleting the currently-open conversation navigates back to the "Nowa
+rozmowa" hero); full suite 54/54, `npm run build`/`npm run lint` green.
+Verified live against the real backend: archived a real conversation,
+confirmed the badge/disabled-composer/notice appeared instantly and
+survived a page reload, and confirmed the delete button is present and
+correctly wired — the actual delete click was **not** performed live,
+since it opens a native `window.confirm()` dialog that would block all
+further browser-automation commands; the confirm/cancel paths were
+already exercised thoroughly (and safely) via the automated tests instead.
+
+## Stage 4 — Real history in the left rail — DONE
+
+- [x] Replaced Stage 1's plain-text category subtitle with real per-category
+      tag chips (`ConversationRowTags`, new in `LeftRail.tsx`) — emoji +
+      Polish label per category (`categoryLabel`, new export in
+      `categoryOptions.ts`, mirroring the existing `categoryEmoji`), and a
+      "+N" overflow badge once a conversation has more than
+      `MAX_VISIBLE_TAGS` (2) categories — matches the mockup's overflow
+      treatment for 3+ categories.
+- [x] Conversations sorted by `updated_at` descending (most recently
+      active first) — client-side, since ISO 8601 timestamps sort
+      correctly as plain strings; the list wasn't ordered at all before
+      this stage.
+- [x] Archived conversations get a visibly muted row (`opacity-60`) plus
+      an outlined "Archiwum" chip, replacing Stage 1's plain
+      "· zarchiwizowana" text suffix.
+
+**Deferred, noted for Etap 5's design-system pass**: `ChatCanvas`'s header
+chips (Stage 1/2) still show the raw category enum (`"🥗 DIET"`) rather
+than the Polish label now used in the sidebar — left as-is since fixing it
+was outside this stage's explicit scope (left rail only), but the
+inconsistency is real and worth a pass once Etap 5 reviews the whole
+design system.
+
+Exit criteria met: 3 new `LeftRail.test.tsx` cases (tag chips + "+N"
+overflow, sort-by-`updated_at`, archived styling/badge); full suite
+57/57, `npm run build`/`npm run lint` green. Verified live against the
+real backend: existing conversations picked up the new chip styling
+immediately, the more-recently-archived "Zdrowie" conversation correctly
+sorted above the older "Dieta, Fitness" one, and a fresh 4-category
+conversation showed exactly 2 tag chips + a "+2" badge — clean console
+throughout.
+
+## Stage 5 — Tests & docs sync — DONE
+
+- [x] Test coverage assembled across Stages 1-4 reviewed as a whole:
+      `AppShell.test.tsx` (9 cases — list/empty/create/error from Stage 1,
+      delete-navigates-to-hero from Stage 3), `ChatCanvas.test.tsx` (10
+      cases — hero/history/send/errors from Stage 2, archive/delete from
+      Stage 3), `LeftRail.test.tsx` (3 cases — tag chips, sorting, archived
+      styling, from Stage 4). No gaps found; no new tests added in this
+      stage beyond what each stage already covered as it was built.
+- [x] `docs/api.md`'s Conversation API section cross-checked against
+      `conversation_router.py`'s actual request/response/error handling
+      for all 6 endpoints (`POST/GET /conversations`, `GET/POST
+      .../messages`, `POST .../archive`, `DELETE /conversations/{id}`) —
+      status codes, error codes (`NOT_FOUND`, `CONFLICT`), and both enums
+      (`ConversationCategory`'s 8 values, `MessageRole`'s 3 values) diffed
+      directly against the domain value objects — no discrepancies found.
+- [x] Roadmap status updated (this section) — Etap 3 marked DONE.
+
+Exit criteria met: frontend suite 57/57, `npm run build`/`npm run lint`
+green; backend `conversation` module 54/54 (untouched this Etap — pure
+frontend work, confirmed via `git status backend/` staying empty
+throughout). Final live pass against the real backend (`AI_PROVIDER=ollama`,
+not mocked): fresh dev-server start with all three conversations from
+prior stages (`Zdrowie` archived, `Dieta, Fitness`, and the 4-category one
+with its "+2" badge) all rendering correctly together — clean console.
 
 ---
 

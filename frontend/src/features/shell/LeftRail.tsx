@@ -5,13 +5,43 @@ import { useState } from 'react'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/lib/auth'
-import { formatCategories } from '@/lib/categoryOptions'
+import { categoryEmoji, categoryLabel } from '@/lib/categoryOptions'
 import { listConversations } from '@/api/conversations'
 import type { ConversationCategory, ConversationSummary } from '@/api/conversations'
 import { cn } from '@/lib/utils'
 
 import { AboutDialog } from './AboutDialog'
 import { CategoryMenu } from './CategoryMenu'
+
+const MAX_VISIBLE_TAGS = 2
+
+function ConversationRowTags({ conversation }: { conversation: ConversationSummary }) {
+  const shown = conversation.categories.slice(0, MAX_VISIBLE_TAGS)
+  const extra = conversation.categories.length - shown.length
+
+  return (
+    <span className="mt-1 flex flex-wrap items-center gap-1">
+      {shown.map((category) => (
+        <span
+          key={category}
+          className="inline-flex items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground"
+        >
+          {categoryEmoji(category)} {categoryLabel(category)}
+        </span>
+      ))}
+      {extra > 0 && (
+        <span className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+          +{extra}
+        </span>
+      )}
+      {conversation.status === 'ARCHIVED' && (
+        <span className="inline-flex items-center rounded-full border border-border px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+          Archiwum
+        </span>
+      )}
+    </span>
+  )
+}
 
 interface LeftRailProps {
   onProfileClick: () => void
@@ -76,25 +106,25 @@ export function LeftRail({
             <p className="px-2.5 py-4 text-xs text-muted-foreground">Brak jeszcze żadnych rozmów.</p>
           ) : (
             <ul className="flex flex-col gap-0.5 py-1.5">
-              {conversationsQuery.data.map((conversation) => (
-                <li key={conversation.conversation_id}>
-                  <button
-                    onClick={() => onSelectConversation(conversation)}
-                    className={cn(
-                      'w-full rounded-lg px-2.5 py-2 text-left text-[13px] font-bold hover:bg-accent/60',
-                      conversation.conversation_id === activeConversationId
-                        ? 'bg-accent text-accent-foreground'
-                        : 'text-foreground',
-                    )}
-                  >
-                    <span className="block truncate">{conversation.title}</span>
-                    <span className="block truncate text-[11px] font-normal text-muted-foreground">
-                      {formatCategories(conversation.categories)}
-                      {conversation.status === 'ARCHIVED' ? ' · zarchiwizowana' : ''}
-                    </span>
-                  </button>
-                </li>
-              ))}
+              {[...conversationsQuery.data]
+                .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+                .map((conversation) => (
+                  <li key={conversation.conversation_id}>
+                    <button
+                      onClick={() => onSelectConversation(conversation)}
+                      className={cn(
+                        'w-full rounded-lg px-2.5 py-2 text-left text-[13px] font-bold hover:bg-accent/60',
+                        conversation.conversation_id === activeConversationId
+                          ? 'bg-accent text-accent-foreground'
+                          : 'text-foreground',
+                        conversation.status === 'ARCHIVED' && 'opacity-60',
+                      )}
+                    >
+                      <span className="block truncate">{conversation.title}</span>
+                      <ConversationRowTags conversation={conversation} />
+                    </button>
+                  </li>
+                ))}
             </ul>
           )
         ) : (
