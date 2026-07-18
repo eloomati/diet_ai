@@ -14,26 +14,31 @@ function verifyErrorMessage(error: unknown): string {
 }
 
 export function ProfilTab() {
-  const { logout } = useAuth()
+  const { user, logout, refreshUser } = useAuth()
   const [token, setToken] = useState('')
-  const [status, setStatus] = useState<'idle' | 'submitting' | 'done'>('idle')
+  const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   async function handleVerify(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError(null)
-    setStatus('submitting')
+    setSubmitting(true)
     try {
       await confirmEmailVerification(token)
-      setStatus('done')
+      // Re-fetch /auth/me rather than a local "done" flag — so the ✓ badge
+      // reflects the real, confirmed status if this tab is reopened later.
+      await refreshUser()
     } catch (err) {
       setError(verifyErrorMessage(err))
-      setStatus('idle')
+    } finally {
+      setSubmitting(false)
     }
   }
 
   return (
     <div className="flex flex-col gap-6">
+      {user && <p className="text-sm text-foreground">Zalogowano jako <b>{user.email}</b></p>}
+
       <p className="text-sm text-muted-foreground">
         Formularz profilu żywieniowego (wiek, wzrost, waga, cel, typ diety, cotygodniowe
         zobowiązania) pojawi się w Etapie 2.
@@ -43,7 +48,7 @@ export function ProfilTab() {
         <p className="mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
           Weryfikacja e-maila
         </p>
-        {status === 'done' ? (
+        {user?.email_verified ? (
           <p className="text-sm text-secondary-foreground">Adres e-mail zweryfikowany ✓</p>
         ) : (
           <form className="flex items-end gap-2" onSubmit={handleVerify}>
@@ -53,8 +58,8 @@ export function ProfilTab() {
               </label>
               <Input value={token} onChange={(event) => setToken(event.target.value)} required />
             </div>
-            <Button type="submit" disabled={status === 'submitting'}>
-              {status === 'submitting' ? 'Chwileczkę…' : 'Zweryfikuj'}
+            <Button type="submit" disabled={submitting}>
+              {submitting ? 'Chwileczkę…' : 'Zweryfikuj'}
             </Button>
           </form>
         )}

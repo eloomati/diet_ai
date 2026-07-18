@@ -16,8 +16,9 @@ interface LeftRailProps {
 }
 
 export function LeftRail({ onProfileClick, onCollapse, onStartChat }: LeftRailProps) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
   const [aboutOpen, setAboutOpen] = useState(false)
+  const initials = user?.email.slice(0, 2).toUpperCase() ?? '?'
 
   return (
     <aside className="flex h-full w-62 flex-col border-r border-border bg-card">
@@ -25,7 +26,7 @@ export function LeftRail({ onProfileClick, onCollapse, onStartChat }: LeftRailPr
         <button onClick={onProfileClick} aria-label="Profil">
           <Avatar className="size-9 border border-border">
             <AvatarFallback className="bg-gradient-to-br from-primary to-accent-foreground/40 font-bold text-primary-foreground">
-              MH
+              {initials}
             </AvatarFallback>
           </Avatar>
         </button>
