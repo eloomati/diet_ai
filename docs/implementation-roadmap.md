@@ -2723,11 +2723,43 @@ the real backend: added a Monday 09:00–17:00 "Praca" obligation, saved,
 reloaded the page and confirmed it survived (`GET /profile`), then removed
 it and saved an empty list back successfully — clean console throughout.
 
-## Stage 3 — Validation & error states
+## Stage 3 — Validation & error states — DONE
 
-- [ ] 422 range validation (age 1-120, height_cm 50-250, weight_kg
-      20-400), 409 on duplicate `POST`, 404 on `GET`/`PUT` with no
-      profile yet, 400 on an obligation's `end_time <= start_time`.
+- [x] 422 range validation (age 1-120, height_cm 50-250, weight_kg
+      20-400) — prevention-first: native HTML5 `min`/`max`/`required`
+      on the number inputs blocks an out-of-range submit before any
+      request fires (confirmed live — typing `999` into "Waga" and
+      clicking "Zapisz zmiany" sent zero network requests), plus a new
+      range hint (`"1-120 lat"`, `"50-250 cm"`, `"20-400 kg"`) under each
+      field. A backend `VALIDATION_ERROR` that gets through anyway (e.g.
+      a stale form bypassing client checks) now maps to a friendly Polish
+      message instead of the raw pydantic error text.
+- [x] 409 on duplicate `POST`, 404 on `PUT` with no profile yet — both
+      now resync instead of just displaying an error: `saveMutation`'s
+      `onError` calls `queryClient.invalidateQueries(['profile'])`
+      whenever the code is `CONFLICT` or `NOT_FOUND`, since either one
+      means the cached create-vs-edit assumption is stale (a profile was
+      created/deleted concurrently). The refetch flips the form between
+      create/edit mode to match server reality instead of leaving it
+      retrying the wrong request type.
+- [x] 400 on an obligation's `end_time <= start_time` — already prevented
+      client-side by `WeeklyObligationsEditor`'s "Dodaj" (Stage 2); the
+      matching backend `BAD_REQUEST` (if it ever reaches the server, e.g.
+      a race) now maps to the same friendly message rather than the raw
+      domain-exception text.
+- [x] A shared `ERROR_MESSAGES` code→Polish-text map added to
+      `NutritionProfileForm` (`VALIDATION_ERROR`, `CONFLICT`, `NOT_FOUND`,
+      `BAD_REQUEST`), mirroring the existing pattern in `AuthPopup`/
+      `ForgotPasswordFlow`.
+
+Exit criteria met: real backend hit directly (`curl`) to confirm the exact
+`code`/`message` shape for all three error paths (409 `CONFLICT`, 422
+`VALIDATION_ERROR`, 400 `BAD_REQUEST`) before wiring the map — no
+guessing. 3 new Vitest cases (422 friendly message, 409 resync-to-edit,
+404-during-PUT resync-to-create); full suite 39/39, `npm run build`/
+`npm run lint` green. Verified live: native validation blocking an
+out-of-range save (zero requests sent, confirmed via network-request
+inspection), then a valid save succeeding normally right after.
 
 ## Stage 4 — Tests & docs sync
 

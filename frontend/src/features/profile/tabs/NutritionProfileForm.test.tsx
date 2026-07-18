@@ -115,4 +115,85 @@ describe('NutritionProfileForm', () => {
 
     expect(await screen.findByText('Internal server error')).toBeInTheDocument()
   })
+
+  it('shows a friendly message for a 422 range-validation failure on save', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/profile') && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse(422, { code: 'VALIDATION_ERROR', message: 'age: ensure this value is <= 120' }))
+      }
+      if (url.includes('/profile')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile' }))
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderForm()
+
+    await user.type(await screen.findByLabelText('Wiek'), '29')
+    await user.type(screen.getByLabelText('Wzrost (cm)'), '187')
+    await user.type(screen.getByLabelText('Waga (kg)'), '80')
+    await user.click(screen.getByRole('button', { name: 'Utwórz profil' }))
+
+    expect(
+      await screen.findByText('Sprawdź poprawność danych: wiek 1-120, wzrost 50-250 cm, waga 20-400 kg.'),
+    ).toBeInTheDocument()
+  })
+
+  it('resyncs with the server on a 409 conflict (profile already exists)', async () => {
+    const user = userEvent.setup()
+    let getCount = 0
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/profile') && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse(409, { code: 'CONFLICT', message: 'profile already exists' }))
+      }
+      if (url.includes('/profile')) {
+        getCount += 1
+        if (getCount === 1) return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile' }))
+        return Promise.resolve(jsonResponse(200, EXISTING_PROFILE))
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderForm()
+
+    await user.type(await screen.findByLabelText('Wiek'), '29')
+    await user.type(screen.getByLabelText('Wzrost (cm)'), '187')
+    await user.type(screen.getByLabelText('Waga (kg)'), '80')
+    await user.click(screen.getByRole('button', { name: 'Utwórz profil' }))
+
+    expect(
+      await screen.findByText('Ten profil już istnieje — dane zostały odświeżone, spróbuj zapisać ponownie.'),
+    ).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Zapisz zmiany' })).toBeInTheDocument())
+  })
+
+  it('resyncs with the server on a 404 (profile deleted concurrently) during save', async () => {
+    const user = userEvent.setup()
+    let getCount = 0
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/profile') && init?.method === 'PUT') {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'profile not found' }))
+      }
+      if (url.includes('/profile')) {
+        getCount += 1
+        if (getCount === 1) return Promise.resolve(jsonResponse(200, EXISTING_PROFILE))
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile' }))
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderForm()
+
+    await screen.findByDisplayValue('29')
+    await user.click(screen.getByRole('button', { name: 'Zapisz zmiany' }))
+
+    expect(
+      await screen.findByText('Ten profil już nie istnieje — uzupełnij dane, żeby utworzyć go od nowa.'),
+    ).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Utwórz profil' })).toBeInTheDocument())
+  })
 })

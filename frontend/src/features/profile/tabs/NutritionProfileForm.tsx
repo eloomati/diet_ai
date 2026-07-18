@@ -56,8 +56,15 @@ function toFormState(profile: NutritionProfile): FormState {
   }
 }
 
+const ERROR_MESSAGES: Record<string, string> = {
+  VALIDATION_ERROR: 'Sprawdź poprawność danych: wiek 1-120, wzrost 50-250 cm, waga 20-400 kg.',
+  CONFLICT: 'Ten profil już istnieje — dane zostały odświeżone, spróbuj zapisać ponownie.',
+  NOT_FOUND: 'Ten profil już nie istnieje — uzupełnij dane, żeby utworzyć go od nowa.',
+  BAD_REQUEST: 'Godzina końca zobowiązania musi być późniejsza niż początku.',
+}
+
 function errorMessage(error: unknown): string {
-  if (error instanceof ApiError) return error.message
+  if (error instanceof ApiError) return ERROR_MESSAGES[error.code] ?? error.message
   return 'Coś poszło nie tak. Spróbuj ponownie.'
 }
 
@@ -93,6 +100,15 @@ export function NutritionProfileForm() {
     }) => (hasProfile ? updateProfile(payload) : createProfile(payload)),
     onSuccess: (profile) => {
       queryClient.setQueryData(['profile'], profile)
+    },
+    onError: (error) => {
+      // CONFLICT (profile already exists) or NOT_FOUND (profile was
+      // removed) both mean our cached create-vs-edit assumption is stale —
+      // resync with the server instead of leaving the form stuck retrying
+      // the wrong request type.
+      if (error instanceof ApiError && (error.code === 'CONFLICT' || error.code === 'NOT_FOUND')) {
+        void queryClient.invalidateQueries({ queryKey: ['profile'] })
+      }
     },
   })
 
@@ -140,6 +156,7 @@ export function NutritionProfileForm() {
             onChange={(event) => setForm((current) => ({ ...current, age: event.target.value }))}
             required
           />
+          <p className="mt-0.5 text-[11px] text-muted-foreground">1-120 lat</p>
         </div>
         <div>
           <label htmlFor="profile-height" className="mb-1 block text-xs font-bold text-muted-foreground">
@@ -154,6 +171,7 @@ export function NutritionProfileForm() {
             onChange={(event) => setForm((current) => ({ ...current, height_cm: event.target.value }))}
             required
           />
+          <p className="mt-0.5 text-[11px] text-muted-foreground">50-250 cm</p>
         </div>
         <div>
           <label htmlFor="profile-weight" className="mb-1 block text-xs font-bold text-muted-foreground">
@@ -169,6 +187,7 @@ export function NutritionProfileForm() {
             onChange={(event) => setForm((current) => ({ ...current, weight_kg: event.target.value }))}
             required
           />
+          <p className="mt-0.5 text-[11px] text-muted-foreground">20-400 kg</p>
         </div>
       </div>
 
