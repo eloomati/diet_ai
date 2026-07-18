@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.identity.application.ports.refresh_token_repository import (
@@ -54,3 +54,12 @@ class SqlAlchemyRefreshTokenRepository(RefreshTokenRepository):
         if model:
             model.revoked = True
             await self._session.flush()
+
+    async def revoke_all_for_user(self, user_id: UUID) -> None:
+        stmt = (
+            update(RefreshTokenModel)
+            .where(RefreshTokenModel.user_id == user_id, RefreshTokenModel.revoked.is_(False))
+            .values(revoked=True)
+        )
+        await self._session.execute(stmt)
+        await self._session.flush()

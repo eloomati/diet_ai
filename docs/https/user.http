@@ -2,13 +2,23 @@
 ### Base URL (zmień jeśli backend działa na innym porcie/hoście)
 @baseUrl = http://localhost:8000
 @apiPrefix = /api/v1/auth
+### Mailhog — lokalny SMTP catcher, tu lądują maile weryfikacji/resetu zamiast
+### realnej skrzynki (wymaga EMAIL_PROVIDER=smtp, patrz docker-compose.yml)
+@mailhogUrl = http://localhost:8025
 
 ### Dane testowego użytkownika (możesz zmienić)
 @email = demo@example.com
 @password = StrongPass123
+@newPassword = NewStrongPass456
 
 ### =========================
-### 1) Register
+### 0) Wyczyść skrzynkę Mailhog — kolejne kroki zakładają, że pierwsza
+### wiadomość w inboxie to ta, której właśnie szukają
+### =========================
+DELETE {{mailhogUrl}}/api/v1/messages
+
+### =========================
+### 1) Register (wysyła mail z kodem weryfikacji adresu email)
 ### =========================
 POST {{baseUrl}}{{apiPrefix}}/register
 Content-Type: application/json
@@ -36,7 +46,7 @@ Content-Type: application/json
 %}
 
 ### =========================
-### 3) Me (Bearer access token)
+### 3) Me (Bearer access token) — email_verified powinno być na razie false
 ### =========================
 GET {{baseUrl}}{{apiPrefix}}/me
 Authorization: Bearer {{access_token}}
@@ -75,4 +85,129 @@ Content-Type: application/json
 
 {
   "refresh_token": "{{old_refresh_token}}"
+}
+
+### =========================
+### 7) Pobierz mail weryfikacyjny z Mailhoga i wyciągnij surowy token —
+### to jedyne miejsce, gdzie surowy sekret w ogóle istnieje poza pamięcią
+### procesu backendu (nigdy nie zapisujemy treści maila w bazie)
+### =========================
+# @name fetchVerificationEmail
+GET {{mailhogUrl}}/api/v2/messages
+
+> {%
+  const body = response.body.items[0].Content.Body;
+  const match = body.match(/Verification code: (\S+)/);
+  client.global.set("verification_token", match[1]);
+%}
+
+### =========================
+### 8) Confirm email verification
+### =========================
+POST {{baseUrl}}{{apiPrefix}}/verify-email/confirm
+Content-Type: application/json
+
+{
+  "token": "{{verification_token}}"
+}
+
+### =========================
+### 9) Me ponownie — email_verified powinno być teraz true
+### =========================
+GET {{baseUrl}}{{apiPrefix}}/me
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 10) Negatywny test: ponowne potwierdzenie tym samym (już użytym) tokenem
+### Oczekiwane: 400 + code BAD_REQUEST
+### =========================
+POST {{baseUrl}}{{apiPrefix}}/verify-email/confirm
+Content-Type: application/json
+
+{
+  "token": "{{verification_token}}"
+}
+
+### =========================
+### 11) Logout (unieważnia bieżący refresh token)
+### =========================
+POST {{baseUrl}}{{apiPrefix}}/logout
+Content-Type: application/json
+
+{
+  "refresh_token": "{{refresh_token}}"
+}
+
+### =========================
+### 12) Negatywny test: refresh po logout
+### Oczekiwane: 401 + code INVALID_REFRESH_TOKEN
+### =========================
+POST {{baseUrl}}{{apiPrefix}}/refresh
+Content-Type: application/json
+
+{
+  "refresh_token": "{{refresh_token}}"
+}
+
+### =========================
+### 13) Wyczyść skrzynkę przed testem resetu hasła
+### =========================
+DELETE {{mailhogUrl}}/api/v1/messages
+
+### =========================
+### 14) Request password reset — zawsze 200, niezależnie czy mail istnieje
+### w bazie (nigdy nie zdradzamy tego przez odpowiedź)
+### =========================
+POST {{baseUrl}}{{apiPrefix}}/password-reset/request
+Content-Type: application/json
+
+{
+  "email": "{{email}}"
+}
+
+### =========================
+### 15) Pobierz mail resetu hasła i wyciągnij surowy token
+### =========================
+# @name fetchResetEmail
+GET {{mailhogUrl}}/api/v2/messages
+
+> {%
+  const body = response.body.items[0].Content.Body;
+  const match = body.match(/Reset token: (\S+)/);
+  client.global.set("reset_token", match[1]);
+%}
+
+### =========================
+### 16) Confirm password reset — ustawia nowe hasło i unieważnia WSZYSTKIE
+### refresh tokeny użytkownika (nie tylko ten z kroku 4/11)
+### =========================
+POST {{baseUrl}}{{apiPrefix}}/password-reset/confirm
+Content-Type: application/json
+
+{
+  "token": "{{reset_token}}",
+  "new_password": "{{newPassword}}"
+}
+
+### =========================
+### 17) Negatywny test: stare hasło już nie działa
+### Oczekiwane: 401 + code INVALID_CREDENTIALS
+### =========================
+POST {{baseUrl}}{{apiPrefix}}/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{password}}"
+}
+
+### =========================
+### 18) Nowe hasło działa
+### =========================
+POST {{baseUrl}}{{apiPrefix}}/login
+Content-Type: application/json
+
+{
+  "email": "{{email}}",
+  "password": "{{newPassword}}"
 }

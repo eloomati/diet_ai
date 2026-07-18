@@ -4,3 +4,7 @@ class NutritionDomainError(Exception):
 
 class InvalidNutritionProfileError(NutritionDomainError):
     pass
+
+
+class InvalidWeeklyObligationError(NutritionDomainError):
+    pass

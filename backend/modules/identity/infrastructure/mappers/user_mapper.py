@@ -13,6 +13,7 @@ class UserMapper:
             email=Email(model.email),
             password_hash=PasswordHash(model.password_hash),
             status=UserStatus(model.status),
+            email_verified=model.email_verified,
             created_at=model.created_at,
             updated_at=model.updated_at,
             domain_events=[],
@@ -25,6 +26,7 @@ class UserMapper:
             email=user.email.value,
             password_hash=user.password_hash.value,
             status=user.status.value,
+            email_verified=user.email_verified,
             created_at=user.created_at,
             updated_at=user.updated_at,
         )

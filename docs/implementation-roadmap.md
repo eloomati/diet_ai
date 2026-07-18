@@ -35,15 +35,50 @@ Phase 7  - Diet Generation          DONE — structured multi-day diet plan
                                      stack with Ollama. See the 6-stage log
                                      below, including a real reliability
                                      finding for the small local model.
-Phase 8+ - Frontend/Testing/Future  NOT STARTED
+Phase 8  - Conversation Lifecycle &  DONE (Stages 1-8/8) — post-Phase-7
+           Account Recovery          gap audit found no DELETE endpoints
+                                     anywhere, no route to the domain's
+                                     existing Conversation.archive(), and
+                                     no password recovery path. Grew
+                                     mid-phase to also cover real email
+                                     verification at registration (shared
+                                     SecureToken generator), an email
+                                     delivery log, a background retry
+                                     mechanism for failed sends, and (once
+                                     spotted mid-Stage-7) a missing logout
+                                     endpoint — scope expanded from 5 to 8
+                                     stages; see the breakdown below. Also
+                                     promoted two dependency-free helpers
+                                     (`SecureToken`; the AI module's
+                                     JSON-Schema-to-Pydantic conversion) out
+                                     of their modules into the previously-
+                                     empty `shared/security`/`shared/utils`
+                                     packages, once noticed they existed
+                                     but were never used.
+Phase 9  - Meal Scheduling &         DONE (Stages 1-6/6) — pre-frontend
+           Calendar Export           feature: AI-suggested + user-editable
+                                     meal times (a calendar/meetings-style
+                                     view), a weekly "obligations" schedule
+                                     (work/training hours) fed into the
+                                     diet-plan prompt so generation builds
+                                     around it, CSV export of a plan
+                                     archived to SFTP for later re-download
+                                     (scope grew mid-Stage-4, per user
+                                     request, from a stateless serializer),
+                                     and date-range filtering of plan
+                                     history. See the 6-stage breakdown
+                                     below.
+Phase 10+ - Frontend/Testing/Future  NOT STARTED
 ```
 
-**Phases 3 through 7 are complete** — Identity, Nutrition Profile,
-Conversation + AI chat, and Diet Plan generation all work end-to-end against
-the real Docker stack, with docs (`architecture.md`, `domain-model.md`,
-`api.md`, `docs/https/*.http`) and `README.md` synced to match. Phase 8+
-(Frontend, broader Reporting) is next — see that section below for the
-sparse original draft, not yet split into stages.
+**Phases 3 through 9 are complete** — Identity (including account
+recovery), Nutrition Profile, Conversation + AI chat (including lifecycle
+management), Diet Plan generation, and Meal Scheduling & Calendar Export
+all work end-to-end against the real Docker stack, with docs
+(`architecture.md`, `domain-model.md`, `api.md`, `docs/https/*.http`) and
+`README.md` synced to match. Phase 10+ (Frontend, broader Reporting) is
+next — see that section below for the sparse original draft, not yet
+split into stages.
 
 ---
 
@@ -1088,7 +1123,1166 @@ inspection.
 
 ---
 
-# Phase 8 - Frontend
+# Phase 8 - Conversation Lifecycle & Account Recovery
+
+Goal:
+
+Before starting the frontend, close the most important user-facing gaps
+found in a post-Phase-7 audit of the existing API: no `DELETE` endpoint
+exists anywhere in the app, conversations can be archived in the domain
+(`Conversation.archive()`, `ConversationStatus.ARCHIVED`) but there's no
+route to reach it, and there is no password-recovery path at all — a user
+who forgets their password is permanently locked out. Building a frontend
+against an API with these gaps would mean redoing frontend calls later, so
+this phase closes them first.
+
+Scope, per user decision:
+- **Conversation delete + archive** — `DELETE /conversations/{id}` (hard
+  delete) and an endpoint to reach the existing `archive()` domain method.
+- **Password reset** — with **real SMTP email delivery** (not a token
+  returned in the response, and not just logged) — a **Mailhog** container
+  is added to the dev stack so reset emails are genuinely sent and
+  inspectable via its web UI, without needing real SMTP credentials.
+
+Modules touched: `conversation` (new endpoints on an existing aggregate) and
+`identity` (new `PasswordResetToken` aggregate + a new cross-cutting email
+capability).
+
+---
+
+## Stage 1 — Conversation delete + archive (all layers) — DONE
+
+Small enough to do as one stage — no new aggregate, `Conversation.archive()`
+already existed in the domain (Phase 5/6 Stage 1); this only added the
+missing routes and a repository-level delete.
+
+`modules/conversation/`:
+- [x] `domain/repositories/conversation_repository.py` — added
+      `delete(conversation_id) -> None` to the `ConversationRepository` port.
+- [x] `application/use_cases/archive_conversation_use_case.py` — loads by id,
+      ownership check (`ConversationNotFoundError` for missing/non-owned,
+      same don't-leak-existence shape as every other use case in this repo),
+      calls `conversation.archive()`, saves, returns the updated
+      conversation (reuses `GetConversationHistoryResult`'s shape rather
+      than a near-duplicate DTO).
+- [x] `application/use_cases/delete_conversation_use_case.py` — same
+      ownership check, then `repository.delete(id)`.
+- [x] `infrastructure/repository/mongo_conversation_repository.py` — added
+      `delete()` (fetch by id, `.delete()` on the document if found).
+- [x] `api/routers/conversation_router.py` —
+      `POST /conversations/{conversation_id}/archive` (200, returns the
+      updated conversation) and `DELETE /conversations/{conversation_id}`
+      (204 No Content). Both 404 for missing/non-owned.
+- [x] `tests/fakes.py` — `InMemoryConversationRepository.delete()`.
+
+**Real bug found and fixed while testing this stage**: `SendMessageUseCase`
+already raised `ArchivedConversationError` when messaging an archived
+conversation (domain rule from Phase 5/6), but `conversation_router.py`'s
+`send_message` endpoint only ever caught `ConversationNotFoundError` — the
+archived-conversation path had no route to actually reach it until *this*
+stage added the archive endpoint, so the gap was invisible until now. An
+archived conversation's message attempt was falling through to the generic
+`Exception` handler as an unintended 500. Fixed by catching
+`ArchivedConversationError` → `409 Conflict` (`ErrorCode.CONFLICT`) — a
+proper "action not allowed in the resource's current state" response
+instead of an internal-error leak. Caught by the new
+`test_archived_conversation_rejects_new_messages_via_api` test failing
+against a real 500 before the fix.
+
+Exit criteria: unit tests (fakes) for both use cases (including
+already-archived / sending a message to an archived conversation still
+raises `ArchivedConversationError` at the use-case layer, and now maps to
+409 at the API layer — see the bug above), API integration tests (archive
+→ verify status → delete → verify 404 on subsequent get, ownership checks
+for both endpoints), Mongo repository-level delete tests against the real
+ephemeral test stack. 16 tests added, full suite at 193/193 passing.
+Verified end-to-end against the real Docker stack: create → archive
+(200, status `ARCHIVED`) → send message (409) → delete (204) → get (404).
+
+---
+
+## Stage 2 — Password reset: domain + application — DONE
+
+`modules/identity/domain/`:
+- [x] `entities/password_reset_token.py` — `PasswordResetToken`: `id`,
+      `user_id`, `token_hash`, `expires_at`, `used` (bool), `created_at`.
+      Mirrors `RefreshToken`'s shape, but **the token is actually hashed at
+      rest this time** (`hashlib.sha256`) — the existing `RefreshToken`
+      stores the raw JWT in `token_hash` (a known, documented simplification
+      in `refresh_access_token_use_case.py`); a reset token is short-lived
+      and single-use but still a bearer credential mailed in plaintext, so
+      hashing it at rest is the correct default for new code, not an
+      inconsistency to "match" the older shortcut.
+      `issue(user_id, ttl_minutes=30)` is a classmethod returning
+      `(token, raw_token)` — the raw secret (`secrets.token_urlsafe(32)`)
+      exists only transiently to be emailed; only its SHA-256 hash is ever
+      persisted. Also: `hash_token()` (static), `is_expired()`,
+      `is_valid()` (`not used and not is_expired()`), `mark_used()`.
+- [x] `InvalidPasswordResetTokenError` — added to the existing
+      `identity_domain_errors.py` (this module keeps all domain errors in
+      one file already, unlike nutrition's per-aggregate split — followed
+      identity's own convention rather than nutrition's).
+- [x] `repositories/password_reset_token_repository.py` — port:
+      `save(token)`, `get_by_token_hash(hash) -> PasswordResetToken | None`.
+- [x] `User.change_password(new_password_hash)` + new `PasswordChanged`
+      domain event — added to keep password mutation encapsulated in the
+      entity (matching `deactivate()`/`block()`/`activate()`'s shape)
+      rather than the use case reaching in and setting
+      `user.password_hash` directly.
+- [x] `RefreshTokenRepository.revoke_all_for_user(user_id)` — added as a
+      **concrete method with a `NotImplementedError` default**, not
+      `@abstractmethod` — same reasoning as `LLMProvider.
+      generate_structured_response` in Phase 7 Stage 1: an `@abstractmethod`
+      would have broken the existing `SqlAlchemyRefreshTokenRepository`'s
+      instantiation (used by every register/login/refresh request) before
+      Stage 3 implements it for real. `InMemoryRefreshTokenRepository`
+      (fake) got a real implementation now since `ConfirmPasswordResetUseCase`'s
+      own tests need to exercise it.
+
+`modules/identity/application/`:
+- [x] `ports/email_sender.py` — `EmailSender` ABC: `async send(self, to:
+      str, subject: str, body: str) -> None`. Placed alongside the existing
+      `ports/token_service.py` (identity-scoped port; promote to `shared/`
+      later if a second module needs it — YAGNI over speculative reuse).
+- [x] `use_cases/request_password_reset_use_case.py` — looks up the user by
+      email; **always returns success regardless of whether the email
+      exists or is even well-formed** (same don't-leak-existence principle
+      as login/refresh error handling, extended to email enumeration and to
+      malformed-email input) — if found, issues a `PasswordResetToken`
+      (30-minute expiry), saves it, and sends an email via `EmailSender`
+      containing the raw token. If not found (or malformed), does nothing.
+- [x] `use_cases/confirm_password_reset_use_case.py` — hashes the incoming
+      token, looks it up, validates `is_valid()` (raises
+      `InvalidPasswordResetTokenError`, intended to map to 400 at the API
+      layer in Stage 4 — not 404, so as not to leak whether *some* token
+      exists vs this one being expired/used), re-validates the new password
+      via the existing `PasswordPolicy`, calls `user.change_password(...)`,
+      marks the token used, and **revokes all of the user's active refresh
+      tokens** via the new `revoke_all_for_user`.
+- [x] `tests/fakes.py` — `InMemoryPasswordResetTokenRepository`,
+      `FakeEmailSender` (captures sent emails — `to`/`subject`/`body` — in a
+      `sent` list for assertions, same shape as `FakeLLMProvider` capturing
+      `last_prompt`), `InMemoryRefreshTokenRepository.revoke_all_for_user`.
+
+Exit criteria: use case tests against fakes only — 17 tests added across
+`test_password_reset_token.py` (entity rules), `test_user_entity.py`
+(`change_password` addition), `test_request_password_reset_use_case.py`
+(unknown/malformed email → no email sent, known email → exactly one email
+with a valid token), `test_confirm_password_reset_use_case.py`
+(valid-token success + password changed + refresh tokens revoked,
+unknown/expired/already-used token → raises, weak new password → raises).
+Full suite at 210/210 passing.
+
+---
+
+## Stage 3 — Password reset: infrastructure (Postgres + email) — DONE
+
+`modules/identity/infrastructure/`:
+- [x] `persistence/models/password_reset_token_model.py` — SQLAlchemy model,
+      `password_reset_tokens` table, `token_hash` sized `String(64)` (exact
+      length of a SHA-256 hex digest) with a unique index, plus a `user_id`
+      index and an `ON DELETE CASCADE` FK to `users`.
+- [x] Alembic migration `20260717_02_password_reset.py` (`down_revision`:
+      the Phase 3 base migration). **Naming gotcha hit and fixed**: the
+      first attempt used the full `..._password_reset_tokens` revision id
+      (33 chars) and failed applying with `StringDataRightTruncation` —
+      Alembic's own `alembic_version.version_num` bookkeeping column
+      defaults to `VARCHAR(32)`, independent of anything in this project's
+      own migrations. Shortened to `20260717_02_password_reset` (26 chars).
+- [x] `persistence/sqlalchemy_password_reset_token_repository.py`.
+- [x] `persistence/sqlalchemy_refresh_token_repository.py` — implemented
+      `revoke_all_for_user(user_id)` for real (a single bulk `UPDATE …
+      SET revoked = true WHERE user_id = :id AND revoked = false`), fulfilling
+      the concrete-method-with-default added in Stage 2.
+- [x] `infrastructure/email/smtp_email_sender.py` — `SmtpEmailSender` using
+      `aiosmtplib.send()` with an `email.message.EmailMessage` (sender/
+      recipient read from its `From`/`To` headers) and `start_tls=False`
+      (Mailhog is a plaintext local catcher — no STARTTLS support to
+      negotiate).
+- [x] `infrastructure/email/mock_email_sender.py` — `MockEmailSender`,
+      captures sent emails (`to`/`subject`/`body`) in memory; used when
+      `EMAIL_PROVIDER=mock` (the default — mirrors `AI_PROVIDER`'s
+      mock-by-default design so the test suite and quick local runs never
+      need a real SMTP server).
+- [x] `infrastructure/email/email_sender_factory.py` —
+      `build_email_sender(settings)` / `init_email_sender` /
+      `close_email_sender` / `get_email_sender`, same singleton-lifecycle
+      shape as `ai/infrastructure/provider_factory.py` (though simpler:
+      `close_email_sender` is a bare reset to `None` — neither
+      `SmtpEmailSender` nor `MockEmailSender` hold a persistent connection;
+      `aiosmtplib.send()` opens/closes its own connection per call, unlike
+      the DB clients / AI provider HTTP clients this pattern was
+      originally built for); wired into `main.py`'s lifespan.
+- [x] `shared/config/settings.py` — `email_provider: str = "mock"`,
+      `smtp_host`, `smtp_port`, `smtp_from_address`. Mirrored into
+      `.env.example` too.
+- [x] `docker-compose.yml` — new `mailhog` service (image has no shell, so
+      no in-container `HEALTHCHECK` is possible — `backend` depends on it
+      with `condition: service_started`, not `service_healthy`); `backend`
+      gets `EMAIL_PROVIDER=smtp`, `SMTP_HOST=mailhog`, `SMTP_PORT=1025`,
+      `SMTP_FROM_ADDRESS=noreply@dietai.local`.
+- [x] `requirements.txt` — added `aiosmtplib==5.1.2`.
+
+**Deviation from the original plan**: no new `test_sqlalchemy_*_repository.py`
+file. Unlike Conversation/Nutrition (which test their Mongo repositories
+directly against a real ephemeral Mongo), Identity's own established
+convention (`test_user_repository_contract.py` notwithstanding — that file
+is actually fakes-only despite its name) exercises real-Postgres behavior
+only through full API integration tests
+(`test_auth_api.py`/`test_auth_refresh_api.py`), never a repository unit
+test constructing `AsyncSession` directly. Followed that precedent rather
+than introducing a new pattern — `SqlAlchemyPasswordResetTokenRepository`
+and `revoke_all_for_user` will get their real-DB exercise via Stage 4's API
+tests, and were verified manually against the real dev Postgres in the
+meantime (see below).
+
+Exit criteria: migration applied cleanly to the real dev Postgres (verified
+via `\d password_reset_tokens`); manual script-based verification against
+the real dev Postgres of `SqlAlchemyPasswordResetTokenRepository`
+(save/get-by-hash round-trip) and `revoke_all_for_user` (an active refresh
+token became inactive after the call) — both via the actual
+`get_postgres_session()` session factory, not a bespoke connection. Sent a
+real email through `SmtpEmailSender` → `mailhog` and confirmed it via
+Mailhog's HTTP API (`GET http://localhost:8025/api/v2/messages`) — subject,
+from/to, and body all matched. Full suite still at 210/210 (no new
+automated tests this stage, per the deviation above).
+
+---
+
+## Stage 4 — Shared token generator + email verification (domain + application) — DONE
+
+Added mid-phase, per user request: extract the token-generation logic
+`PasswordResetToken` already has into a shared utility (so email
+verification doesn't duplicate it), and give registration a real
+verification-code flow — same issue/confirm shape as password reset —
+instead of the "just fire a welcome email" alternative.
+
+`modules/identity/domain/`:
+- [x] `services/secure_token.py` — `SecureToken`: `generate() -> (raw_token,
+      token_hash)` (`secrets.token_urlsafe(32)` + SHA-256), `hash(raw_token)
+      -> token_hash`. Extracted from `PasswordResetToken.issue()`, which is
+      refactored to call it — `PasswordResetToken.hash_token()` becomes a
+      thin delegate so `ConfirmPasswordResetUseCase` and existing tests
+      don't need to change.
+- [x] `entities/email_verification_token.py` — `EmailVerificationToken`:
+      same shape as `PasswordResetToken` (`id`, `user_id`, `token_hash`,
+      `expires_at`, `used`, `created_at`; `issue()`/`is_expired()`/
+      `is_valid()`/`mark_used()`), built on `SecureToken`. 24h default TTL
+      (vs 30min for a reset) — verification is far less time-sensitive than
+      a credential reset.
+- [x] `repositories/email_verification_token_repository.py` — port:
+      `save(token)`, `get_by_token_hash(hash)`.
+- [x] `InvalidEmailVerificationTokenError` — added to
+      `identity_domain_errors.py` (same file as every other identity domain
+      error).
+- [x] `User` — added `email_verified: bool = False` field,
+      `mark_email_verified()` method + new `EmailVerified` domain event
+      (mirrors `change_password()`/`PasswordChanged` from Stage 2).
+
+`modules/identity/application/`:
+- [x] `use_cases/register_user_use_case.py` — after saving the new user,
+      issues an `EmailVerificationToken` and sends a verification email via
+      `EmailSender` (gained `EmailVerificationTokenRepository` + `EmailSender`
+      constructor deps). Registration itself is unchanged otherwise — the
+      account is still usable immediately (no login gate; see the note
+      below on why that's the deliberate scope for now).
+- [x] `use_cases/confirm_email_verification_use_case.py` — hashes the
+      incoming token, looks it up, validates `is_valid()` (raises
+      `InvalidEmailVerificationTokenError` otherwise), loads the user, calls
+      `user.mark_email_verified()`, saves both.
+- [x] `tests/fakes.py` — `InMemoryEmailVerificationTokenRepository`;
+      `FakeEmailSender.send()` gained the `purpose` param (see below) and
+      records it on `SentEmail`.
+- [x] `EmailSender.send()` gained a required `purpose: str` parameter (e.g.
+      `"PASSWORD_RESET"`, `"EMAIL_VERIFICATION"`) — **pulled forward from
+      Stage 5's plan**, because `RegisterUserUseCase`'s new call site needed
+      it from day one; adding it retroactively in Stage 5 would have meant
+      revisiting this stage's freshly-written code. `RequestPasswordResetUseCase`
+      updated to pass `purpose="PASSWORD_RESET"`. `MockEmailSender`/
+      `SmtpEmailSender` (Stage 3) updated to accept (and, for Mock, record)
+      the new parameter — the actual **logging** of it is still Stage 5's job.
+
+**Scope note**: this wires up real issue → email → confirm for email
+verification, matching password reset's shape exactly (per the shared
+generator request). It does **not** add a login gate for unverified users
+(`LoginUserUseCase` untouched) — that would be a materially bigger, separate
+decision (new blocked-login error path, different UX/security tradeoffs,
+touches every existing login test). Flagged here as a deliberate boundary,
+not an oversight; revisit as its own stage if wanted later.
+
+**Scope pulled forward from Stage 5**: `RegisterUserUseCase` is exercised by
+the *existing* real-Postgres API test suite (`test_auth_api.py` et al., via
+`TestClient` + real lifespan) — it can't take a repository that doesn't
+persist for real. So the minimal Postgres piece for `EmailVerificationToken`
+was built now rather than deferred: `persistence/models/
+email_verification_token_model.py`, `persistence/
+sqlalchemy_email_verification_token_repository.py`, and an Alembic migration
+(`20260718_03_email_verification.py` — adds `users.email_verified` **and**
+creates `email_verification_tokens`; also hit the same `alembic_version`
+`VARCHAR(32)` revision-id-length gotcha from Stage 3, kept the id at 30
+chars from the start this time). `UserModel`/`UserMapper`/
+`SqlAlchemyUserRepository` updated for the new `email_verified` column.
+Stage 5 now only covers `EmailLog` + `LoggingEmailSender` + the
+per-request `EmailSender` architecture correction.
+
+Exit criteria: unit tests against fakes — `SecureToken` produces distinct
+hashes per call and a stable hash for the same input (`test_secure_token.py`);
+`EmailVerificationToken` validity rules mirror `PasswordResetToken`'s own
+tests (`test_email_verification_token.py`); `RegisterUserUseCase` sends
+exactly one verification email per registration
+(`test_register_user_sends_verification_email`);
+`ConfirmEmailVerificationUseCase` marks the user verified on a valid token
+and raises on unknown/expired/used tokens
+(`test_confirm_email_verification_use_case.py`). 14 tests added, full suite
+at 225/225 passing. Verified end-to-end on the real Docker stack: registered
+a real user → fetched the real verification email from Mailhog → confirmed
+with the extracted token via a script using the actual
+`ConfirmEmailVerificationUseCase` + real Postgres session → `email_verified`
+became `true`.
+
+---
+
+## Stage 5 — Email log infrastructure + EmailSender architecture correction
+
+Per user request: a durable log of every email the app attempts to send
+(metadata + delivery status, **not** body — reset/verification emails
+carry a raw one-time secret in the body, and Stage 2's whole point was to
+never let that secret rest in the database). The `EmailVerificationToken`
+Postgres piece and the `EmailSender.send()` `purpose` parameter that were
+originally planned for this stage were pulled forward into Stage 4 (see its
+notes) since `RegisterUserUseCase` needed them immediately — this stage is
+now scoped to just `EmailLog` + the decorator + the DI lifecycle fix.
+
+`modules/identity/domain/`:
+- [x] `entities/email_log.py` — `EmailLog` (`id`, `to`, `subject`,
+      `purpose`, `status: EmailDeliveryStatus` (`SENT`/`FAILED`),
+      `error_message: str | None`, `created_at`). No body field, by design.
+- [x] `repositories/email_log_repository.py` — port: `save(log)` only (no
+      read use case requested yet).
+
+`modules/identity/infrastructure/`:
+- [x] `persistence/models/email_log_model.py` — new Alembic migration
+      (`20260718_04_email_logs`, `down_revision =
+      "20260718_03_email_verification"`). `email_logs` has **no** FK to
+      `users` — a log entry must survive even if the user record is later
+      deleted, unlike a token which is meaningless without its user.
+      Indexes on `to` and `purpose`.
+- [x] `persistence/repository/sqlalchemy_email_log_repository.py`.
+- [x] `infrastructure/email/logging_email_sender.py` — `LoggingEmailSender`
+      (decorator over any `EmailSender`): calls the wrapped sender, records
+      an `EmailLog` (`SENT` on success, `FAILED` with the exception message
+      on failure), then re-raises on failure — the existing propagate-to-500
+      behavior for a broken email send is unchanged, it's now just audited.
+
+**Architecture correction to Stage 3's design**: `EmailSender` moves from
+an app-lifetime singleton (`init_email_sender`/`close_email_sender`/
+`get_email_sender`, mirroring `LLMProvider`) to a **per-request** FastAPI
+dependency, same shape as `UserRepository`/`RefreshTokenRepository`
+(`Depends(get_db_session)`). Reason: `LoggingEmailSender` now needs a
+Postgres `AsyncSession` to write `EmailLog` rows, and every other
+Postgres-backed repository in this module is already request-scoped, not a
+singleton — the singleton pattern was only ever justified for things
+holding a real persistent connection/pool (Mongo client, LLM provider's
+HTTP client), and `aiosmtplib` was already observed in Stage 3 to open/close
+a connection per send, so there was never a technical reason for it to be a
+singleton once it needs a DB session. Removes `email_sender_factory.py`'s
+`init_email_sender`/`close_email_sender`/`get_email_sender` and their
+`main.py` lifespan wiring; replaces with a `get_email_sender(session =
+Depends(get_db_session))` dependency alongside the other per-request
+identity dependencies.
+
+Exit criteria: repository/migration verified against the real dev Postgres
+(same manual-script approach as Stage 3, consistent with this module's
+established test convention); `LoggingEmailSender` unit-tested against
+fakes (send success → one `SENT` log row via a fake `EmailLogRepository`;
+inner sender raising → one `FAILED` log row + exception still propagates).
+
+**Status: DONE.**
+
+- `test_logging_email_sender.py` (3 new tests): successful send → logged
+  `SENT` + delegates to inner sender; failed send → logged `FAILED` with
+  `error_message` + exception still re-raises; log row never carries a
+  `body` attribute (asserted directly) — enforcing the "no secrets at
+  rest" rule at the type level, not just by convention.
+- Full suite: 225 → **228 passed**. The architecture correction (singleton
+  → per-request) did not break any existing test, confirming nothing else
+  in the app depended on `EmailSender` being a long-lived singleton.
+- Real Docker-stack verification: rebuilt `backend`
+  (`docker compose up -d --build backend`); `docker compose logs backend`
+  confirmed migration `20260718_03_email_verification ->
+  20260718_04_email_logs` applied cleanly and the app started with no
+  lifespan errors (no more `init_email_sender`/`close_email_sender` calls
+  in the startup/shutdown path).
+- Registered a real user via curl → confirmed via `docker compose exec db
+  psql` a `SENT` row in `email_logs` with `purpose = EMAIL_VERIFICATION`
+  and no body persisted.
+- Verified the `FAILED` path with a one-off in-container script using a
+  `BrokenSender` that raises `RuntimeError`, wrapped in a real
+  `LoggingEmailSender` + `SqlAlchemyEmailLogRepository` — confirmed both
+  the re-raise and the resulting `FAILED` row with the correct
+  `error_message`. Cleaned up all test data afterwards (test user,
+  `email_logs` test rows, Mailhog inbox).
+
+---
+
+## Stage 6 — Failed-email retry mechanism
+
+Per user request, added mid-phase after Stage 5: a `FAILED` row in
+`email_logs` is not necessarily final. A background timer retries every 3
+minutes, up to 10 attempts total, before a row is left permanently `FAILED`.
+
+**Design fork resolved with the user**: a literal retry ("resend the exact
+same body") would require persisting the email body — which contradicts
+the hard rule from Stage 2/5 that a raw one-time secret never rests in the
+database. Resolved by **not** persisting the body at all; instead, each
+retry attempt regenerates a *fresh* token (new `PasswordResetToken` /
+`EmailVerificationToken` row, new raw secret) for the same purpose and
+sends that. The `email_logs` row only ever tracks `to`/`subject`/`purpose`/
+`status`/`attempts`/`next_retry_at` — never a secret.
+
+`modules/identity/domain/entities/email_log.py`:
+- [x] `EmailLog` gains `attempts: int = 1` and `next_retry_at: datetime | None`.
+- [x] `record_failed(...)` schedules `next_retry_at = now + retry_interval_seconds`
+      (default 180s = 3min, unless `max_attempts` is 1). Units are seconds
+      throughout (matching `Settings.email_retry_interval_seconds`), not
+      minutes as first sketched here.
+- [x] `is_due_for_retry(now)`, `mark_retry_succeeded()` (→ `SENT`,
+      `next_retry_at = None`), `mark_retry_failed(error, max_attempts,
+      retry_interval_seconds)` (increments `attempts`; schedules the next
+      attempt, or — once `attempts >= max_attempts` — sets `next_retry_at =
+      None` so the row stops being picked up while its `status` stays
+      `FAILED`, matching the requested end state literally).
+
+`modules/identity/domain/repositories/email_log_repository.py`:
+- [x] add `get_due_for_retry(now, limit) -> list[EmailLog]`.
+
+`modules/identity/infrastructure/`:
+- [x] `persistence/models/email_log_model.py` + migration
+      (`20260718_05_email_retry`) — add `attempts`, `next_retry_at` columns.
+- [x] `sqlalchemy_email_log_repository.py` — `save()` becomes get-or-create
+      (mirrors `SqlAlchemyPasswordResetTokenRepository`) so a retry updates
+      the same row instead of inserting a new one; implemented
+      `get_due_for_retry`.
+- [x] `email/email_retry_scheduler.py` — the asyncio background loop (see
+      below).
+
+`modules/identity/application/use_cases/`:
+- [x] `email_retry_strategies.py` — small `EmailRetryStrategy` ABC
+      (`resend(user) -> (subject, body)`, issues+saves a fresh token as a
+      side effect) with `PasswordResetRetryStrategy` and
+      `EmailVerificationRetryStrategy`, keyed by `purpose`. Lives in
+      `application/use_cases/`, not a new `infrastructure/email/retry/`
+      package as first sketched — it only orchestrates domain entities and
+      repository ports (no infra specifics), same shape as any other use
+      case.
+- [x] `retry_failed_emails_use_case.py` — `RetryFailedEmailsUseCase.execute()`
+      fetches due rows, looks the user up by `to` (a deleted/nonexistent
+      user just means retries fail with a clear error until exhausted — no
+      special-casing needed), resolves the purpose's strategy, sends via
+      the **base** `EmailSender` (not `LoggingEmailSender` — this use case
+      manages the existing log row itself; wrapping it again would create
+      a duplicate row per attempt), and updates the original row via
+      `mark_retry_succeeded`/`mark_retry_failed`.
+- [x] `LoggingEmailSender` also takes `max_attempts`/`retry_interval_seconds`
+      now (sourced from `Settings` in `get_email_sender`), so the very
+      first failure's scheduling is consistent with the retry loop's own
+      config, not a second hardcoded default.
+
+`backend/app/main.py` / scheduling:
+- [x] A plain `asyncio` background task (`run_email_retry_loop`) started in
+      `lifespan()` via `asyncio.create_task` (no new dependency — no
+      broker/queue exists in this stack, and one periodic job doesn't
+      justify adding APScheduler/Celery), looping
+      `await asyncio.sleep(settings.email_retry_interval_seconds)` and
+      opening its own short-lived Postgres session per tick via
+      `get_postgres_session()` (it isn't request-scoped); cancelled
+      cleanly on shutdown (`task.cancel()` + awaited under
+      `contextlib.suppress(CancelledError)`).
+- [x] `Settings`: `email_retry_interval_seconds` (180), `email_retry_max_attempts`
+      (10), `email_retry_batch_limit` (50). Same names added to `.env.example`.
+
+**Status: DONE.**
+
+- Domain (`test_email_log_retry.py`, 8 tests): scheduling on first failure,
+  no scheduling when `max_attempts=1`, due/not-due transitions, success
+  clears status+schedule, failure reschedules, exhaustion at
+  `max_attempts` stops scheduling while staying `FAILED`.
+- Application (`test_retry_failed_emails_use_case.py`, 4 tests, fakes
+  only): successful retry → `SENT` + a fresh token row created; repeated
+  failure → reschedules twice then stops at `max_attempts=3` and a further
+  pass is a no-op; nonexistent user → `FAILED` with `"User no longer
+  exists."`; unknown purpose → `FAILED` with a clear "no strategy
+  registered" message.
+- Full suite: 228 → **240 passed**.
+- Real Docker-stack verification: registered a real user (verification
+  email correctly logged `SENT`); manually inserted a `FAILED`
+  `PASSWORD_RESET` row for that user with `next_retry_at` in the past;
+  temporarily set `EMAIL_RETRY_INTERVAL_SECONDS=5` in `docker-compose.yml`
+  and restarted `backend` — the retry loop picked the row up on its next
+  tick, minted a **fresh** `PasswordResetToken` (confirmed a second,
+  new-token reset email arrived in Mailhog, distinct from the original
+  send), and flipped the row to `SENT`. Separately inserted a `FAILED` row
+  for a nonexistent email with `attempts=9`: the next tick pushed it to
+  `attempts=10`, `next_retry_at=NULL`, `error_message='User no longer
+  exists.'`, and a further tick left it untouched — confirming permanent
+  `FAILED` after the limit, exactly as requested. Cleaned up all test
+  rows/users, cleared Mailhog, reverted the temporary interval override in
+  `docker-compose.yml` (confirmed `git diff` is clean) and restarted
+  `backend` on the real 180s interval.
+
+---
+
+## Stage 7 — Password reset + email verification API
+
+Endpoints (per docs/api.md, snake_case):
+
+```
+POST /auth/password-reset/request
+POST /auth/password-reset/confirm
+POST /auth/verify-email/confirm
+```
+
+- [x] `api/schemas/password_reset_schemas.py` — `RequestPasswordResetRequest`
+      (`email`), `PasswordResetRequestedResponse`, `ConfirmPasswordResetRequest`
+      (`token`, `new_password` — same `Field(min_length=8, max_length=128)`
+      as registration, with `PasswordPolicy` enforced inside the use case for
+      actual strength), `PasswordResetConfirmedResponse`.
+- [x] `api/schemas/email_verification_schemas.py` —
+      `ConfirmEmailVerificationRequest` (`token`),
+      `EmailVerificationConfirmedResponse`.
+- [x] `api/dependencies/` — `get_request_password_reset_use_case` wires
+      `PasswordResetTokenRepository` + `UserRepository` + `EmailSender`
+      (via `get_email_sender`) into `RequestPasswordResetUseCase`;
+      `get_confirm_password_reset_use_case` wires `PasswordResetTokenRepository`
+      + `UserRepository` + `RefreshTokenRepository` + `BcryptPasswordHasher`
+      into `ConfirmPasswordResetUseCase`; `get_confirm_email_verification_use_case`
+      wires `EmailVerificationTokenRepository` + `UserRepository` into
+      `ConfirmEmailVerificationUseCase`. (`get_register_user_use_case` already
+      had its two new deps from Stage 4/5 — nothing left to update there.)
+- [x] `api/routers/auth_router.py` — both password-reset endpoints always
+      return `200` with a generic body on `request` (never reveals whether
+      the email exists); `confirm` endpoints → `AppException(BAD_REQUEST)`
+      on `InvalidPasswordResetTokenError`/`InvalidEmailVerificationTokenError`
+      (bundled with `UserNotFoundError`, since from the caller's perspective a
+      token whose user vanished is indistinguishable from an invalid token).
+- [x] `MeResponse` gained `email_verified: bool` — the natural way to expose
+      the field `ConfirmEmailVerificationUseCase` sets; nothing else surfaced
+      it, and both the API tests and the manual Docker verification below
+      rely on it to observe the flag flipping.
+
+**Added mid-stage per user request — `POST /auth/logout`:** the audit that
+kicked off Phase 8 also missed a logout endpoint. `LogoutCommand`/
+`LogoutUseCase` (`application/use_cases/logout_use_case.py`) revoke the
+given refresh token via the existing `RefreshTokenRepository.revoke()` —
+no new domain/infra needed, just a thin use case over what Stage 1-3
+already built. Idempotent by design: an unknown, garbage, or already-
+revoked/expired token is a silent no-op (200 either way), since the caller
+only cares that the token can no longer be used, which already holds.
+Only revokes the one session's refresh token — not a "log out everywhere"
+(that would need `revoke_all_for_user` + an authenticated caller instead of
+just a bearer refresh token); out of scope unless requested separately.
+
+Exit criteria: full API integration tests — password reset (request-unknown
+-email 200 + no email sent; request-known-email 200 + exactly one email
+sent; confirm-valid-token 200 + old password no longer works + old refresh
+token revoked; confirm-garbage-token → 400; confirm-already-used-token →
+400; confirm-weak-new-password → 400 exercising `PasswordPolicy` inside the
+use case, not just the schema's `min_length`) and email verification
+(register sends exactly one verification email; confirm-valid-token 200 +
+`GET /me`'s `email_verified` flips true; confirm-garbage-token → 400;
+confirm-already-used-token → 400) and logout (revokes the token so a
+subsequent refresh 401s; unknown token → 200; calling logout twice → 200
+both times; a second, unrelated session's refresh token survives). Expiry
+specifically isn't re-tested at the API level — it's already covered at the
+unit level (`test_confirm_password_reset_use_case.py`,
+`test_email_verification_token.py`) and the API's only added
+responsibility, mapping the same `Invalid*TokenError` to 400, is already
+exercised identically by the garbage/used-token cases.
+
+**Status: DONE.**
+
+- 21 new tests: `test_password_reset_api.py` (6), `test_email_verification_api.py`
+  (4), `test_logout_use_case.py` (3, fakes-only), `test_logout_api.py` (4, real
+  Postgres via the `client` fixture) — plus the pre-existing 4
+  `test_auth_me_api.py`/`test_auth_api.py` continuing to pass unchanged
+  with the new `email_verified` field added to `MeResponse`.
+- Real-Postgres API tests capture the raw one-time token by overriding only
+  the `get_email_sender` dependency with a shared `FakeEmailSender` per test
+  (everything else — repositories, use cases — stays wired to the real test
+  Postgres via the existing `client` fixture) — a new but narrow pattern:
+  override at the port boundary only, keep persistence real.
+- Full suite: 240 → **257 passed**.
+- Real Docker-stack verification: full round trip for all three flows via
+  curl + Mailhog's HTTP API — registered a user, fetched the verification
+  email, confirmed it, watched `GET /me`'s `email_verified` flip
+  `false → true`, confirmed a second confirm attempt 400s (used token);
+  requested a password reset, fetched the reset email, confirmed with a new
+  password, verified the old password now 401s on login, the new password
+  200s, and the pre-reset refresh token 401s on `/refresh` (revoked, per
+  `ConfirmPasswordResetUseCase`'s existing revoke-all behavior); logged in
+  again, called `/logout`, confirmed the refreshed token now 401s and a
+  second `/logout` call with the same token still returns 200. Cleaned up
+  the test user, its tokens/logs, and the Mailhog inbox afterwards.
+
+---
+
+## Stage 8 — Tests & docs sync
+
+- [x] `docs/https/user.http` — extended to a full 18-step flow: register →
+      login → `/me` → refresh → `/me` → reuse-old-refresh-token (401) →
+      fetch the verification email from Mailhog's HTTP API and extract the
+      token via JS regex in the request script (not a manual copy/paste
+      step) → confirm → `/me` (verified) → confirm again (400, used) →
+      logout → refresh after logout (401) → request password reset → fetch
+      + extract the reset token from Mailhog the same way → confirm → old
+      password fails (401) → new password works.
+- [x] `docs/https/conversation.http` — extended with archive → send-message-
+      to-archived (409) → get (still readable) → delete (204) →
+      get-after-delete (404).
+- [x] `docs/api.md` — documented `POST /auth/logout`,
+      `POST /auth/password-reset/request`, `POST /auth/password-reset/confirm`,
+      `POST /auth/verify-email/confirm`, `POST /conversations/{id}/archive`,
+      `DELETE /conversations/{id}`; updated `GET /auth/me`'s response body
+      with `email_verified`; added the previously-undocumented `409 CONFLICT`
+      to the messages endpoint's error list (archived-conversation case).
+- [x] `docs/architecture.md` — new "Secure one-time tokens", "EmailSender,
+      Mailhog, and the delivery log", and "Failed-email retry" subsections
+      under Identity Module; Conversation Module responsibilities/entities
+      updated for archive/delete; new "Shared Kernel (`backend/shared/`)"
+      subsection under Infrastructure Layer documenting `shared/security`
+      (`SecureToken`, `hash_password`/`verify_password`) and `shared/utils`
+      (`build_model_from_schema`/`build_example_from_schema`, moved from
+      the AI module's Ollama integration) — both promoted mid-conversation,
+      after Stage 7, per user request, once it was noticed those packages
+      already existed (scaffolded, empty) but nothing had ever used them.
+- [x] `docs/domain-model.md` — `PasswordResetToken`/`EmailVerificationToken`/
+      `EmailLog` entities documented (`User` gained `emailVerified`);
+      `PasswordChanged`/`EmailVerified` added to the Domain Events list and
+      the three new tables added to the PostgreSQL persistence mapping —
+      both pre-existing gaps from earlier stages, not new to Stage 8.
+- [x] `docs/auth-runbook.md` — rewritten: endpoint table now covers all 8
+      auth endpoints, `code` table gained `BAD_REQUEST`, local smoke test
+      extended with logout + the Mailhog-based password-reset/verification
+      steps, "Known MVP limitations" updated (password reset/verification
+      item removed since it's now shipped; added notes on logout being
+      single-session-only and the retry mechanism's fixed two purposes).
+- [x] `README.md` — `mailhog` added to the service table (with the web UI
+      note), the `.http` file table and business-goals/status sections
+      updated for logout/password-reset/verification/archive/delete, and
+      the `docker-compose.yml`/`shared/` one-liners in the repo tree synced.
+- [x] Roadmap status table updated (see the top-level Phase 8 line and this
+      file's own stage list).
+
+**Status: DONE.** Docs-only stage — no production code changed, full suite
+stays at the Stage 7 count (257 passed).
+
+---
+
+# Phase 9 - Meal Scheduling & Calendar Export
+
+Pre-frontend feature request: a calendar-style view where an AI-generated
+diet plan's meals show up like calendar appointments (day + time), with
+the user able to drag/edit individual meal times afterward; a weekly
+"obligations" schedule (work/training hours) on the profile that feeds the
+diet-plan prompt so generation builds around real commitments; CSV export
+of a plan; and date-range filtering of plan history for a profile "plans"
+tab. Resolved as a hybrid: **AI suggests times, user can edit them
+afterward** (not purely AI-fixed, not purely manual). Plan history
+filtering is a user-chosen display range, **not** a retention/auto-delete
+policy — nothing gets deleted in the background.
+
+Confirmed via a module survey before writing this plan: none of this
+exists today. `Meal` has exactly 5 fields (name/calories/protein/carbs/fat,
+frozen dataclass, no time); `DietDay` only has a relative `day_number`, no
+calendar date; `DietPlan` has no mutator at all (`create()` only — this
+phase adds its first-ever in-place update capability); `NutritionProfile`
+has no schedule concept; `ListDietPlansUseCase`/`DietPlanRepository` take
+no filter params of any kind.
+
+`modules/nutrition/domain/` structure being extended (file paths, for
+reference across all 6 stages):
+
+```
+domain/value_objects/meal.py                  — Meal (add `time`)
+domain/value_objects/diet_day.py              — DietDay (day_number, meals)
+domain/entities/diet_plan.py                  — DietPlan (add reschedule_meal(), updated_at)
+domain/entities/nutrition_profile.py          — NutritionProfile (add weekly_obligations)
+domain/repositories/diet_plan_repository.py   — add date-range params to list_by_user_id
+modules/ai/application/diet_plan_prompt_builder.py — build()/build_schema()
+```
+
+---
+
+## Stage 1 — Weekly obligations schedule on NutritionProfile
+
+`domain/value_objects/weekly_obligation.py` (NEW):
+- [x] `WeeklyObligation` (frozen dataclass): `day_of_week` (new `DayOfWeek`
+      StrEnum, MON..SUN), `start_time: time`, `end_time: time`, `label: str`.
+      Validates `end_time > start_time` and non-empty `label`, raising a
+      new `InvalidWeeklyObligationError` (nutrition domain error base).
+
+`domain/entities/nutrition_profile.py`:
+- [x] `NutritionProfile` gains `weekly_obligations: tuple[WeeklyObligation, ...] = ()`.
+- [x] `update()` gains `weekly_obligations: tuple[WeeklyObligation, ...] | None = None`
+      — same "`None` means keep current value" partial-update convention
+      already used for every other field here; `()` (explicit clear) and
+      `None` (no change) are distinguishable, so clearing the schedule
+      entirely is still possible.
+- [x] `as_prompt_text()` appends a "weekly commitments" clause when
+      obligations exist (empty schedule → output unchanged from today).
+
+`application/dto/nutrition_profile_dto.py`:
+- [x] `CreateNutritionProfileCommand`/`UpdateNutritionProfileCommand` gain
+      `weekly_obligations` as a tuple of `WeeklyObligationInput` at the DTO
+      boundary (day/start/end/label strings — same "raw strings in, domain
+      enums/value objects out" pattern already used for
+      `activity_level`/`goal`/`diet_type`, with `.to_domain()` doing the
+      conversion); `NutritionProfileResult` gains
+      `tuple[WeeklyObligationResult, ...]` for round-tripping to the API layer.
+
+`infrastructure/`:
+- [x] `documents/nutrition_profile_document.py` — new `WeeklyObligationEmbed`
+      sub-document + `weekly_obligations: list[...]` field on
+      `NutritionProfileDocument`.
+- [x] `mappers/nutrition_profile_mapper.py` — both directions updated
+      explicitly (this mapper is a manual field-by-field one, unlike
+      `DietPlanMapper`'s `dataclasses.asdict`/`**`-based auto-propagation).
+
+`api/schemas/nutrition_schemas.py`:
+- [x] `CreateNutritionProfileRequest`/`UpdateNutritionProfileRequest`/
+      `NutritionProfileResponse` gain `weekly_obligations` (`WeeklyObligationRequest`
+      uses native Pydantic `time` fields, so a malformed time string 422s at
+      the schema layer for free). `profile_router.py` also gained an
+      `except InvalidWeeklyObligationError` → 400 in both `create_profile`
+      and `update_profile` — a genuine gap, not pre-existing: unlike the
+      numeric age/height/weight fields (whose domain ranges are already
+      covered by the schema's own `Field(ge=..., le=...)`, making the
+      domain-level `InvalidNutritionProfileError` practically unreachable
+      via the API), "`end_time` after `start_time`" has no equivalent
+      simple Pydantic field constraint, so the domain error is the only
+      thing catching it and needed an explicit handler.
+
+Exit criteria: unit tests for `WeeklyObligation` validation and
+`NutritionProfile.update()`'s obligations handling (including the
+None-vs-empty-tuple distinction); API integration tests — create/update a
+profile with obligations, `GET /profile` returns them, invalid time range →
+400; a real-Mongo repository test confirming round-trip; verified on the
+real Docker stack (Mongo) that a profile with several obligations persists
+and round-trips correctly via curl + a direct `mongosh` check.
+
+**Status: DONE.**
+
+- New tests: `test_weekly_obligation.py` (5), `test_nutrition_profile_entity.py`
+  gained 7 obligations-related cases, `test_nutrition_api.py` gained 6,
+  `test_mongo_nutrition_profile_repository.py` gained 1 (real-Mongo
+  round-trip). Full suite: 257 → **275 passed**.
+- Real Docker-stack verification: created a profile with two obligations
+  (MON work, WED training) via curl, confirmed the response and a
+  follow-up `GET` both echo them back correctly; confirmed via a direct
+  `mongosh` query against the dev Mongo that the document persisted with
+  the `weekly_obligations` array; `PUT` with an empty list correctly
+  cleared it (confirmed via response body); a second test user's `POST
+  /profile` with `start_time > end_time` correctly returned `400
+  BAD_REQUEST` with the domain's own message. Cleaned up all test data
+  (Mongo profiles, Postgres users) afterwards.
+
+---
+
+## Stage 2 — AI-suggested meal times + prompt integration + conflict clamping
+
+**Design decision, flagged transparently**: `DietDay.day_number` is
+relative (1, 2, 3...), with no calendar date of its own — but
+`weekly_obligations` are day-of-week based, so checking a meal for
+conflicts requires mapping `day_number` to an actual weekday. Resolved by
+treating `day_number = 1` as the plan's `created_at` date and counting
+forward — the natural reading of "generate my plan starting today." If
+this assumption is wrong for how plans actually get used, it's an easy
+one-line change (this stage is exactly where to redirect it).
+
+`domain/value_objects/meal.py`:
+- [x] `Meal` gains `time: datetime.time | None = None`. Still frozen —
+      rescheduling (Stage 3) reconstructs a new `Meal`, never mutates in
+      place. **Real bug hit and fixed while implementing**: writing this as
+      `from datetime import time` + `time: time | None = None` crashes at
+      class-definition time (`TypeError: unsupported operand type(s) for
+      |: 'NoneType' and 'NoneType'`) — a genuine CPython footgun: in a
+      class-body annotated assignment, the value (`None`) is bound to the
+      field name *before* the annotation expression is evaluated, so a
+      field literally named `time` with a bare `time` annotation resolves
+      against the value just assigned, not the imported type. Fixed by
+      `import datetime` + `time: datetime.time | None = None` (qualified
+      reference, doesn't touch the shadowed bare name).
+- [x] New `domain/services/meal_scheduler.py` (new `domain/services/`
+      package for this module, mirroring identity's) — `MealScheduler`:
+      `resolve_weekday(plan_start_date, day_number)` (day 1 = start date)
+      and `clamp_meal_time(meal_time, weekday, weekly_obligations)` (the
+      conflict-clamping heuristic, bounded-iteration to handle back-to-back
+      same-day obligations without looping forever).
+
+`modules/ai/application/diet_plan_prompt_builder.py`:
+- [x] `build_schema()`'s meal item gains a `"time"` string property
+      (format `"HH:MM"`) — **not** added to `"required"`, so a small local
+      model (Ollama) omitting it doesn't hard-fail validation, consistent
+      with this module's documented small-model reliability findings
+      (see `docs/architecture.md` § Structured output). `_SYSTEM_PROMPT`
+      instructs the model to include a time and schedule around any weekly
+      commitments mentioned in the profile text.
+- [x] **Deviation from the original plan above**: no separate
+      `obligations_text` param was added to `build()`. Stage 1 already made
+      `NutritionProfile.as_prompt_text()` append the weekly-commitments
+      clause, and that text is already passed as `user_profile_text` — a
+      second explicit parameter would just duplicate the same information
+      in the prompt for no benefit. `_SYSTEM_PROMPT` alone now asks the
+      model to schedule around "any weekly commitments mentioned in the
+      user profile."
+
+`application/use_cases/generate_diet_plan_use_case.py`:
+- [x] New `_build_meal()` step: parses the AI's optional `"time"` string
+      (drops it silently on a malformed value rather than failing the
+      whole generation over a cosmetic field), resolves the meal's weekday
+      via `MealScheduler.resolve_weekday(plan_start_date, day_number)` using
+      `datetime.now(UTC).date()` as `plan_start_date`, and clamps via
+      `MealScheduler.clamp_meal_time()` against `profile.weekly_obligations`.
+
+`application/dto/diet_plan_dto.py` / `api/schemas/diet_plan_schemas.py` /
+`infrastructure/documents/diet_plan_document.py` / `infrastructure/mappers/diet_plan_mapper.py`:
+- [x] `MealResult`/`MealResponse` gain `time: str | None`. `MealEmbed` gains
+      `time: str | None` too — **also a deviation from the original plan**:
+      MongoDB/BSON has no native "time-of-day" type (only full datetimes),
+      so a native `datetime.time` field on `MealEmbed` isn't actually
+      persistable. This means `DietPlanMapper` could **not** keep its
+      previous `dataclasses.asdict`/`**model_dump()` auto-propagation
+      shortcut once `Meal.time` (a `datetime.time`) needed to become a
+      string for storage — both mapper directions were rewritten with
+      explicit per-field construction (`time.fromisoformat(...)` /
+      `.isoformat(timespec="minutes")`) instead.
+
+Exit criteria: unit tests for the conflict-clamp function (meal inside an
+obligation window gets shifted; a meal outside any window is untouched;
+back-to-back same-day obligations handled); `GenerateDietPlanUseCase`
+tested against a fake LLM provider returning a colliding time, asserting
+the returned plan's meal time is shifted away from it; verified on the
+real Docker stack with Ollama — generate a plan for a profile with
+obligations, confirm meals carry a `time` and none collide.
+
+**Status: DONE.**
+
+- New tests: `test_meal_scheduler.py` (6), `test_generate_diet_plan_use_case.py`
+  gained 5 (AI-time-kept, time-omitted-defaults-to-None,
+  collision-gets-clamped, non-colliding-time-untouched,
+  malformed-AI-time-dropped-not-fatal — the collision test obligates
+  *every* weekday identically so it's deterministic regardless of which
+  actual weekday the test runs on, given day 1 = today),
+  `test_mongo_diet_plan_repository.py` gained 2 (real-Mongo round-trip
+  with and without a meal time). Full suite: 275 → **288 passed**.
+- Real Docker-stack verification with real Ollama (`llama3.2:1b`): created
+  a profile with a 09:00–17:00 obligation on every day of the week,
+  generated a 2-day plan — the model returned meals at `06:00` and `17:00`
+  (both outside/at-the-boundary of the obligation window, so the model
+  itself already avoided the conflict; the clamping logic's correctness
+  under an actual collision is proven deterministically by the unit tests
+  above, since a real LLM's output can't be forced to collide on demand).
+  Confirmed via a follow-up `GET` and a direct `mongosh` query that the
+  `time` strings persisted correctly. Cleaned up all test data (Mongo
+  profiles/plans, Postgres user) afterwards.
+
+---
+
+## Stage 3 — Editable meal schedule (the "calendar" mutation API)
+
+`domain/entities/diet_plan.py`:
+- [x] `DietPlan` gains `updated_at` (first mutation ever on this aggregate
+      — previously fully immutable post-generation, so there was nothing
+      to timestamp; now genuinely meaningful). Defaulted on the Beanie
+      document (unlike `created_at`) so plans generated before this stage
+      still parse without a backfill migration.
+- [x] New `reschedule_meal(day_number: int, meal_name: str, new_time: time) -> None`
+      — locates the day/meal, rebuilds the `Meal`/`DietDay`/`days` tuple
+      chain with the new time via `dataclasses.replace` (everything here is
+      frozen/immutable value objects, so this is reconstruction, not
+      in-place mutation), raises the new `MealNotFoundError` for an unknown
+      `day_number`/`meal_name` pair (added to `diet_plan_domain_errors.py`).
+
+`application/`:
+- [x] New `RescheduleMealCommand(user_id, plan_id, day_number, meal_name, new_time)`
+      — `new_time` is a native `datetime.time`, not a string: unlike
+      `NutritionProfile`'s Create/Update commands (which stringify
+      enums/times because those DTOs also need to survive round-tripping
+      through API-facing Result types), this is a one-shot command with no
+      such requirement, so the native type is simpler.
+- [x] New `RescheduleMealUseCase(diet_plan_repository)` — loads the plan
+      (same not-found-vs-not-yours 404 pattern as everywhere else), calls
+      `plan.reschedule_meal(...)`, saves. `DietPlanResult`/`DietPlanResponse`
+      both gained `updated_at` alongside this.
+
+`api/routers/diet_plan_router.py`:
+- [x] New `PATCH /diet-plans/{diet_plan_id}/meals` (body:
+      `day_number`, `meal_name`, `new_time`) → updated `DietPlanResponse`.
+      `DietPlanNotFoundError` → 404 (plan not found/not yours);
+      `MealNotFoundError` → 400 (the plan exists, but that day/meal
+      doesn't) — a deliberate split between "the resource doesn't exist"
+      (404) and "a sub-part of an existing resource doesn't exist" (400),
+      matching the `InvalidWeeklyObligationError` precedent from Stage 1.
+
+Exit criteria: unit tests for `reschedule_meal` (happy path, unknown day,
+unknown meal, `updated_at` bump, sibling meals/days untouched); use-case
+tests (happy path + persistence, not-found, not-yours, unknown meal);
+API integration test on the real Mongo-backed stack — generate a plan,
+reschedule one meal, `GET` the plan again and confirm only that meal's
+time changed; verified on the real Docker stack.
+
+**Status: DONE.**
+
+- New tests: `test_diet_plan_entity.py` gained 6 (`updated_at`-equals-
+  `created_at` on create, reschedule happy path, sibling-meals-untouched,
+  `updated_at` bump, unknown-day, unknown-meal), `test_reschedule_meal_use_case.py`
+  (5, fakes-only: happy path, persistence, unknown plan, non-owner, unknown
+  meal), `test_diet_plan_api.py` gained 4 (real Mongo via `client`: happy
+  path + only-that-meal-changed, unknown plan → 404, other-user's plan →
+  404, unknown meal → 400). Full suite: 288 → **303 passed**.
+- Real Docker-stack verification with real Ollama: generated a 2-day plan
+  (this run, the model omitted `time` entirely for every meal — still
+  handled gracefully, all `null`); rescheduled day 1's "Breakfast" to
+  `07:30` via `PATCH` — response and a follow-up `GET` both confirm only
+  that exact meal changed (day 1's "Snack" and day 2's "Breakfast", same
+  name but a different day, both stayed untouched), `updated_at` moved
+  past `created_at`; confirmed the unknown-meal case returns `400
+  BAD_REQUEST` with the domain's own message. Cleaned up all test data
+  (Mongo plans/profiles, Postgres user) afterwards.
+
+---
+
+## Stage 4 — CSV export, archived to SFTP
+
+**Scope changed mid-stage, per user request**: originally planned as a
+stateless `GET .../export` that just serializes and returns CSV on the
+fly. Revised so every export is durably archived on an SFTP server (not
+just generated on demand) — the actual value being: a user can come back
+later and re-download a previously generated export without regenerating
+it. This turned a one-route serializer into new domain/application/
+infrastructure layers, mirroring how `EmailSender`/Mailhog were built in
+Phase 8 (a swappable port + a real local dev target via Docker Compose).
+
+`domain/`:
+- [x] New `entities/diet_plan_export.py` — `DietPlanExport` (id, user_id,
+      diet_plan_id, filename, created_at). No domain validation needed
+      beyond construction — the filename is server-generated, not user input.
+- [x] New `repositories/diet_plan_export_repository.py` —
+      `DietPlanExportRepository` port: `save`, `get_by_id`,
+      `list_by_diet_plan_id`.
+
+`application/`:
+- [x] New `ports/sftp_client.py` — `SftpClient` port (`upload`, `download`),
+      identity's `EmailSender` shape (a swappable external-delivery port).
+- [x] `csv_export.py` (moved here from a first draft under `api/` once the
+      SFTP pivot meant a *use case*, not just a router, needed to build the
+      CSV — application code can't depend on the API layer).
+      `build_diet_plan_csv(DietPlanResult) -> str`: day_number, date
+      (plan `created_at` + `day_number`, same assumption as Stage 2), time,
+      meal name, calories, protein, carbohydrates, fat.
+- [x] New `ExportDietPlanUseCase` — loads the plan (not-found-vs-not-yours),
+      builds the CSV, uploads it under a per-export filename
+      (`{plan_id}-{random suffix}.csv` — a plan can be exported more than
+      once, e.g. after a reschedule, and each export is its own archived
+      file, not an overwrite), records a `DietPlanExport`.
+- [x] New `ListDietPlanExportsUseCase` / `DownloadDietPlanExportUseCase` —
+      the latter fetches the file from SFTP by the export's stored filename;
+      ownership is checked against *both* the export and the plan id in the
+      URL, not just the export.
+
+`infrastructure/`:
+- [x] `sftp/asyncssh_sftp_client.py` — real delivery via `asyncssh`
+      (matches this stack's async-everywhere convention: Mongo, Postgres,
+      SMTP). `known_hosts=None` — acceptable for a local/throwaway dev
+      target, would need host key pinning for a real external one.
+- [x] `sftp/mock_sftp_client.py` + `sftp_client_factory.py` — `SFTP_PROVIDER`
+      setting (`mock` default / `sftp` for docker-compose.yml), mirroring
+      `EMAIL_PROVIDER`. The mock is constructed fresh per request (same as
+      `MockEmailSender`) so it does **not** actually persist uploads across
+      requests — documented in its own docstring, since that's the opposite
+      of this feature's entire point; it exists only so the app can boot
+      without a live SFTP connection, not to replicate the archive behavior.
+- [x] New Mongo collection `diet_plan_exports` (`DietPlanExportDocument` +
+      mapper + `MongoDietPlanExportRepository`), registered in `main.py`'s
+      `init_beanie_documents`.
+- [x] `docker-compose.yml` — new `sftp` service (`atmoz/sftp:alpine`,
+      user `dietai`/`dietai`, `upload` dir), analogous to Mailhog. Backend
+      depends on it via `service_healthy` (unlike Mailhog's `service_started`
+      — this image has a real shell, so a `nc -z 127.0.0.1 22` healthcheck
+      works).
+
+`api/`:
+- [x] `POST /diet-plans/{diet_plan_id}/export` → 201, `DietPlanExportResponse`
+      (metadata, not the file itself).
+- [x] `GET /diet-plans/{diet_plan_id}/exports` → 200, list of previous exports.
+- [x] `GET /diet-plans/{diet_plan_id}/exports/{export_id}/download` → 200,
+      `text/csv` with `Content-Disposition: attachment` — SFTP has no
+      presigned-URL equivalent, so the backend proxies: fetch server-side,
+      stream back over HTTP.
+
+**Test strategy, decided deliberately**: automated tests never touch a real
+SFTP server. Use-case tests get a plain `FakeSftpClient` (in-memory dict,
+`tests/fakes.py`) constructed once and reused across calls within a test —
+unlike the production `MockSftpClient`, this one *does* need to survive
+an export-then-download round trip inside a single test. API-level tests
+override just the `get_sftp_client` FastAPI dependency with a shared
+`FakeSftpClient` per test, the same pattern already used for
+`get_email_sender` in Phase 8 Stage 7 — real persistence is only verified
+manually against the real Docker stack's `atmoz/sftp` container, matching
+how Mailhog was never part of the automated suite either.
+
+Exit criteria: unit tests for the CSV serialization (header row, correct
+values, correct quoting for a comma in a meal name, date advancing with
+day_number); use-case tests for export/list/download (happy path,
+not-found, not-yours, exporting twice produces two distinct files); API
+integration tests for all three endpoints; verified on the real Docker
+stack — exported a real generated plan, confirmed the file physically
+exists on the `sftp` container's filesystem with byte-correct content,
+downloaded it back through the API and confirmed it matches exactly.
+
+**Status: DONE.**
+
+- New dependency: `asyncssh==2.24.0` (+ transitive `cryptography`, `cffi`,
+  `pycparser`) added to `requirements.txt`.
+- New tests: `test_csv_export.py` (6), `test_diet_plan_export_use_cases.py`
+  (9, fakes-only), `test_diet_plan_export_api.py` (8, real Mongo via
+  `client` + a shared `FakeSftpClient` override). Full suite:
+  303 → **326 passed**.
+- Real Docker-stack verification: registered a user, generated a real
+  Ollama-backed plan, `POST .../export` → 201 with export metadata;
+  confirmed via `docker compose exec sftp ls`/`cat` that the CSV file
+  physically landed in `/home/dietai/upload/` with the exact expected
+  content; `GET .../exports` listed it; `GET .../exports/{id}/download`
+  returned byte-identical content with the correct `Content-Disposition`
+  header; unknown export id on an existing plan → 404. Cleaned up all
+  test data (SFTP file, Mongo collections, Postgres user) afterwards.
+
+---
+
+## Stage 5 — Date-range filtering for plan history
+
+`domain/repositories/diet_plan_repository.py`:
+- [x] `list_by_user_id` gains optional `start_date: date | None = None`,
+      `end_date: date | None = None` — omitting both keeps today's
+      behavior exactly (backward compatible, no breaking change for any
+      existing caller).
+
+`infrastructure/repository/mongo_diet_plan_repository.py`:
+- [x] Adds `created_at` range clauses to the `find()` query when provided.
+      `end_date` uses an exclusive upper bound at the start of the *next*
+      day (`created_at < end_date + 1 day`), so the whole `end_date`
+      calendar day is included regardless of time-of-day.
+- [x] **Refinement over the original plan**: added a *compound*
+      `(user_id, created_at)` index, not a standalone `created_at` one —
+      every query already filters by `user_id` first, and Mongo can use a
+      compound index's leading prefix for the existing unfiltered
+      `list_by_user_id` calls too, so one index covers both cases. The old
+      `ix_diet_plans_user_id` index was manually dropped from the dev Mongo
+      after verification (Beanie doesn't auto-drop superseded indexes on
+      its own — noted here so it's not a mystery later).
+
+`application/dto/diet_plan_dto.py` / `use_cases/list_diet_plans_use_case.py`:
+- [x] `ListDietPlansQuery` gains `start_date`/`end_date`; use case forwards
+      them to the repository unchanged.
+
+`api/routers/diet_plan_router.py`:
+- [x] `GET /diet-plans` gains optional `from`/`to` query params (ISO date
+      strings) — implemented as `from_date`/`to_date` FastAPI parameters
+      with `Query(alias=...)`, since `from` is a reserved Python keyword
+      and can't be a parameter name directly. Validated (`from <= to` →
+      400 `BAD_REQUEST` otherwise). No deletion/retention logic anywhere in
+      this stage — purely an additive display filter, exactly as decided
+      when this feature was first scoped ("let the user pick the range").
+
+Exit criteria: unit/repository tests for date-range filtering (start only,
+end only, both bounds, end-date-inclusive-of-whole-day, no-filter still
+returns everything); use-case test with fakes; API integration test
+creating a plan and confirming `from`/`to` filter it in/out correctly
+around today's date, plus the `from > to` 400 case; verified on the real
+Docker stack.
+
+**Status: DONE.**
+
+- New tests: `test_mongo_diet_plan_repository.py` gained 6 (real Mongo:
+  start-only, end-only, both-bounds, end-date-inclusive, no-filter),
+  `test_diet_plan_query_use_cases.py` gained 1 (fakes), `test_diet_plan_api.py`
+  gained 6 (real Mongo via `client`: no-filter, from-future excludes,
+  from-today includes, to-past excludes, to-today includes, from-after-to
+  → 400). Full suite: 326 → **338 passed**.
+- Real Docker-stack verification: generated a real plan (created "today"),
+  confirmed via curl that no filter returns it, `from=tomorrow` excludes
+  it, `to=yesterday` excludes it, `from=today&to=today` includes it, and
+  `from=tomorrow&to=today` correctly 400s. Confirmed via `mongosh` that the
+  new compound index exists and manually dropped the now-redundant old
+  `ix_diet_plans_user_id` index. Cleaned up all test data afterwards.
+
+---
+
+## Stage 6 — Tests & docs sync
+
+- [x] `docs/https/nutrition.http` — extended to 14 steps: added
+      `weekly_obligations` to profile creation, a `GET` confirming they
+      round-trip, a `PUT` clearing them (`[]`), and a negative
+      `end_time <= start_time` → 400 case.
+- [x] `docs/https/diet-plan.http` — extended to 21 steps: profile creation
+      now includes a weekly obligation (so conflict-clamping is visible in
+      the generated plan), plus a reschedule-meal step (with a
+      `CHANGE_ME_FROM_STEP_7_RESPONSE` placeholder, since AI-generated meal
+      names aren't deterministic between runs), a reschedule-unknown-meal
+      400 case, export → list-exports → download-export, date-range
+      `from`/`to` filtering (+ its `from > to` 400 case), and a
+      second-user isolation check specifically for export/download (404
+      on both).
+- [x] `docs/api.md` — Nutrition Profile section: `weekly_obligations`
+      documented on all three endpoints + the domain-level 400 case. Diet
+      Plan section: `time`/`updated_at` on the generate response, new
+      `PATCH .../meals`, `GET /diet-plans`'s `from`/`to` query params +
+      400 case, and all three export endpoints
+      (`POST .../export`, `GET .../exports`, `GET .../exports/{id}/download`).
+- [x] `docs/architecture.md` — Nutrition Module rewritten with three new
+      subsections: "Weekly obligations & AI-suggested meal scheduling"
+      (the day-number-to-weekday assumption, conflict-clamping, and
+      `reschedule_meal()` as `DietPlan`'s one mutation), "CSV export,
+      archived to SFTP" (the `SftpClient` port mirroring `EmailSender`,
+      the mock-vs-real split, the deliberate fakes-only automated-test
+      strategy), and "Date-range filtering for plan history". Also fixed
+      two pieces of **pre-existing drift found during this pass**: a
+      stale `ollama/schema_validation.py` path reference (the file moved
+      to `shared/utils/` back in Phase 8) and the "Docker" section's
+      services list, which was still the original Phase 0 sparse draft
+      (`backend, frontend, postgres, mongodb`) and never reflected Ollama,
+      Mailhog, or now SFTP.
+- [x] `docs/domain-model.md` — `NutritionProfile` gained
+      `weekly_obligations` + a new `WeeklyObligation` value-object section;
+      `DietPlan`'s "immutable once generated, no `update()`" line corrected
+      (now has exactly one: `reschedule_meal()`) and gained `updated_at`;
+      `DietDay` documents the day-number-to-date assumption; `Meal` gained
+      `time`; new `DietPlanExport` entity section; `diet_plan_exports`
+      added to the MongoDB persistence-mapping list.
+- [x] `README.md` — six containers now (added `sftp`), `.http` file
+      descriptions updated, Business Goals and Current Project Status
+      updated, repo-tree one-liner synced.
+- [x] Roadmap status table updated (see the top-level Phase 9 line and
+      this file's own stage list).
+
+**Status: DONE.** Docs-only stage — no production code changed, full
+suite stays at the Stage 5 count (338 passed).
+
+**Addendum, added right after this stage per user request**: a
+machine-readable API doc, alongside the hand-written `api.md`. New
+`scripts/export_openapi.py` calls the live FastAPI app's `app.openapi()`
+(importing `backend.app.main` only constructs the app/registers routes —
+no lifespan, no real DB/AI-provider connection needed) and writes the full
+OpenAPI 3.1 schema to `docs/openapi.json` (21 endpoints as of this write).
+Committed as a point-in-time snapshot, not auto-regenerated on a schedule
+— re-run the script after any endpoint change so it doesn't quietly
+drift; `docs/api.md` gained a short section pointing to it and clarifying
+the division of labor (schema = exact shapes, `api.md` = the *why* behind
+each endpoint's behavior).
+
+---
+
+# Phase 10 - Frontend
 
 Goal:
 
@@ -1134,7 +2328,7 @@ Supplements
 
 ---
 
-# Phase 9 - Testing
+# Phase 11 - Testing
 
 Goal:
 
@@ -1187,7 +2381,7 @@ Receive AI Response
 
 ---
 
-# Phase 10 - Future Improvements
+# Phase 12 - Future Improvements
 
 Only after MVP.
 

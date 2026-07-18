@@ -1,15 +1,10 @@
-import bcrypt
-
 from backend.modules.identity.application.ports.password_hasher import PasswordHasher
+from backend.shared.security import hash_password, verify_password
 
 
 class BcryptPasswordHasher(PasswordHasher):
     def hash(self, plain_password: str) -> str:
-        hashed = bcrypt.hashpw(plain_password.encode("utf-8"), bcrypt.gensalt())
-        return hashed.decode("utf-8")
+        return hash_password(plain_password)
 
     def verify(self, plain_password: str, password_hash: str) -> bool:
-        return bcrypt.checkpw(
-            plain_password.encode("utf-8"),
-            password_hash.encode("utf-8"),
-        )
+        return verify_password(plain_password, password_hash)

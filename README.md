@@ -37,21 +37,23 @@ cd diet_ai
 docker compose up -d --build
 ```
 
-This builds the backend image and starts four containers:
+This builds the backend image and starts six containers:
 
-| Service   | Container         | Port  | Purpose                                             |
-|-----------|--------------------|-------|------------------------------------------------------|
-| `backend` | `diet_ai_backend`  | 8000  | FastAPI application                                  |
-| `db`      | `diet_ai_db`       | 5432  | PostgreSQL — Identity module                         |
-| `mongo`   | `diet_ai_mongo`    | 27017 | MongoDB — Conversation + Nutrition modules           |
-| `ollama`  | `diet_ai_ollama`   | 11434 | Local LLM — powers chat + diet-plan generation by default |
+| Service   | Container         | Port        | Purpose                                             |
+|-----------|--------------------|-------------|------------------------------------------------------|
+| `backend` | `diet_ai_backend`  | 8000        | FastAPI application                                  |
+| `db`      | `diet_ai_db`       | 5432        | PostgreSQL — Identity module                         |
+| `mongo`   | `diet_ai_mongo`    | 27017       | MongoDB — Conversation + Nutrition modules           |
+| `ollama`  | `diet_ai_ollama`   | 11434       | Local LLM — powers chat + diet-plan generation by default |
+| `mailhog` | `diet_ai_mailhog`  | 1025 / 8025 | Local SMTP catcher — password-reset/verification emails land here, not a real inbox. Web UI at http://localhost:8025 |
+| `sftp`    | `diet_ai_sftp`     | 2222        | Local SFTP server — diet-plan CSV exports are archived here so a user can re-download one later. User `dietai`/`dietai` |
 
 **First start takes a few minutes** — two things happen automatically, no action needed:
 
 - the `ollama` container pulls the `llama3.2:1b` model (~1.3 GB) on first boot; watch progress with `docker compose logs -f ollama`
 - the `backend` container waits for PostgreSQL, then runs Alembic migrations itself (`docker/entrypoint.sh`) before starting `uvicorn`
 
-`backend` won't start until `db`, `mongo`, and `ollama` all report healthy. Check status with:
+`backend` won't start until `db`, `mongo`, `ollama`, and `sftp` all report healthy. Check status with:
 
 ```bash
 docker compose ps
@@ -73,10 +75,16 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
 
 | File | Covers |
 |---|---|
-| `docs/https/user.http` | register → login → refresh → `/me` |
-| `docs/https/conversation.http` | create a conversation → chat with the AI → view history |
-| `docs/https/nutrition.http` | create/get/update a nutrition profile |
-| `docs/https/diet-plan.http` | generate a structured multi-day diet plan (needs a nutrition profile first) |
+| `docs/https/user.http` | register → login → refresh → logout → `/me`, plus email verification and password reset (reads the raw token straight out of Mailhog's API — no manual copy/paste) |
+| `docs/https/conversation.http` | create a conversation → chat with the AI → view history → archive → delete |
+| `docs/https/nutrition.http` | create/get/update a nutrition profile, including a weekly obligations schedule (work/training hours) |
+| `docs/https/diet-plan.http` | generate a plan → reschedule a meal's time → export to CSV → list/download previous exports → filter plan history by date |
+
+The email-related steps in `user.http` need `EMAIL_PROVIDER=smtp` (the
+`docker-compose.yml` default) so mail actually lands in Mailhog — see the
+service table above. The export steps in `diet-plan.http` need
+`SFTP_PROVIDER=sftp` (also the `docker-compose.yml` default) so the CSV
+actually lands on the `sftp` container.
 
 Or use `curl`/Swagger directly — the full request/response contract is documented in `docs/api.md`.
 
@@ -180,10 +188,15 @@ docker compose down -v    # stop containers AND delete volumes — fresh start n
 Allow users to:
 
 - register and authenticate
+- recover access via password reset and verify their email address
 - manage a personal nutrition profile
 - chat with AI for personalized nutrition advice
 - generate personalized, structured multi-day diet plans
-- browse conversation history
+- schedule diet-plan meals like calendar appointments — AI suggests a time
+  for each meal (scheduled around a weekly work/training schedule), the
+  user can reschedule any of them afterward
+- export a diet plan to CSV and re-download a previous export later
+- browse plan history filtered by date, and browse, archive, and delete conversation history
 - receive context-aware responses (chat and diet plans both use the user's nutrition profile)
 - generate nutrition reports (future)
 
@@ -201,6 +214,8 @@ Allow users to:
 | Nutrition Profile | ✅ |
 | Conversation + AI chat | ✅ |
 | Diet Plan Generation | ✅ |
+| Conversation Lifecycle & Account Recovery (archive/delete, logout, password reset, email verification) | ✅ |
+| Meal Scheduling & Calendar Export (weekly obligations, AI meal times, reschedule, CSV export/archive, date-range filtering) | ✅ |
 | Frontend | ⏳ |
 | Reporting | ⏳ |
 
@@ -356,7 +371,7 @@ diet_ai/
 ├── docker/                # entrypoint.sh (waits for Postgres, runs migrations, then execs uvicorn)
 │
 ├── Dockerfile
-├── docker-compose.yml       # dev stack: db, mongo, ollama, backend
+├── docker-compose.yml       # dev stack: db, mongo, ollama, mailhog, sftp, backend
 ├── docker-compose.test.yml  # ephemeral test stack, auto-managed by conftest.py
 ├── conftest.py
 ├── pytest.ini
@@ -375,7 +390,7 @@ backend/
 │
 ├── app/            # FastAPI app factory, lifespan, top-level router
 ├── modules/        # one folder per business module (see below)
-├── shared/         # cross-module infra: config, database clients, logging, exceptions, middleware
+├── shared/         # cross-module infra: config, database clients, logging, exceptions, middleware, security, utils
 ├── tests/          # shared/root-level tests (e.g. error format)
 ├── alembic/        # PostgreSQL migrations
 └── alembic.ini
@@ -574,7 +589,8 @@ Project documentation lives in `docs/`:
 |---|---|
 | `docs/architecture.md` | Module boundaries, persistence choices, AI provider architecture |
 | `docs/domain-model.md` | Bounded contexts, aggregates, entities, value objects, domain rules |
-| `docs/api.md` | Full REST API contract (all modules) |
+| `docs/api.md` | Full REST API contract (all modules), narrative/prose |
+| `docs/openapi.json` | Machine-generated OpenAPI 3.1 schema (`scripts/export_openapi.py`) — same schema served live at `/openapi.json`/`/docs` |
 | `docs/auth-runbook.md` | Auth error format + manual verification runbook |
 | `docs/implementation-roadmap.md` | Stage-by-stage build history for every phase, including verification notes |
 | `docs/https/*.http` | Runnable end-to-end request walkthroughs per module (see [Getting Started](#4-try-the-full-flow)) |

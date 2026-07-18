@@ -14,8 +14,10 @@ from backend.modules.identity.application import (
     RegisterUserUseCase,
 )
 from backend.modules.identity.tests.fakes import (
+    FakeEmailSender,
     FakePasswordHasher,
     FakeTokenService,
+    InMemoryEmailVerificationTokenRepository,
     InMemoryRefreshTokenRepository,
     InMemoryUserRepository,
 )
@@ -28,7 +30,9 @@ def _build_test_client() -> TestClient:
     tokens = FakeTokenService()
 
     def _override_register_uc() -> RegisterUserUseCase:
-        return RegisterUserUseCase(user_repo, hasher)
+        return RegisterUserUseCase(
+            user_repo, hasher, InMemoryEmailVerificationTokenRepository(), FakeEmailSender()
+        )
 
     def _override_login_uc() -> LoginUserUseCase:
         return LoginUserUseCase(user_repo, refresh_repo, hasher, tokens)

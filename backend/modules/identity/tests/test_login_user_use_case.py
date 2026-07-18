@@ -9,8 +9,10 @@ from backend.modules.identity.application import (
     UserNotFoundError,
 )
 from backend.modules.identity.tests.fakes import (
+    FakeEmailSender,
     FakePasswordHasher,
     FakeTokenService,
+    InMemoryEmailVerificationTokenRepository,
     InMemoryRefreshTokenRepository,
     InMemoryUserRepository,
 )
@@ -23,7 +25,9 @@ async def test_login_success() -> None:
     hasher = FakePasswordHasher()
     tokens = FakeTokenService()
 
-    register_uc = RegisterUserUseCase(repo, hasher)
+    register_uc = RegisterUserUseCase(
+        repo, hasher, InMemoryEmailVerificationTokenRepository(), FakeEmailSender()
+    )
     login_uc = LoginUserUseCase(repo, refresh_repo, hasher, tokens)
 
     await register_uc.execute(
@@ -69,7 +73,9 @@ async def test_login_invalid_credentials() -> None:
     hasher = FakePasswordHasher()
     tokens = FakeTokenService()
 
-    register_uc = RegisterUserUseCase(repo, hasher)
+    register_uc = RegisterUserUseCase(
+        repo, hasher, InMemoryEmailVerificationTokenRepository(), FakeEmailSender()
+    )
     login_uc = LoginUserUseCase(repo, refresh_repo, hasher, tokens)
 
     await register_uc.execute(

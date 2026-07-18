@@ -49,7 +49,9 @@ Content-Type: application/json
 }
 
 ### =========================
-### 4) Create nutrition profile (wymagany do generowania planu)
+### 4) Create nutrition profile (wymagany do generowania planu) —
+### z harmonogramem tygodniowym (Faza 9), żeby zobaczyć conflict-clamping
+### godzin posiłków w kroku 5.
 ### =========================
 POST {{baseUrl}}{{profilePrefix}}
 Authorization: Bearer {{access_token}}
@@ -61,7 +63,15 @@ Content-Type: application/json
   "weight_kg": 80,
   "activity_level": "HIGH",
   "goal": "MUSCLE_GAIN",
-  "diet_type": "VEGETARIAN"
+  "diet_type": "VEGETARIAN",
+  "weekly_obligations": [
+    {
+      "day_of_week": "MON",
+      "start_time": "09:00:00",
+      "end_time": "17:00:00",
+      "label": "Work"
+    }
+  ]
 }
 
 ### =========================
@@ -69,6 +79,8 @@ Content-Type: application/json
 ### z Ollama na małym modelu (llama3.2:1b) może potrwać ~30-60s).
 ### Uwaga: bez "requirements" — empirycznie dużo bardziej niezawodne na
 ### małym lokalnym modelu niż z requirements (patrz krok 5b niżej).
+### Każdy posiłek może mieć "time" zasugerowany przez AI (albo null —
+### model nie musi go podać) — patrz architecture.md § conflict-clamping.
 ### =========================
 # @name generatePlan
 POST {{baseUrl}}{{dietPlansPrefix}}/generate
@@ -107,19 +119,88 @@ GET {{baseUrl}}{{dietPlansPrefix}}
 Authorization: Bearer {{access_token}}
 
 ### =========================
-### 7) Get diet plan by id (pełen plan z posiłkami)
+### 7) Get diet plan by id (pełen plan z posiłkami, w tym "time"/"updated_at")
 ### =========================
 GET {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}
 Authorization: Bearer {{access_token}}
 
 ### =========================
-### 8) Negatywny test: brak tokena
+### 8) Reschedule godzinę posiłku (Faza 9) — PODMIEŃ "meal_name" poniżej na
+### faktyczną nazwę posiłku z odpowiedzi kroku 7 (nazwy generuje AI, więc nie
+### są stałe między uruchomieniami).
+### =========================
+PATCH {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}/meals
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "day_number": 1,
+  "meal_name": "CHANGE_ME_FROM_STEP_7_RESPONSE",
+  "new_time": "07:30:00"
+}
+
+### =========================
+### 9) Negatywny test: reschedule nieistniejącego posiłku
+### Oczekiwane: 400 + code BAD_REQUEST (dzień/posiłek nie w planie — plan sam
+### w sobie istnieje, więc to nie 404)
+### =========================
+PATCH {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}/meals
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "day_number": 1,
+  "meal_name": "Nonexistent meal",
+  "new_time": "07:30:00"
+}
+
+### =========================
+### 10) Export planu do CSV (Faza 9) — buduje CSV i wgrywa je na SFTP;
+### odpowiedź to metadane eksportu, nie sam plik (patrz krok 12).
+### =========================
+# @name exportPlan
+POST {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}/export
+Authorization: Bearer {{access_token}}
+
+> {%
+  client.global.set("export_id", response.body.export_id);
+%}
+
+### =========================
+### 11) Lista wcześniejszych eksportów tego planu
+### =========================
+GET {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}/exports
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 12) Pobranie wyeksportowanego CSV — backend proxy'uje plik z SFTP
+### (SFTP nie ma odpowiednika presigned URL)
+### =========================
+GET {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}/exports/{{export_id}}/download
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 13) Filtrowanie historii planów po dacie (Faza 9) — PODMIEŃ daty poniżej
+### na dzisiejszą datę (ISO, np. 2026-07-18), żeby zobaczyć dzisiejsze plany.
+### =========================
+GET {{baseUrl}}{{dietPlansPrefix}}?from=2026-07-18&to=2026-07-18
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 14) Negatywny test: "from" po "to"
+### Oczekiwane: 400 + code BAD_REQUEST
+### =========================
+GET {{baseUrl}}{{dietPlansPrefix}}?from=2026-07-19&to=2026-07-18
+Authorization: Bearer {{access_token}}
+
+### =========================
+### 15) Negatywny test: brak tokena
 ### Oczekiwane: 401 + code INVALID_ACCESS_TOKEN
 ### =========================
 GET {{baseUrl}}{{dietPlansPrefix}}
 
 ### =========================
-### 9) Negatywny test: nieprawidłowy duration_days (poza zakresem 1-14)
+### 16) Negatywny test: nieprawidłowy duration_days (poza zakresem 1-14)
 ### Oczekiwane: 422 + code VALIDATION_ERROR
 ### =========================
 POST {{baseUrl}}{{dietPlansPrefix}}/generate
@@ -131,14 +212,14 @@ Content-Type: application/json
 }
 
 ### =========================
-### 10) Negatywny test: nieistniejący plan
+### 17) Negatywny test: nieistniejący plan
 ### Oczekiwane: 404 + code NOT_FOUND
 ### =========================
 GET {{baseUrl}}{{dietPlansPrefix}}/00000000-0000-0000-0000-000000000000
 Authorization: Bearer {{access_token}}
 
 ### =========================
-### 11) Drugi użytkownik — register + login (do testu izolacji danych)
+### 18) Drugi użytkownik — register + login (do testu izolacji danych)
 ### =========================
 POST {{baseUrl}}{{authPrefix}}/register
 Content-Type: application/json
@@ -163,14 +244,25 @@ Content-Type: application/json
 %}
 
 ### =========================
-### 12) Negatywny test: drugi user nie widzi cudzego planu
+### 19) Negatywny test: drugi user nie widzi cudzego planu
 ### Oczekiwane: 404 + code NOT_FOUND (nie zdradzamy, że plan istnieje)
 ### =========================
 GET {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}
 Authorization: Bearer {{other_access_token}}
 
 ### =========================
-### 13) Negatywny test: drugi user widzi pustą listę własnych planów
+### 20) Negatywny test: drugi user widzi pustą listę własnych planów
 ### =========================
 GET {{baseUrl}}{{dietPlansPrefix}}
+Authorization: Bearer {{other_access_token}}
+
+### =========================
+### 21) Negatywny test: drugi user nie może eksportować/pobrać cudzego planu
+### Oczekiwane: 404 + code NOT_FOUND na obu
+### =========================
+POST {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}/export
+Authorization: Bearer {{other_access_token}}
+
+###
+GET {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}/exports/{{export_id}}/download
 Authorization: Bearer {{other_access_token}}

@@ -59,6 +59,34 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  # SMTP catcher for local dev — password-reset emails land here instead of a
+  # real inbox. No auth, no TLS. Web UI at http://localhost:8025.
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    container_name: diet_ai_mailhog
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI + API
+    restart: unless-stopped
+
+  # Local SFTP server — diet-plan CSV exports are archived here (see Phase 9
+  # Stage 4) so a user can re-download a previously generated export without
+  # regenerating it. "dietai:dietai:::upload" creates user dietai/password
+  # dietai with an "upload" dir that appears as /upload from the SFTP side
+  # (chrooted to the user's home).
+  sftp:
+    image: atmoz/sftp:alpine
+    container_name: diet_ai_sftp
+    ports:
+      - "2222:22"
+    command: ["dietai:dietai:::upload"]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 22"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -70,6 +98,10 @@ services:
       mongo:
         condition: service_healthy
       ollama:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+      sftp:
         condition: service_healthy
     environment:
       APP_ENV: dev
@@ -89,6 +121,18 @@ services:
       OLLAMA_MODEL: llama3.2:1b
       ANTHROPIC_API_KEY: ""
       ANTHROPIC_MODEL: claude-opus-4-8
+
+      EMAIL_PROVIDER: smtp
+      SMTP_HOST: mailhog
+      SMTP_PORT: "1025"
+      SMTP_FROM_ADDRESS: noreply@dietai.local
+
+      SFTP_PROVIDER: sftp
+      SFTP_HOST: sftp
+      SFTP_PORT: "22"
+      SFTP_USERNAME: dietai
+      SFTP_PASSWORD: dietai
+      SFTP_REMOTE_DIR: /upload
     ports:
       - "8000:8000"
     volumes:

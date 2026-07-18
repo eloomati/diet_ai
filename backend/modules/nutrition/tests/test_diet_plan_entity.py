@@ -1,3 +1,4 @@
+from datetime import time
 from uuid import uuid4
 
 import pytest
@@ -9,6 +10,7 @@ from backend.modules.nutrition.domain import (
     DietType,
     InvalidDietPlanError,
     Meal,
+    MealNotFoundError,
 )
 
 
@@ -65,3 +67,58 @@ def test_create_rejects_day_count_mismatch() -> None:
 def test_create_rejects_negative_macros(meal_overrides) -> None:
     with pytest.raises(InvalidDietPlanError):
         _create(duration_days=1, days=_days(1, **meal_overrides))
+
+
+def test_create_sets_updated_at_equal_to_created_at() -> None:
+    plan = _create()
+
+    assert plan.updated_at == plan.created_at
+
+
+def test_reschedule_meal_updates_only_the_target_meal() -> None:
+    plan = _create(duration_days=1, days=(DietDay(day_number=1, meals=(_meal(name="Oatmeal"),)),))
+
+    plan.reschedule_meal(day_number=1, meal_name="Oatmeal", new_time=time(8, 0))
+
+    assert plan.days[0].meals[0].time == time(8, 0)
+    assert plan.days[0].meals[0].name == "Oatmeal"
+    assert plan.days[0].meals[0].calories == 400
+
+
+def test_reschedule_meal_leaves_other_meals_and_days_untouched() -> None:
+    plan = _create(
+        duration_days=2,
+        days=(
+            DietDay(day_number=1, meals=(_meal(name="Oatmeal"), _meal(name="Lunch"))),
+            DietDay(day_number=2, meals=(_meal(name="Oatmeal"),)),
+        ),
+    )
+
+    plan.reschedule_meal(day_number=1, meal_name="Oatmeal", new_time=time(8, 0))
+
+    assert plan.days[0].meals[0].time == time(8, 0)
+    assert plan.days[0].meals[1].time is None
+    assert plan.days[1].meals[0].time is None
+
+
+def test_reschedule_meal_bumps_updated_at() -> None:
+    plan = _create(duration_days=1, days=(DietDay(day_number=1, meals=(_meal(),)),))
+    original_updated_at = plan.updated_at
+
+    plan.reschedule_meal(day_number=1, meal_name="Oatmeal", new_time=time(8, 0))
+
+    assert plan.updated_at >= original_updated_at
+
+
+def test_reschedule_meal_with_unknown_day_raises() -> None:
+    plan = _create(duration_days=1, days=(DietDay(day_number=1, meals=(_meal(),)),))
+
+    with pytest.raises(MealNotFoundError):
+        plan.reschedule_meal(day_number=99, meal_name="Oatmeal", new_time=time(8, 0))
+
+
+def test_reschedule_meal_with_unknown_meal_name_raises() -> None:
+    plan = _create(duration_days=1, days=(DietDay(day_number=1, meals=(_meal(),)),))
+
+    with pytest.raises(MealNotFoundError):
+        plan.reschedule_meal(day_number=1, meal_name="Nonexistent", new_time=time(8, 0))

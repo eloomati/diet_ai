@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date, time
 from uuid import UUID
 
 from backend.modules.nutrition.domain.entities.diet_plan import DietPlan
@@ -16,6 +17,8 @@ class GenerateDietPlanCommand:
 @dataclass(frozen=True, slots=True)
 class ListDietPlansQuery:
     user_id: UUID
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,12 +28,22 @@ class GetDietPlanQuery:
 
 
 @dataclass(frozen=True, slots=True)
+class RescheduleMealCommand:
+    user_id: UUID
+    plan_id: UUID
+    day_number: int
+    meal_name: str
+    new_time: time
+
+
+@dataclass(frozen=True, slots=True)
 class MealResult:
     name: str
     calories: float
     protein: float
     carbohydrates: float
     fat: float
+    time: str | None
 
     @classmethod
     def from_domain(cls, meal: Meal) -> "MealResult":
@@ -40,6 +53,7 @@ class MealResult:
             protein=meal.protein,
             carbohydrates=meal.carbohydrates,
             fat=meal.fat,
+            time=meal.time.isoformat(timespec="minutes") if meal.time else None,
         )
 
 
@@ -66,6 +80,7 @@ class DietPlanResult:
     requirements: tuple[str, ...]
     days: tuple[DietDayResult, ...]
     created_at: str
+    updated_at: str
 
     @classmethod
     def from_domain(cls, plan: DietPlan) -> "DietPlanResult":
@@ -78,6 +93,7 @@ class DietPlanResult:
             requirements=plan.requirements,
             days=tuple(DietDayResult.from_domain(day) for day in plan.days),
             created_at=plan.created_at.isoformat(),
+            updated_at=plan.updated_at.isoformat(),
         )
 
 

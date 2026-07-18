@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import date
 from uuid import UUID
 
 from backend.modules.nutrition.domain.entities.diet_plan import DietPlan
@@ -10,7 +11,12 @@ class DietPlanRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def list_by_user_id(self, user_id: UUID) -> list[DietPlan]:
+    async def list_by_user_id(
+        self,
+        user_id: UUID,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[DietPlan]:
         raise NotImplementedError
 
     @abstractmethod

@@ -3,7 +3,9 @@ from fastapi import Depends
 from backend.modules.ai.domain import LLMProvider
 from backend.modules.ai.infrastructure.provider_factory import get_llm_provider
 from backend.modules.conversation.application import (
+    ArchiveConversationUseCase,
     CreateConversationUseCase,
+    DeleteConversationUseCase,
     GetConversationHistoryUseCase,
     ListConversationsUseCase,
     SendMessageUseCase,
@@ -50,3 +52,15 @@ def get_send_message_use_case(
     nutrition_profile_repository: NutritionProfileRepository = Depends(get_nutrition_profile_repository),
 ) -> SendMessageUseCase:
     return SendMessageUseCase(repository, llm_provider, nutrition_profile_repository)
+
+
+def get_archive_conversation_use_case(
+    repository: ConversationRepository = Depends(get_conversation_repository),
+) -> ArchiveConversationUseCase:
+    return ArchiveConversationUseCase(repository)
+
+
+def get_delete_conversation_use_case(
+    repository: ConversationRepository = Depends(get_conversation_repository),
+) -> DeleteConversationUseCase:
+    return DeleteConversationUseCase(repository)
