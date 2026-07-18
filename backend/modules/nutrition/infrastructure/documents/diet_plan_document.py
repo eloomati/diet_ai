@@ -38,6 +38,14 @@ class DietPlanDocument(Document):
     class Settings:
         name = "diet_plans"
         # Not unique: unlike NutritionProfile, a user can have many diet plans.
+        # Compound (not just user_id): Stage 5 added date-range filtering on
+        # created_at, always alongside a user_id match — a plain user_id index
+        # still covers unfiltered list_by_user_id (Mongo can use a compound
+        # index's leading prefix), but the range clause benefits from
+        # created_at being indexed too.
         indexes = [
-            IndexModel([("user_id", ASCENDING)], name="ix_diet_plans_user_id"),
+            IndexModel(
+                [("user_id", ASCENDING), ("created_at", ASCENDING)],
+                name="ix_diet_plans_user_id_created_at",
+            ),
         ]

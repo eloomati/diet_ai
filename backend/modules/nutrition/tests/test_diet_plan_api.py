@@ -1,4 +1,5 @@
 import uuid
+from datetime import date, timedelta
 
 from fastapi.testclient import TestClient
 
@@ -97,6 +98,92 @@ def test_list_diet_plans_returns_only_own_plans(client: TestClient) -> None:
     assert len(response_a.json()) == 1
     assert response_b.status_code == 200
     assert response_b.json() == []
+
+
+def test_list_diet_plans_without_date_filters_returns_everything(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.nofilter")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    )
+
+    response = client.get("/api/v1/diet-plans", headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+def test_list_diet_plans_from_in_the_future_excludes_todays_plan(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.futurefrom")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    )
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+
+    response = client.get(
+        "/api/v1/diet-plans", params={"from": tomorrow}, headers=_auth_headers(token)
+    )
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_diet_plans_from_today_includes_todays_plan(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.fromtoday")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    )
+    today = date.today().isoformat()
+
+    response = client.get("/api/v1/diet-plans", params={"from": today}, headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+def test_list_diet_plans_to_in_the_past_excludes_todays_plan(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.pastto")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    )
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+
+    response = client.get("/api/v1/diet-plans", params={"to": yesterday}, headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_list_diet_plans_to_today_includes_todays_plan(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.totoday")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    )
+    today = date.today().isoformat()
+
+    response = client.get("/api/v1/diet-plans", params={"to": today}, headers=_auth_headers(token))
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+def test_list_diet_plans_from_after_to_returns_400(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.badrange")
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    today = date.today().isoformat()
+
+    response = client.get(
+        "/api/v1/diet-plans",
+        params={"from": tomorrow, "to": today},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "BAD_REQUEST"
 
 
 def test_get_diet_plan_returns_full_plan(client: TestClient) -> None:

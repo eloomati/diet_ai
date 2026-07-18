@@ -1,6 +1,7 @@
+from datetime import date
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from backend.modules.identity.api.dependencies import get_current_user
 from backend.modules.identity.domain import User
@@ -71,10 +72,21 @@ async def generate_diet_plan(
 
 @router.get("", response_model=list[DietPlanSummaryResponse], status_code=status.HTTP_200_OK)
 async def list_diet_plans(
+    from_date: date | None = Query(default=None, alias="from"),
+    to_date: date | None = Query(default=None, alias="to"),
     current_user: User = Depends(get_current_user),
     use_case: ListDietPlansUseCase = Depends(get_list_diet_plans_use_case),
 ) -> list[DietPlanSummaryResponse]:
-    results = await use_case.execute(ListDietPlansQuery(user_id=current_user.id))
+    if from_date is not None and to_date is not None and from_date > to_date:
+        raise AppException(
+            code=ErrorCode.BAD_REQUEST,
+            message="'from' must not be after 'to'.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    results = await use_case.execute(
+        ListDietPlansQuery(user_id=current_user.id, start_date=from_date, end_date=to_date)
+    )
     return [DietPlanSummaryResponse.from_result(result) for result in results]
 
 

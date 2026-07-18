@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import time
+from datetime import date, time
 from uuid import UUID
 
 from backend.modules.nutrition.domain.entities.diet_plan import DietPlan
@@ -17,6 +17,8 @@ class GenerateDietPlanCommand:
 @dataclass(frozen=True, slots=True)
 class ListDietPlansQuery:
     user_id: UUID
+    start_date: date | None = None
+    end_date: date | None = None
 
 
 @dataclass(frozen=True, slots=True)

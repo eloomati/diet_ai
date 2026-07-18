@@ -1,3 +1,4 @@
+from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 
 from backend.modules.nutrition.domain import DietPlan, DietPlanExport, NutritionProfile
@@ -21,8 +22,19 @@ class InMemoryDietPlanRepository:
     async def get_by_id(self, plan_id: UUID) -> DietPlan | None:
         return self._by_id.get(plan_id)
 
-    async def list_by_user_id(self, user_id: UUID) -> list[DietPlan]:
+    async def list_by_user_id(
+        self,
+        user_id: UUID,
+        start_date: date | None = None,
+        end_date: date | None = None,
+    ) -> list[DietPlan]:
         plans = [plan for plan in self._by_id.values() if plan.user_id == user_id]
+        if start_date is not None:
+            lower = datetime.combine(start_date, time.min, tzinfo=UTC)
+            plans = [plan for plan in plans if plan.created_at >= lower]
+        if end_date is not None:
+            upper = datetime.combine(end_date + timedelta(days=1), time.min, tzinfo=UTC)
+            plans = [plan for plan in plans if plan.created_at < upper]
         return sorted(plans, key=lambda plan: plan.created_at, reverse=True)
 
     async def save(self, plan: DietPlan) -> None:

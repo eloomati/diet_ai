@@ -2158,29 +2158,59 @@ downloaded it back through the API and confirmed it matches exactly.
 ## Stage 5 — Date-range filtering for plan history
 
 `domain/repositories/diet_plan_repository.py`:
-- [ ] `list_by_user_id` gains optional `start_date: date | None = None`,
+- [x] `list_by_user_id` gains optional `start_date: date | None = None`,
       `end_date: date | None = None` — omitting both keeps today's
       behavior exactly (backward compatible, no breaking change for any
       existing caller).
 
 `infrastructure/repository/mongo_diet_plan_repository.py`:
-- [ ] Adds `created_at` range clauses to the `find()` query when provided;
-      adds an index on `created_at` (currently unindexed — fine for today's
-      no-filter full scan, not for a range-filtered query going forward).
+- [x] Adds `created_at` range clauses to the `find()` query when provided.
+      `end_date` uses an exclusive upper bound at the start of the *next*
+      day (`created_at < end_date + 1 day`), so the whole `end_date`
+      calendar day is included regardless of time-of-day.
+- [x] **Refinement over the original plan**: added a *compound*
+      `(user_id, created_at)` index, not a standalone `created_at` one —
+      every query already filters by `user_id` first, and Mongo can use a
+      compound index's leading prefix for the existing unfiltered
+      `list_by_user_id` calls too, so one index covers both cases. The old
+      `ix_diet_plans_user_id` index was manually dropped from the dev Mongo
+      after verification (Beanie doesn't auto-drop superseded indexes on
+      its own — noted here so it's not a mystery later).
 
 `application/dto/diet_plan_dto.py` / `use_cases/list_diet_plans_use_case.py`:
-- [ ] `ListDietPlansQuery` gains `start_date`/`end_date`; use case forwards
+- [x] `ListDietPlansQuery` gains `start_date`/`end_date`; use case forwards
       them to the repository unchanged.
 
 `api/routers/diet_plan_router.py`:
-- [ ] `GET /diet-plans` gains optional `from`/`to` query params (ISO date
-      strings), validated (`from <= to`). No deletion/retention logic
-      anywhere in this stage — purely an additive display filter.
+- [x] `GET /diet-plans` gains optional `from`/`to` query params (ISO date
+      strings) — implemented as `from_date`/`to_date` FastAPI parameters
+      with `Query(alias=...)`, since `from` is a reserved Python keyword
+      and can't be a parameter name directly. Validated (`from <= to` →
+      400 `BAD_REQUEST` otherwise). No deletion/retention logic anywhere in
+      this stage — purely an additive display filter, exactly as decided
+      when this feature was first scoped ("let the user pick the range").
 
-Exit criteria: unit/repository tests for date-range filtering; API
-integration test creating plans and confirming the range filters
-correctly (including the omit-both-params case still returning
-everything); verified on the real Docker stack.
+Exit criteria: unit/repository tests for date-range filtering (start only,
+end only, both bounds, end-date-inclusive-of-whole-day, no-filter still
+returns everything); use-case test with fakes; API integration test
+creating a plan and confirming `from`/`to` filter it in/out correctly
+around today's date, plus the `from > to` 400 case; verified on the real
+Docker stack.
+
+**Status: DONE.**
+
+- New tests: `test_mongo_diet_plan_repository.py` gained 6 (real Mongo:
+  start-only, end-only, both-bounds, end-date-inclusive, no-filter),
+  `test_diet_plan_query_use_cases.py` gained 1 (fakes), `test_diet_plan_api.py`
+  gained 6 (real Mongo via `client`: no-filter, from-future excludes,
+  from-today includes, to-past excludes, to-today includes, from-after-to
+  → 400). Full suite: 326 → **338 passed**.
+- Real Docker-stack verification: generated a real plan (created "today"),
+  confirmed via curl that no filter returns it, `from=tomorrow` excludes
+  it, `to=yesterday` excludes it, `from=today&to=today` includes it, and
+  `from=tomorrow&to=today` correctly 400s. Confirmed via `mongosh` that the
+  new compound index exists and manually dropped the now-redundant old
+  `ix_diet_plans_user_id` index. Cleaned up all test data afterwards.
 
 ---
 

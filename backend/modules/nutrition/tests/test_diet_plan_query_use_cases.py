@@ -1,3 +1,4 @@
+from datetime import UTC, date, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -64,6 +65,27 @@ async def test_list_diet_plans_returns_only_own_plans() -> None:
 
     assert len(result) == 1
     assert result[0].duration_days == 2
+
+
+@pytest.mark.asyncio
+async def test_list_diet_plans_filters_by_date_range() -> None:
+    plan_repo = InMemoryDietPlanRepository()
+    profile_repo = InMemoryNutritionProfileRepository()
+    user_id = uuid4()
+    old = await _generate_plan(plan_repo, profile_repo, user_id, 1)
+    (await plan_repo.get_by_id(UUID(old.plan_id))).created_at = datetime(2026, 1, 1, tzinfo=UTC)
+
+    llm = FakeLLMProvider(canned_structured_response=_plan_dict(2))
+    recent = await GenerateDietPlanUseCase(plan_repo, profile_repo, llm).execute(
+        GenerateDietPlanCommand(user_id=user_id, duration_days=2)
+    )
+
+    result = await ListDietPlansUseCase(plan_repo).execute(
+        ListDietPlansQuery(user_id=user_id, start_date=date.today() - timedelta(days=1))
+    )
+
+    assert len(result) == 1
+    assert result[0].plan_id == recent.plan_id
 
 
 @pytest.mark.asyncio
