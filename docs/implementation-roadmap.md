@@ -2861,10 +2861,67 @@ and the selected conversation's URL both survive a full page reload, and
 switching between sidebar rows correctly re-navigates and re-highlights —
 clean console throughout.
 
-## Stage 2 — Chat window
+## Stage 2 — Chat window — DONE
 
-- [ ] `GET /conversations/{id}` (history) + `POST .../messages` (send +
-      AI response) wired to `ChatCanvas`.
+- [x] `GET /conversations/{id}` — `ChatCanvas` gained
+      `useQuery(['conversation', conversationId], ..., { retry: false,
+      enabled: !!conversationId })`; a 404/deleted conversation is a
+      permanent state, not worth retrying. This also closes the gap Stage 1
+      left on purpose: the header now shows the conversation's *real*
+      categories (fetched, not just locally-remembered) on every entry
+      point — fresh creation, a sidebar click, a direct URL visit, or a
+      full page reload — instead of the `Rozmowa #12345678` placeholder.
+- [x] `POST .../messages` — a `useMutation` that sends the composer's text,
+      then appends both the user message and the AI's reply straight into
+      the `['conversation', id]` query cache from the response (no refetch
+      needed): `SendMessageResponse` only returns ids + the assistant's
+      text, so the two `Message` objects are constructed client-side with
+      `new Date().toISOString()` for `created_at` — good enough for
+      immediate display; the next real fetch (e.g. a reload) gets the
+      server's authoritative timestamps anyway.
+- [x] `AppShell`'s local `activeCategories` state (and the
+      `onSuccess`/`onSelectConversation` code that maintained it) removed
+      entirely — now that `ChatCanvas` fetches its own conversation detail,
+      duplicating categories in two places was unnecessary. The one
+      remaining optimization: `AppShell`'s create-mutation still
+      pre-seeds `['conversation', id]` with `{ ...conversation, messages:
+      [] }` right after creation (a brand-new conversation always starts
+      with zero messages), so navigating to it never shows a loading flash.
+- [x] Message bubbles (`MessageBubble`): user messages right-aligned on
+      `bg-primary`, assistant left-aligned on `bg-card`, a `SYSTEM` role
+      rendered as small centered text (unused today, but the schema
+      allows it). A "Diet AI pisze odpowiedź…" line shows while the
+      mutation is in flight.
+- [x] 409 `CONFLICT` (archived conversation — full handling is Stage 3,
+      but the error needs *some* message now that sending is real) maps to
+      "Ta rozmowa jest zarchiwizowana — nie można już do niej pisać.";
+      anything else falls back to a generic retry message.
+
+**Real problems hit and fixed**: (1) jsdom has no `Element.scrollTo`, so
+the auto-scroll-to-latest-message effect crashed every test that reached
+the message list — guarded with `scrollRef.current?.scrollTo?.(...)`.
+(2) The first cut of `showHero` (`messages.length === 0`) hid the
+"pisze odpowiedź…" indicator for a brand-new conversation's first message,
+since `messages` only grows *after* the mutation succeeds — the hero
+would stay on screen through the entire wait with no feedback. Fixed by
+also gating on `sendMessageMutation.isIdle`, so hero disappears the
+instant a send starts. (3) That same condition then hid the *error* state
+for a conversation that failed to load (0 messages + never sent = looked
+identical to "genuinely empty") — fixed by also requiring
+`conversationQuery.isSuccess`, so hero only shows once the fetch is
+confirmed successful.
+
+Exit criteria met: 6 new `ChatCanvas.test.tsx` cases (hero with no
+conversation, hero for an empty freshly-created one, history render +
+send, archived-conversation error, failed-load error state, composer
+disabled while pending) plus updated `AppShell.test.tsx` cases; full suite
+49/49, `npm run build`/`npm run lint` green. Verified live against the
+real backend with `AI_PROVIDER=ollama` (not mocked) — sent a real message
+in an existing conversation, watched the "pisze odpowiedź…" indicator,
+got a genuine Ollama-generated reply rendered in a bubble, confirmed both
+messages survive a full page reload via `GET /conversations/{id}`, and
+confirmed the header now shows real fetched categories instead of the
+Stage 1 placeholder — clean console throughout.
 
 ## Stage 3 — Archive & delete
 

@@ -116,6 +116,17 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
           jsonResponse(201, { conversation_id: 'new-1', title: 'Dieta', categories: ['DIET'], status: 'ACTIVE' }),
         )
       }
+      if (url.includes('/conversations/new-1')) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            conversation_id: 'new-1',
+            title: 'Dieta',
+            categories: ['DIET'],
+            status: 'ACTIVE',
+            messages: [],
+          }),
+        )
+      }
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }

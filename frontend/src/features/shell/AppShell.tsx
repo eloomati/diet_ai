@@ -23,13 +23,18 @@ export function AppShell() {
   const [rightCollapsed, setRightCollapsed] = useState(false)
   const [authPopupOpen, setAuthPopupOpen] = useState(false)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
-  const [activeCategories, setActiveCategories] = useState<ConversationCategory[]>([])
 
   const createConversationMutation = useMutation({
     mutationFn: (categories: ConversationCategory[]) =>
       createConversation({ title: formatCategories(categories, CATEGORY_OPTIONS.length), categories }),
     onSuccess: (conversation) => {
-      setActiveCategories(conversation.categories)
+      // A freshly created conversation always has zero messages — pre-seed
+      // the detail query so ChatCanvas renders instantly instead of
+      // showing a loading flash right after navigating to it.
+      queryClient.setQueryData(['conversation', conversation.conversation_id], {
+        ...conversation,
+        messages: [],
+      })
       navigate(`/${conversation.conversation_id}`)
       void queryClient.invalidateQueries({ queryKey: ['conversations'] })
     },
@@ -57,7 +62,6 @@ export function AppShell() {
   }
 
   function handleSelectConversation(conversation: ConversationSummary) {
-    setActiveCategories(conversation.categories)
     navigate(`/${conversation.conversation_id}`)
   }
 
@@ -79,7 +83,6 @@ export function AppShell() {
         rightCollapsed={rightCollapsed}
         onExpandLeft={() => setLeftCollapsed(false)}
         onExpandRight={() => setRightCollapsed(false)}
-        activeCategories={activeCategories}
         conversationId={conversationId}
       />
 
