@@ -184,3 +184,57 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
     expect(await screen.findByText('Nie udało się utworzyć rozmowy. Spróbuj ponownie.')).toBeInTheDocument()
   })
 })
+
+describe('AppShell conversations (Etap 3 Stage 3 — archive & delete)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearTokens()
+  })
+
+  it('navigates back to the new-chat hero after deleting the open conversation', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    let conversationsListCalls = 0
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/auth/me')) {
+        return Promise.resolve(
+          jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true }),
+        )
+      }
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      if (init?.method === 'DELETE') {
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+      if (url.includes('/conversations/c1')) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            conversation_id: 'c1',
+            title: 'Dieta, Śniadanie',
+            categories: ['DIET', 'BREAKFAST'],
+            status: 'ACTIVE',
+            messages: [],
+          }),
+        )
+      }
+      if (url.endsWith('/conversations')) {
+        conversationsListCalls += 1
+        return Promise.resolve(jsonResponse(200, conversationsListCalls === 1 ? CONVERSATIONS : []))
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderApp(['/c1'])
+    await loginViaPopup(user)
+
+    await user.click(await screen.findByRole('button', { name: 'Usuń rozmowę' }))
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Usuń rozmowę' })).not.toBeInTheDocument())
+    expect(screen.getByText('Nowa rozmowa')).toBeInTheDocument()
+
+    const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'DELETE')
+    expect(deleteCall).toBeDefined()
+  })
+})

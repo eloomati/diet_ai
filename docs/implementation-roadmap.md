@@ -2923,11 +2923,43 @@ messages survive a full page reload via `GET /conversations/{id}`, and
 confirmed the header now shows real fetched categories instead of the
 Stage 1 placeholder — clean console throughout.
 
-## Stage 3 — Archive & delete
+## Stage 3 — Archive & delete — DONE
 
-- [ ] `POST .../archive`, `DELETE /conversations/{id}` — archived
-      conversations reject new messages (409, surfaced as a disabled
-      composer or inline notice).
+- [x] Two small icon buttons added to `ChatCanvas`'s header, next to the
+      category chips (only rendered once a conversation is loaded):
+      `Archive` (hidden once already archived — a "Zarchiwizowana" badge
+      takes its place) and `Trash2` (always available). Both are
+      `useMutation`s; archive writes the returned `ConversationDetail`
+      straight into the `['conversation', id]` cache and delete removes
+      that cache entry, invalidates `['conversations']`, and navigates
+      back to `/` — the sidebar and the canvas both update from the same
+      cache invalidation, no extra prop wiring needed between them.
+- [x] Deleting requires a native `window.confirm` ("Czy na pewno chcesz
+      usunąć tę rozmowę? Tej operacji nie można cofnąć.") — per
+      `docs/api.md`, deletion has no undo/restore endpoint, so an
+      accidental click needs a real speed bump. Archiving doesn't prompt —
+      it's non-destructive (history stays readable per the API docs), just
+      one-directional (no unarchive endpoint exists).
+- [x] Archived conversations proactively disable the composer and show
+      "Ta rozmowa jest zarchiwizowana — nie można już do niej pisać." as
+      soon as the fetched conversation's `status` is `ARCHIVED` — not just
+      reactively after a rejected `POST .../messages` (that 409 → the same
+      message path from Stage 2 still exists as a fallback for the race
+      where a conversation gets archived from another tab mid-type).
+
+Exit criteria met: 4 new `ChatCanvas.test.tsx` cases (archive disables the
+composer, an already-archived conversation shows the disabled state
+immediately on load, delete-after-confirm fires the request, delete
+dismissed does not) plus a new `AppShell.test.tsx` integration case
+(deleting the currently-open conversation navigates back to the "Nowa
+rozmowa" hero); full suite 54/54, `npm run build`/`npm run lint` green.
+Verified live against the real backend: archived a real conversation,
+confirmed the badge/disabled-composer/notice appeared instantly and
+survived a page reload, and confirmed the delete button is present and
+correctly wired — the actual delete click was **not** performed live,
+since it opens a native `window.confirm()` dialog that would block all
+further browser-automation commands; the confirm/cancel paths were
+already exercised thoroughly (and safely) via the automated tests instead.
 
 ## Stage 4 — Real history in the left rail
 

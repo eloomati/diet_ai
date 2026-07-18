@@ -1,11 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowUp, Menu, Sparkles } from 'lucide-react'
+import { Archive, ArrowUp, Menu, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { Button } from '@/components/ui/button'
 import { categoryEmoji } from '@/lib/categoryOptions'
 import { ApiError } from '@/lib/apiFetch'
-import { getConversation, sendMessage } from '@/api/conversations'
+import { archiveConversation, deleteConversation, getConversation, sendMessage } from '@/api/conversations'
 import type { ConversationCategory, ConversationDetail, Message } from '@/api/conversations'
 
 interface HeroChip {
@@ -36,9 +37,11 @@ const HERO_CHIPS: HeroChip[] = [
   },
 ]
 
+const ARCHIVED_NOTICE = 'Ta rozmowa jest zarchiwizowana — nie można już do niej pisać.'
+
 function sendErrorMessage(error: unknown): string {
   if (error instanceof ApiError && error.code === 'CONFLICT') {
-    return 'Ta rozmowa jest zarchiwizowana — nie można już do niej pisać.'
+    return ARCHIVED_NOTICE
   }
   return 'Nie udało się wysłać wiadomości. Spróbuj ponownie.'
 }
@@ -80,6 +83,7 @@ export function ChatCanvas({
   conversationId,
 }: ChatCanvasProps) {
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
   const [message, setMessage] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -129,6 +133,31 @@ export function ChatCanvas({
     sendMessageMutation.mutate(content)
   }
 
+  const archiveMutation = useMutation({
+    mutationFn: () => archiveConversation(conversationId!),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['conversation', conversationId], updated)
+      void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+    },
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => deleteConversation(conversationId!),
+    onSuccess: () => {
+      queryClient.removeQueries({ queryKey: ['conversation', conversationId] })
+      void queryClient.invalidateQueries({ queryKey: ['conversations'] })
+      navigate('/')
+    },
+  })
+
+  function handleDelete() {
+    if (window.confirm('Czy na pewno chcesz usunąć tę rozmowę? Tej operacji nie można cofnąć.')) {
+      deleteMutation.mutate()
+    }
+  }
+
+  const isArchived = conversationQuery.data?.status === 'ARCHIVED'
+
   // Once a send is in flight (or has completed), keep showing the message
   // list instead of snapping back to the hero — otherwise the "pisze
   // odpowiedź…" indicator for a brand-new conversation's first message
@@ -153,14 +182,39 @@ export function ChatCanvas({
         <div className="flex flex-wrap items-center justify-center gap-1.5">
           {conversationId ? (
             conversationQuery.data ? (
-              conversationQuery.data.categories.map((category) => (
-                <span
-                  key={category}
-                  className="rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold text-secondary-foreground"
+              <>
+                {conversationQuery.data.categories.map((category) => (
+                  <span
+                    key={category}
+                    className="rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold text-secondary-foreground"
+                  >
+                    {categoryEmoji(category)} {category}
+                  </span>
+                ))}
+                {isArchived && (
+                  <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-bold text-muted-foreground">
+                    Zarchiwizowana
+                  </span>
+                )}
+                {!isArchived && (
+                  <button
+                    onClick={() => archiveMutation.mutate()}
+                    disabled={archiveMutation.isPending}
+                    aria-label="Archiwizuj rozmowę"
+                    className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
+                  >
+                    <Archive className="size-3.5" />
+                  </button>
+                )}
+                <button
+                  onClick={handleDelete}
+                  disabled={deleteMutation.isPending}
+                  aria-label="Usuń rozmowę"
+                  className="rounded-full p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
                 >
-                  {categoryEmoji(category)} {category}
-                </span>
-              ))
+                  <Trash2 className="size-3.5" />
+                </button>
+              </>
             ) : conversationQuery.isError ? (
               <span className="text-[13.5px] font-bold text-destructive">Nie znaleziono rozmowy</span>
             ) : (
@@ -233,15 +287,19 @@ export function ChatCanvas({
           <span className="size-1.5 rounded-full bg-current" />
           Generuj plan
         </Button>
-        {sendMessageMutation.isError && (
-          <p className="text-[12.5px] font-bold text-destructive">{sendErrorMessage(sendMessageMutation.error)}</p>
+        {isArchived ? (
+          <p className="text-[12.5px] font-bold text-muted-foreground">{ARCHIVED_NOTICE}</p>
+        ) : (
+          sendMessageMutation.isError && (
+            <p className="text-[12.5px] font-bold text-destructive">{sendErrorMessage(sendMessageMutation.error)}</p>
+          )
         )}
         <div className="flex w-full max-w-xl items-center gap-2 rounded-full border border-border bg-card py-1.5 pr-1.5 pl-4.5 shadow-sm focus-within:border-primary">
           <input
             value={message}
             onChange={(event) => setMessage(event.target.value)}
             placeholder="Napisz wiadomość…"
-            disabled={sendMessageMutation.isPending}
+            disabled={isArchived || sendMessageMutation.isPending}
             className="flex-1 border-none bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground/70 disabled:opacity-60"
           />
           <Button
@@ -249,7 +307,7 @@ export function ChatCanvas({
             size="icon"
             className="size-8.5 rounded-full"
             aria-label="Wyślij"
-            disabled={!conversationId || !message.trim() || sendMessageMutation.isPending}
+            disabled={!conversationId || !message.trim() || isArchived || sendMessageMutation.isPending}
           >
             <ArrowUp className="size-4" />
           </Button>

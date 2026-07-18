@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ChatCanvas } from './ChatCanvas'
@@ -18,13 +19,15 @@ function renderCanvas(conversationId?: string) {
   const queryClient = new QueryClient()
   render(
     <QueryClientProvider client={queryClient}>
-      <ChatCanvas
-        leftCollapsed={false}
-        rightCollapsed={false}
-        onExpandLeft={noop}
-        onExpandRight={noop}
-        conversationId={conversationId}
-      />
+      <MemoryRouter>
+        <ChatCanvas
+          leftCollapsed={false}
+          rightCollapsed={false}
+          onExpandLeft={noop}
+          onExpandRight={noop}
+          conversationId={conversationId}
+        />
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -179,5 +182,115 @@ describe('ChatCanvas', () => {
       }),
     )
     await waitFor(() => expect(screen.queryByText('Diet AI pisze odpowiedź…')).not.toBeInTheDocument())
+  })
+
+  it('archives the conversation and disables the composer', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/archive')) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            conversation_id: 'c1',
+            title: 'Dieta',
+            categories: ['DIET'],
+            status: 'ARCHIVED',
+            messages: [{ id: 'm1', role: 'USER', content: 'Cześć', created_at: '2026-01-01T10:00:00Z' }],
+          }),
+        )
+      }
+      if (init?.method === undefined) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            conversation_id: 'c1',
+            title: 'Dieta',
+            categories: ['DIET'],
+            status: 'ACTIVE',
+            messages: [{ id: 'm1', role: 'USER', content: 'Cześć', created_at: '2026-01-01T10:00:00Z' }],
+          }),
+        )
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas('c1')
+
+    await user.click(await screen.findByRole('button', { name: 'Archiwizuj rozmowę' }))
+
+    expect(await screen.findByText('Zarchiwizowana')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Archiwizuj rozmowę' })).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Napisz wiadomość…')).toBeDisabled()
+    expect(
+      screen.getByText('Ta rozmowa jest zarchiwizowana — nie można już do niej pisać.'),
+    ).toBeInTheDocument()
+
+    const archiveCall = fetchMock.mock.calls.find(([url]) => (url as string).includes('/archive'))
+    expect(archiveCall).toBeDefined()
+  })
+
+  it('shows a disabled composer immediately for an already-archived conversation', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(200, {
+        conversation_id: 'c1',
+        title: 'Dieta',
+        categories: ['DIET'],
+        status: 'ARCHIVED',
+        messages: [{ id: 'm1', role: 'USER', content: 'Cześć', created_at: '2026-01-01T10:00:00Z' }],
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas('c1')
+
+    expect(await screen.findByText('Zarchiwizowana')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Archiwizuj rozmowę' })).not.toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Napisz wiadomość…')).toBeDisabled()
+  })
+
+  it('deletes the conversation after confirmation', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        return Promise.resolve(new Response(null, { status: 204 }))
+      }
+      if (init?.method === undefined) {
+        return Promise.resolve(
+          jsonResponse(200, { conversation_id: 'c1', title: 'Dieta', categories: ['DIET'], status: 'ACTIVE', messages: [] }),
+        )
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas('c1')
+
+    await user.click(await screen.findByRole('button', { name: 'Usuń rozmowę' }))
+
+    await waitFor(() => {
+      const deleteCall = fetchMock.mock.calls.find(([, i]) => i?.method === 'DELETE')
+      expect(deleteCall).toBeDefined()
+    })
+  })
+
+  it('does not delete the conversation when the confirmation is dismissed', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(false)
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === undefined) {
+        return Promise.resolve(
+          jsonResponse(200, { conversation_id: 'c1', title: 'Dieta', categories: ['DIET'], status: 'ACTIVE', messages: [] }),
+        )
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas('c1')
+
+    await user.click(await screen.findByRole('button', { name: 'Usuń rozmowę' }))
+
+    const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'DELETE')
+    expect(deleteCall).toBeUndefined()
   })
 })
