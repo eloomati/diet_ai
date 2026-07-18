@@ -7,6 +7,8 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ApiError } from '@/lib/apiFetch'
 import { useAuth } from '@/lib/auth'
 
+import { ForgotPasswordFlow } from './ForgotPasswordFlow'
+
 interface AuthPopupProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -29,6 +31,7 @@ function errorMessage(error: unknown): string {
 
 export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
   const { login, register } = useAuth()
+  const [view, setView] = useState<'credentials' | 'forgot-password'>('credentials')
   const [tab, setTab] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -36,6 +39,8 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
   const [submitting, setSubmitting] = useState(false)
 
   function resetForm() {
+    setView('credentials')
+    setTab('login')
     setEmail('')
     setPassword('')
     setError(null)
@@ -79,53 +84,70 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
       <DialogContent className="sm:max-w-sm">
         <DialogTitle className="sr-only">Logowanie</DialogTitle>
 
-        <Tabs value={tab} onValueChange={handleTabChange}>
-          <TabsList className="w-full">
-            <TabsTrigger value="login" className="flex-1">
-              Zaloguj się
-            </TabsTrigger>
-            <TabsTrigger value="register" className="flex-1">
-              Zarejestruj się
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {view === 'forgot-password' ? (
+          <ForgotPasswordFlow onBackToLogin={() => setView('credentials')} />
+        ) : (
+          <>
+            <Tabs value={tab} onValueChange={handleTabChange}>
+              <TabsList className="w-full">
+                <TabsTrigger value="login" className="flex-1">
+                  Zaloguj się
+                </TabsTrigger>
+                <TabsTrigger value="register" className="flex-1">
+                  Zarejestruj się
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
 
-        <form className="flex flex-col gap-2.5" onSubmit={handleSubmit}>
-          <div>
-            <label className="mb-1 block text-xs font-bold text-muted-foreground">E-mail</label>
-            <Input
-              type="email"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-              placeholder="ty@przyklad.pl"
-              required
-            />
-          </div>
-          <div>
-            <label className="mb-1 block text-xs font-bold text-muted-foreground">Hasło</label>
-            <Input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="••••••••"
-              minLength={8}
-              required
-            />
-          </div>
+            <form className="flex flex-col gap-2.5" onSubmit={handleSubmit}>
+              <div>
+                <label className="mb-1 block text-xs font-bold text-muted-foreground">E-mail</label>
+                <Input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="ty@przyklad.pl"
+                  required
+                />
+              </div>
+              <div>
+                <div className="mb-1 flex items-center justify-between">
+                  <label className="block text-xs font-bold text-muted-foreground">Hasło</label>
+                  {tab === 'login' && (
+                    <button
+                      type="button"
+                      onClick={() => setView('forgot-password')}
+                      className="text-xs font-bold text-muted-foreground hover:text-foreground"
+                    >
+                      Zapomniałeś hasła?
+                    </button>
+                  )}
+                </div>
+                <Input
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="••••••••"
+                  minLength={8}
+                  required
+                />
+              </div>
 
-          {error && <p className="text-[12.5px] font-bold text-destructive">{error}</p>}
+              {error && <p className="text-[12.5px] font-bold text-destructive">{error}</p>}
 
-          <Button type="submit" className="mt-1.5" disabled={submitting}>
-            {submitting ? 'Chwileczkę…' : tab === 'login' ? 'Zaloguj się' : 'Utwórz konto'}
-          </Button>
-        </form>
+              <Button type="submit" className="mt-1.5" disabled={submitting}>
+                {submitting ? 'Chwileczkę…' : tab === 'login' ? 'Zaloguj się' : 'Utwórz konto'}
+              </Button>
+            </form>
 
-        <button
-          onClick={() => handleOpenChange(false)}
-          className="text-center text-[12.5px] font-bold text-muted-foreground hover:text-foreground"
-        >
-          Kontynuuj jako gość →
-        </button>
+            <button
+              onClick={() => handleOpenChange(false)}
+              className="text-center text-[12.5px] font-bold text-muted-foreground hover:text-foreground"
+            >
+              Kontynuuj jako gość →
+            </button>
+          </>
+        )}
       </DialogContent>
     </Dialog>
   )
