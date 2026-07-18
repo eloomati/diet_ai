@@ -1,27 +1,38 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Response, status
 
 from backend.modules.identity.api.dependencies import get_current_user
 from backend.modules.identity.domain import User
 from backend.modules.nutrition.api.dependencies import (
     get_diet_plan_use_case,
+    get_download_diet_plan_export_use_case,
+    get_export_diet_plan_use_case,
     get_generate_diet_plan_use_case,
+    get_list_diet_plan_exports_use_case,
     get_list_diet_plans_use_case,
     get_reschedule_meal_use_case,
 )
 from backend.modules.nutrition.api.schemas import (
+    DietPlanExportResponse,
     DietPlanResponse,
     DietPlanSummaryResponse,
     GenerateDietPlanRequest,
     RescheduleMealRequest,
 )
 from backend.modules.nutrition.application import (
+    DietPlanExportNotFoundError,
     DietPlanNotFoundError,
+    DownloadDietPlanExportQuery,
+    DownloadDietPlanExportUseCase,
+    ExportDietPlanCommand,
+    ExportDietPlanUseCase,
     GenerateDietPlanCommand,
     GenerateDietPlanUseCase,
     GetDietPlanQuery,
     GetDietPlanUseCase,
+    ListDietPlanExportsQuery,
+    ListDietPlanExportsUseCase,
     ListDietPlansQuery,
     ListDietPlansUseCase,
     NutritionProfileNotFoundError,
@@ -116,3 +127,76 @@ async def reschedule_meal(
         ) from exc
 
     return DietPlanResponse.from_result(result)
+
+
+@router.post(
+    "/{diet_plan_id}/export", response_model=DietPlanExportResponse, status_code=status.HTTP_201_CREATED
+)
+async def export_diet_plan(
+    diet_plan_id: UUID,
+    current_user: User = Depends(get_current_user),
+    use_case: ExportDietPlanUseCase = Depends(get_export_diet_plan_use_case),
+) -> DietPlanExportResponse:
+    try:
+        result = await use_case.execute(
+            ExportDietPlanCommand(user_id=current_user.id, plan_id=diet_plan_id)
+        )
+    except DietPlanNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message=str(exc),
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+    return DietPlanExportResponse.from_result(result)
+
+
+@router.get(
+    "/{diet_plan_id}/exports",
+    response_model=list[DietPlanExportResponse],
+    status_code=status.HTTP_200_OK,
+)
+async def list_diet_plan_exports(
+    diet_plan_id: UUID,
+    current_user: User = Depends(get_current_user),
+    use_case: ListDietPlanExportsUseCase = Depends(get_list_diet_plan_exports_use_case),
+) -> list[DietPlanExportResponse]:
+    try:
+        results = await use_case.execute(
+            ListDietPlanExportsQuery(user_id=current_user.id, plan_id=diet_plan_id)
+        )
+    except DietPlanNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message=str(exc),
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+    return [DietPlanExportResponse.from_result(result) for result in results]
+
+
+@router.get("/{diet_plan_id}/exports/{export_id}/download", status_code=status.HTTP_200_OK)
+async def download_diet_plan_export(
+    diet_plan_id: UUID,
+    export_id: UUID,
+    current_user: User = Depends(get_current_user),
+    use_case: DownloadDietPlanExportUseCase = Depends(get_download_diet_plan_export_use_case),
+) -> Response:
+    try:
+        content = await use_case.execute(
+            DownloadDietPlanExportQuery(
+                user_id=current_user.id, plan_id=diet_plan_id, export_id=export_id
+            )
+        )
+    except DietPlanExportNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message=str(exc),
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+    return Response(
+        content=content.content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{content.filename}"'},
+    )

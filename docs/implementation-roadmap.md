@@ -2048,21 +2048,110 @@ time changed; verified on the real Docker stack.
 
 ---
 
-## Stage 4 — CSV export
+## Stage 4 — CSV export, archived to SFTP
 
-`api/routers/diet_plan_router.py`:
-- [ ] New `GET /diet-plans/{diet_plan_id}/export` — `text/csv` response,
-      `Content-Disposition: attachment; filename="diet-plan-{id}.csv"`.
-      Columns: day_number, date (derived the same way as Stage 2's
-      conflict-clamping — plan `created_at` + `day_number`), time, meal
-      name, calories, protein, carbohydrates, fat. Built from the existing
-      `GetDietPlanUseCase` result — no new domain/application layer needed,
-      just a serializer. Same not-found-vs-not-yours 404.
+**Scope changed mid-stage, per user request**: originally planned as a
+stateless `GET .../export` that just serializes and returns CSV on the
+fly. Revised so every export is durably archived on an SFTP server (not
+just generated on demand) — the actual value being: a user can come back
+later and re-download a previously generated export without regenerating
+it. This turned a one-route serializer into new domain/application/
+infrastructure layers, mirroring how `EmailSender`/Mailhog were built in
+Phase 8 (a swappable port + a real local dev target via Docker Compose).
 
-Exit criteria: unit test for the CSV serialization (header row, correct
-values, correct quoting if a meal name contains a comma); API integration
-test asserting content-type + body shape; verified via curl on the real
-Docker stack against a real generated plan.
+`domain/`:
+- [x] New `entities/diet_plan_export.py` — `DietPlanExport` (id, user_id,
+      diet_plan_id, filename, created_at). No domain validation needed
+      beyond construction — the filename is server-generated, not user input.
+- [x] New `repositories/diet_plan_export_repository.py` —
+      `DietPlanExportRepository` port: `save`, `get_by_id`,
+      `list_by_diet_plan_id`.
+
+`application/`:
+- [x] New `ports/sftp_client.py` — `SftpClient` port (`upload`, `download`),
+      identity's `EmailSender` shape (a swappable external-delivery port).
+- [x] `csv_export.py` (moved here from a first draft under `api/` once the
+      SFTP pivot meant a *use case*, not just a router, needed to build the
+      CSV — application code can't depend on the API layer).
+      `build_diet_plan_csv(DietPlanResult) -> str`: day_number, date
+      (plan `created_at` + `day_number`, same assumption as Stage 2), time,
+      meal name, calories, protein, carbohydrates, fat.
+- [x] New `ExportDietPlanUseCase` — loads the plan (not-found-vs-not-yours),
+      builds the CSV, uploads it under a per-export filename
+      (`{plan_id}-{random suffix}.csv` — a plan can be exported more than
+      once, e.g. after a reschedule, and each export is its own archived
+      file, not an overwrite), records a `DietPlanExport`.
+- [x] New `ListDietPlanExportsUseCase` / `DownloadDietPlanExportUseCase` —
+      the latter fetches the file from SFTP by the export's stored filename;
+      ownership is checked against *both* the export and the plan id in the
+      URL, not just the export.
+
+`infrastructure/`:
+- [x] `sftp/asyncssh_sftp_client.py` — real delivery via `asyncssh`
+      (matches this stack's async-everywhere convention: Mongo, Postgres,
+      SMTP). `known_hosts=None` — acceptable for a local/throwaway dev
+      target, would need host key pinning for a real external one.
+- [x] `sftp/mock_sftp_client.py` + `sftp_client_factory.py` — `SFTP_PROVIDER`
+      setting (`mock` default / `sftp` for docker-compose.yml), mirroring
+      `EMAIL_PROVIDER`. The mock is constructed fresh per request (same as
+      `MockEmailSender`) so it does **not** actually persist uploads across
+      requests — documented in its own docstring, since that's the opposite
+      of this feature's entire point; it exists only so the app can boot
+      without a live SFTP connection, not to replicate the archive behavior.
+- [x] New Mongo collection `diet_plan_exports` (`DietPlanExportDocument` +
+      mapper + `MongoDietPlanExportRepository`), registered in `main.py`'s
+      `init_beanie_documents`.
+- [x] `docker-compose.yml` — new `sftp` service (`atmoz/sftp:alpine`,
+      user `dietai`/`dietai`, `upload` dir), analogous to Mailhog. Backend
+      depends on it via `service_healthy` (unlike Mailhog's `service_started`
+      — this image has a real shell, so a `nc -z 127.0.0.1 22` healthcheck
+      works).
+
+`api/`:
+- [x] `POST /diet-plans/{diet_plan_id}/export` → 201, `DietPlanExportResponse`
+      (metadata, not the file itself).
+- [x] `GET /diet-plans/{diet_plan_id}/exports` → 200, list of previous exports.
+- [x] `GET /diet-plans/{diet_plan_id}/exports/{export_id}/download` → 200,
+      `text/csv` with `Content-Disposition: attachment` — SFTP has no
+      presigned-URL equivalent, so the backend proxies: fetch server-side,
+      stream back over HTTP.
+
+**Test strategy, decided deliberately**: automated tests never touch a real
+SFTP server. Use-case tests get a plain `FakeSftpClient` (in-memory dict,
+`tests/fakes.py`) constructed once and reused across calls within a test —
+unlike the production `MockSftpClient`, this one *does* need to survive
+an export-then-download round trip inside a single test. API-level tests
+override just the `get_sftp_client` FastAPI dependency with a shared
+`FakeSftpClient` per test, the same pattern already used for
+`get_email_sender` in Phase 8 Stage 7 — real persistence is only verified
+manually against the real Docker stack's `atmoz/sftp` container, matching
+how Mailhog was never part of the automated suite either.
+
+Exit criteria: unit tests for the CSV serialization (header row, correct
+values, correct quoting for a comma in a meal name, date advancing with
+day_number); use-case tests for export/list/download (happy path,
+not-found, not-yours, exporting twice produces two distinct files); API
+integration tests for all three endpoints; verified on the real Docker
+stack — exported a real generated plan, confirmed the file physically
+exists on the `sftp` container's filesystem with byte-correct content,
+downloaded it back through the API and confirmed it matches exactly.
+
+**Status: DONE.**
+
+- New dependency: `asyncssh==2.24.0` (+ transitive `cryptography`, `cffi`,
+  `pycparser`) added to `requirements.txt`.
+- New tests: `test_csv_export.py` (6), `test_diet_plan_export_use_cases.py`
+  (9, fakes-only), `test_diet_plan_export_api.py` (8, real Mongo via
+  `client` + a shared `FakeSftpClient` override). Full suite:
+  303 → **326 passed**.
+- Real Docker-stack verification: registered a user, generated a real
+  Ollama-backed plan, `POST .../export` → 201 with export metadata;
+  confirmed via `docker compose exec sftp ls`/`cat` that the CSV file
+  physically landed in `/home/dietai/upload/` with the exact expected
+  content; `GET .../exports` listed it; `GET .../exports/{id}/download`
+  returned byte-identical content with the correct `Content-Disposition`
+  header; unknown export id on an existing plan → 404. Cleaned up all
+  test data (SFTP file, Mongo collections, Postgres user) afterwards.
 
 ---
 

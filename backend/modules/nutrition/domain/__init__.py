@@ -1,4 +1,4 @@
-from .entities import DietPlan, NutritionProfile
+from .entities import DietPlan, DietPlanExport, NutritionProfile
 from .exceptions import (
     InvalidDietPlanError,
     InvalidNutritionProfileError,
@@ -6,13 +6,14 @@ from .exceptions import (
     MealNotFoundError,
     NutritionDomainError,
 )
-from .repositories import DietPlanRepository, NutritionProfileRepository
+from .repositories import DietPlanExportRepository, DietPlanRepository, NutritionProfileRepository
 from .services import MealScheduler
 from .value_objects import ActivityLevel, DayOfWeek, DietDay, DietGoal, DietType, Meal, WeeklyObligation
 
 __all__ = [
     "NutritionProfile",
     "DietPlan",
+    "DietPlanExport",
     "ActivityLevel",
     "DietGoal",
     "DietType",
@@ -23,6 +24,7 @@ __all__ = [
     "MealScheduler",
     "NutritionProfileRepository",
     "DietPlanRepository",
+    "DietPlanExportRepository",
     "NutritionDomainError",
     "InvalidNutritionProfileError",
     "InvalidWeeklyObligationError",

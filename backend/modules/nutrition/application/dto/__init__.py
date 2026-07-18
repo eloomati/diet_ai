@@ -8,6 +8,13 @@ from .diet_plan_dto import (
     MealResult,
     RescheduleMealCommand,
 )
+from .diet_plan_export_dto import (
+    DietPlanExportContent,
+    DietPlanExportResult,
+    DownloadDietPlanExportQuery,
+    ExportDietPlanCommand,
+    ListDietPlanExportsQuery,
+)
 from .nutrition_profile_dto import (
     CreateNutritionProfileCommand,
     GetNutritionProfileQuery,
@@ -32,4 +39,9 @@ __all__ = [
     "DietDayResult",
     "MealResult",
     "RescheduleMealCommand",
+    "ExportDietPlanCommand",
+    "ListDietPlanExportsQuery",
+    "DownloadDietPlanExportQuery",
+    "DietPlanExportResult",
+    "DietPlanExportContent",
 ]
