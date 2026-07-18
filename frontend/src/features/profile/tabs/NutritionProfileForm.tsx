@@ -2,7 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { createProfile, getProfile, updateProfile } from '@/api/profile'
-import type { ActivityLevel, DietType, Goal, NutritionProfile } from '@/api/profile'
+import type { ActivityLevel, DietType, Goal, NutritionProfile, WeeklyObligation } from '@/api/profile'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -22,6 +22,8 @@ import {
   goalLabel,
 } from '@/lib/profileOptions'
 
+import { WeeklyObligationsEditor } from './WeeklyObligationsEditor'
+
 interface FormState {
   age: string
   height_cm: string
@@ -29,6 +31,7 @@ interface FormState {
   activity_level: ActivityLevel
   goal: Goal
   diet_type: DietType
+  weekly_obligations: WeeklyObligation[]
 }
 
 const EMPTY_FORM: FormState = {
@@ -38,6 +41,7 @@ const EMPTY_FORM: FormState = {
   activity_level: 'MODERATE',
   goal: 'MAINTENANCE',
   diet_type: 'STANDARD',
+  weekly_obligations: [],
 }
 
 function toFormState(profile: NutritionProfile): FormState {
@@ -48,6 +52,7 @@ function toFormState(profile: NutritionProfile): FormState {
     activity_level: profile.activity_level,
     goal: profile.goal,
     diet_type: profile.diet_type,
+    weekly_obligations: profile.weekly_obligations,
   }
 }
 
@@ -84,6 +89,7 @@ export function NutritionProfileForm() {
       activity_level: ActivityLevel
       goal: Goal
       diet_type: DietType
+      weekly_obligations: WeeklyObligation[]
     }) => (hasProfile ? updateProfile(payload) : createProfile(payload)),
     onSuccess: (profile) => {
       queryClient.setQueryData(['profile'], profile)
@@ -99,6 +105,7 @@ export function NutritionProfileForm() {
       activity_level: form.activity_level,
       goal: form.goal,
       diet_type: form.diet_type,
+      weekly_obligations: form.weekly_obligations,
     })
   }
 
@@ -226,6 +233,14 @@ export function NutritionProfileForm() {
             ))}
           </SelectContent>
         </Select>
+      </div>
+
+      <div>
+        <label className="mb-1 block text-xs font-bold text-muted-foreground">Cotygodniowe zobowiązania</label>
+        <WeeklyObligationsEditor
+          value={form.weekly_obligations}
+          onChange={(obligations) => setForm((current) => ({ ...current, weekly_obligations: obligations }))}
+        />
       </div>
 
       {saveMutation.isError && (

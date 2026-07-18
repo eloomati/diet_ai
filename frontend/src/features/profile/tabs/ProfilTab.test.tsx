@@ -70,6 +70,9 @@ describe('ProfilTab', () => {
         emailVerified = true
         return Promise.resolve(jsonResponse(200, { message: 'Email verified successfully.' }))
       }
+      if (url.includes('/profile')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile yet' }))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -93,6 +96,9 @@ describe('ProfilTab', () => {
       }
       if (url.includes('/auth/login')) {
         return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      if (url.includes('/profile')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile yet' }))
       }
       return Promise.resolve(jsonResponse(200, {}))
     })
@@ -118,6 +124,9 @@ describe('ProfilTab', () => {
       if (url.includes('/verify-email/confirm')) {
         return Promise.resolve(jsonResponse(400, { code: 'BAD_REQUEST', message: 'invalid' }))
       }
+      if (url.includes('/profile')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile yet' }))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -139,6 +148,9 @@ describe('ProfilTab', () => {
         return Promise.resolve(
           jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true }),
         )
+      }
+      if (url.includes('/profile')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile yet' }))
       }
       return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
     })

@@ -2696,11 +2696,32 @@ profile, confirmed it survives a full page reload (`GET /profile`), then
 edited the weight and confirmed the `PUT /profile` request body and the
 "Zapisano ✓" confirmation, with a clean browser console throughout.
 
-## Stage 2 — Weekly obligations editor
+## Stage 2 — Weekly obligations editor — DONE
 
-- [ ] Editable list of `weekly_obligations` (day_of_week, start_time,
+- [x] Editable list of `weekly_obligations` (day_of_week, start_time,
       end_time, label) — the mockup shows these as read-only tag rows;
-      this stage makes them add/edit/remove.
+      this stage makes them add/edit/remove. New `WeeklyObligationsEditor`
+      (controlled `value`/`onChange`, lifted into `NutritionProfileForm`'s
+      form state) renders existing entries as removable rows and a small
+      add-row (day `<Select>`, two `<input type="time">`, a label input,
+      "Dodaj" button disabled until day/start/end/label are all filled
+      and `end_time > start_time`).
+- [x] `weekly_obligations` now included in both the create (`POST`) and
+      update (`PUT`) payloads — Stage 1 deliberately omitted it; this
+      stage closes that gap.
+- [x] Day-of-week Polish labels added to `profileOptions.ts`
+      (`DAY_OF_WEEK_OPTIONS` + `dayOfWeekLabel`), same shape as the
+      Stage 1 enum options. Time fields round-trip as plain `"HH:MM"`
+      strings — matches the backend's `time.fromisoformat`/
+      `isoformat(timespec="minutes")` on both ends, no seconds needed.
+
+Exit criteria met: 3 new `WeeklyObligationsEditor.test.tsx` tests (add
+clears the mini-form, disabled+hint when `end <= start`, remove) plus the
+existing `NutritionProfileForm` tests updated for the new field; full
+suite 36/36, `npm run build`/`npm run lint` green. Verified live against
+the real backend: added a Monday 09:00–17:00 "Praca" obligation, saved,
+reloaded the page and confirmed it survived (`GET /profile`), then removed
+it and saved an empty list back successfully — clean console throughout.
 
 ## Stage 3 — Validation & error states
 
