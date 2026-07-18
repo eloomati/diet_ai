@@ -2800,7 +2800,7 @@ failures noted above, not introduced by this Etap).
 
 ---
 
-# Etap 3 — Konwersacje/Chat
+# Etap 3 — Konwersacje/Chat — DONE (Stages 1-5/5)
 
 Goal: wire the chat canvas and left-rail history to
 `docs/api.md`'s Conversation API (`categories` is a list — see the
@@ -2994,7 +2994,31 @@ sorted above the older "Dieta, Fitness" one, and a fresh 4-category
 conversation showed exactly 2 tag chips + a "+2" badge — clean console
 throughout.
 
-## Stage 5 — Tests & docs sync
+## Stage 5 — Tests & docs sync — DONE
+
+- [x] Test coverage assembled across Stages 1-4 reviewed as a whole:
+      `AppShell.test.tsx` (9 cases — list/empty/create/error from Stage 1,
+      delete-navigates-to-hero from Stage 3), `ChatCanvas.test.tsx` (10
+      cases — hero/history/send/errors from Stage 2, archive/delete from
+      Stage 3), `LeftRail.test.tsx` (3 cases — tag chips, sorting, archived
+      styling, from Stage 4). No gaps found; no new tests added in this
+      stage beyond what each stage already covered as it was built.
+- [x] `docs/api.md`'s Conversation API section cross-checked against
+      `conversation_router.py`'s actual request/response/error handling
+      for all 6 endpoints (`POST/GET /conversations`, `GET/POST
+      .../messages`, `POST .../archive`, `DELETE /conversations/{id}`) —
+      status codes, error codes (`NOT_FOUND`, `CONFLICT`), and both enums
+      (`ConversationCategory`'s 8 values, `MessageRole`'s 3 values) diffed
+      directly against the domain value objects — no discrepancies found.
+- [x] Roadmap status updated (this section) — Etap 3 marked DONE.
+
+Exit criteria met: frontend suite 57/57, `npm run build`/`npm run lint`
+green; backend `conversation` module 54/54 (untouched this Etap — pure
+frontend work, confirmed via `git status backend/` staying empty
+throughout). Final live pass against the real backend (`AI_PROVIDER=ollama`,
+not mocked): fresh dev-server start with all three conversations from
+prior stages (`Zdrowie` archived, `Dieta, Fitness`, and the 4-category one
+with its "+2" badge) all rendering correctly together — clean console.
 
 ---
 
