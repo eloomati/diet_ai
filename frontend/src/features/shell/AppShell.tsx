@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 
 import { AuthPopup } from '@/features/auth/AuthPopup'
 import { ChatCanvas } from '@/features/chat/ChatCanvas'
@@ -11,6 +12,8 @@ import { RightRail } from './RightRail'
 
 export function AppShell() {
   const { isAuthenticated } = useAuth()
+  const { conversationId } = useParams<{ conversationId?: string }>()
+  const navigate = useNavigate()
 
   const [leftCollapsed, setLeftCollapsed] = useState(false)
   const [rightCollapsed, setRightCollapsed] = useState(false)
@@ -26,13 +29,20 @@ export function AppShell() {
     }
   }
 
+  function handleStartChat(categories: ConversationCategory[]) {
+    setActiveCategories(categories)
+    // A fresh chat has no id yet — drop any /:conversationId we were on.
+    // The real conversation gets created (and gets its own URL) in Etap 3.
+    navigate('/')
+  }
+
   return (
     <div className="flex h-dvh w-full bg-background text-foreground">
       {!leftCollapsed && (
         <LeftRail
           onProfileClick={handleProfileClick}
           onCollapse={() => setLeftCollapsed(true)}
-          onStartChat={setActiveCategories}
+          onStartChat={handleStartChat}
         />
       )}
 
@@ -42,6 +52,7 @@ export function AppShell() {
         onExpandLeft={() => setLeftCollapsed(false)}
         onExpandRight={() => setRightCollapsed(false)}
         activeCategories={activeCategories}
+        conversationId={conversationId}
       />
 
       {!rightCollapsed && <RightRail onCollapse={() => setRightCollapsed(true)} />}

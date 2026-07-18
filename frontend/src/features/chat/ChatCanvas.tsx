@@ -39,6 +39,8 @@ interface ChatCanvasProps {
   onExpandLeft: () => void
   onExpandRight: () => void
   activeCategories: ConversationCategory[]
+  /** From the /:conversationId route param — read here, not yet fetched (Etap 3). */
+  conversationId?: string
 }
 
 export function ChatCanvas({
@@ -47,6 +49,7 @@ export function ChatCanvas({
   onExpandLeft,
   onExpandRight,
   activeCategories,
+  conversationId,
 }: ChatCanvasProps) {
   const [message, setMessage] = useState('')
 
@@ -74,6 +77,10 @@ export function ChatCanvas({
                 {categoryEmoji(category)} {category}
               </span>
             ))
+          ) : conversationId ? (
+            <span className="font-mono text-[12.5px] font-bold text-muted-foreground">
+              Rozmowa #{conversationId.slice(0, 8)}
+            </span>
           ) : (
             <span className="text-[13.5px] font-bold text-muted-foreground">Nowa rozmowa</span>
           )}
