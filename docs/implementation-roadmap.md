@@ -2961,11 +2961,38 @@ since it opens a native `window.confirm()` dialog that would block all
 further browser-automation commands; the confirm/cancel paths were
 already exercised thoroughly (and safely) via the automated tests instead.
 
-## Stage 4 — Real history in the left rail
+## Stage 4 — Real history in the left rail — DONE
 
-- [ ] Replace Etap 0's placeholder history with the real
-      `GET /conversations` list (title + categories tag, matching the
-      mockup's "+N" overflow badge for 3+ categories).
+- [x] Replaced Stage 1's plain-text category subtitle with real per-category
+      tag chips (`ConversationRowTags`, new in `LeftRail.tsx`) — emoji +
+      Polish label per category (`categoryLabel`, new export in
+      `categoryOptions.ts`, mirroring the existing `categoryEmoji`), and a
+      "+N" overflow badge once a conversation has more than
+      `MAX_VISIBLE_TAGS` (2) categories — matches the mockup's overflow
+      treatment for 3+ categories.
+- [x] Conversations sorted by `updated_at` descending (most recently
+      active first) — client-side, since ISO 8601 timestamps sort
+      correctly as plain strings; the list wasn't ordered at all before
+      this stage.
+- [x] Archived conversations get a visibly muted row (`opacity-60`) plus
+      an outlined "Archiwum" chip, replacing Stage 1's plain
+      "· zarchiwizowana" text suffix.
+
+**Deferred, noted for Etap 5's design-system pass**: `ChatCanvas`'s header
+chips (Stage 1/2) still show the raw category enum (`"🥗 DIET"`) rather
+than the Polish label now used in the sidebar — left as-is since fixing it
+was outside this stage's explicit scope (left rail only), but the
+inconsistency is real and worth a pass once Etap 5 reviews the whole
+design system.
+
+Exit criteria met: 3 new `LeftRail.test.tsx` cases (tag chips + "+N"
+overflow, sort-by-`updated_at`, archived styling/badge); full suite
+57/57, `npm run build`/`npm run lint` green. Verified live against the
+real backend: existing conversations picked up the new chip styling
+immediately, the more-recently-archived "Zdrowie" conversation correctly
+sorted above the older "Dieta, Fitness" one, and a fresh 4-category
+conversation showed exactly 2 tag chips + a "+2" badge — clean console
+throughout.
 
 ## Stage 5 — Tests & docs sync
 
