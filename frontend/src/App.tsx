@@ -1,5 +1,7 @@
+import { AppShell } from '@/features/shell/AppShell'
+
 function App() {
-  return <div>Diet AI</div>
+  return <AppShell />
 }
 
 export default App
