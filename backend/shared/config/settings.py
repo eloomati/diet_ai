@@ -13,6 +13,16 @@ class Settings(BaseSettings):
 
     testing: bool = False
 
+    # CORS — comma-separated origins allowed to call the API (the frontend's
+    # dev server by default). A plain comma-separated string rather than a
+    # list field: pydantic-settings would otherwise expect JSON syntax in a
+    # .env value, which is awkward to hand-edit.
+    cors_origins: str = "http://localhost:5173"
+
+    @property
+    def cors_origins_list(self) -> list[str]:
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
+
     # Database
     postgres_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/diet_ai"
     mongo_url: str = "mongodb://localhost:27017"

@@ -226,7 +226,7 @@ See `docs/implementation-roadmap.md` for the full stage-by-stage history of ever
 # High Level Architecture
 
 ```text
-                    React Frontend (future)
+                    React Frontend
                            │
                            │
                      FastAPI Backend
@@ -336,11 +336,29 @@ Provider selection is a single `AI_PROVIDER` environment variable — see [Confi
 
 ## Frontend
 
-Not started yet. Planned:
+In progress (Phase 10 — see `docs/implementation-roadmap.md` for the full
+Etap 0-6 breakdown; Etap 0 "Fundament" is underway):
 
-- React
-- Vite
-- Tailwind CSS
+- React 19 + Vite + TypeScript
+- Tailwind CSS v4 + shadcn/ui
+- React Router
+- TanStack Query
+- Design: a single chat-first view (styled after Claude/ChatGPT) with
+  collapsible side rails and a profile modal (Profil/Plany/Kalendarz tabs),
+  built against a user-approved interactive mockup before any code was
+  written
+
+Run it locally:
+
+```bash
+cd frontend
+cp .env.example .env   # VITE_API_BASE_URL — defaults to the local backend
+npm install
+npm run dev            # http://localhost:5173
+```
+
+Or via Docker — `docker compose up -d --build frontend` (depends on the
+`backend` service being up too, for CORS/API calls to succeed).
 
 ---
 
@@ -364,14 +382,14 @@ diet_ai/
 │
 ├── backend/              # FastAPI application (see below)
 │
-├── frontend/              # not started yet
+├── frontend/              # React + Vite + TS + Tailwind v4 + shadcn/ui (Phase 10, in progress)
 │
 ├── docs/                  # architecture, domain model, API contract, roadmap, .http smoke tests
 │
 ├── docker/                # entrypoint.sh (waits for Postgres, runs migrations, then execs uvicorn)
 │
 ├── Dockerfile
-├── docker-compose.yml       # dev stack: db, mongo, ollama, mailhog, sftp, backend
+├── docker-compose.yml       # dev stack: db, mongo, ollama, mailhog, sftp, backend, frontend
 ├── docker-compose.test.yml  # ephemeral test stack, auto-managed by conftest.py
 ├── conftest.py
 ├── pytest.ini
@@ -607,7 +625,6 @@ Project documentation lives in `docs/`:
 - Background Workers
 - Mobile Application
 - Vector Database
-- Frontend (React/Vite/Tailwind)
 - Reporting module
 
 ---

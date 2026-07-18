@@ -2313,140 +2313,169 @@ Etap 5-6 are cross-cutting polish and test/docs sync.
 
 ---
 
-# Etap 0 — Fundament
+# Etap 0 — Fundament — DONE (Stages 1-6/6)
 
 Goal: project scaffold + the static app shell (visually 1:1 with the
 approved mockup, fully interactive at the UI level — collapsing rails,
 opening the auth popup and profile modal, switching tabs) wired up to a
 real (but not-yet-exercised) API client and auth mechanism. No real
-login/data yet — that starts in Etap 1.
+login/data yet — that starts in Etap 1. Built against a user-approved
+interactive HTML/CSS/JS mockup (published as an Artifact) before any React
+code was written.
 
-## Stage 1 — Tooling & scaffold
+## Stage 1 — Tooling & scaffold — DONE
 
-- [ ] `frontend/` — Vite + React 18 + TypeScript (strict) project,
-      replacing the stray `frontend/__init__.py`.
-- [ ] Tailwind CSS v4 (CSS-first `@theme` config, no `tailwind.config.ts`).
-- [ ] shadcn/ui initialized; base primitives added: `button`, `dialog`,
-      `input`, `tabs`, `avatar`, `scroll-area` — exactly what the shell
-      needs (Dialog for the auth popup + profile modal, Tabs for the
-      profile modal's Profil/Plany/Kalendarz, Avatar for the profile
-      icon).
-- [ ] ESLint + Prettier, npm as the package manager (only one available
-      in this environment — no pnpm/yarn).
-- [ ] Vitest + React Testing Library configured (harness only; real
-      component tests are Etap 6).
+- [x] `frontend/` — Vite + React + TypeScript (strict) project, replacing
+      the stray `frontend/__init__.py`. **Deviation**: `create-vite`'s
+      current template scaffolds **React 19** (not 18) and **oxlint**
+      instead of ESLint (its new default, Rust-based, faster) — kept both
+      rather than downgrading to match an outdated assumption; Prettier
+      added alongside oxlint for formatting (oxlint is lint-only).
+- [x] Tailwind CSS v4 (CSS-first `@theme` config, no `tailwind.config.ts`).
+- [x] shadcn/ui initialized (`style: base-nova`, built on **Base UI**
+      rather than Radix — the current shadcn default); base primitives
+      added: `button`, `dialog`, `input`, `tabs`, `avatar`, `scroll-area`.
+- [x] npm as the package manager (only one available in this environment).
+- [x] Vitest + React Testing Library configured (jsdom environment,
+      `src/test/setup.ts`), one smoke test.
 
-Exit criteria: `npm run dev` serves a blank Vite+Tailwind+shadcn app,
-`npm run build` and `npm run test` both succeed (one trivial smoke test).
+**Real problems hit and fixed**: (1) a corrupted `node_modules` left
+`tslib` missing despite the lockfile claiming otherwise, breaking the
+shadcn CLI (`recast` failed to resolve it) — fixed with a clean
+`rm -rf node_modules package-lock.json && npm install`. (2) shadcn's alias
+resolution didn't pick up the path alias from `tsconfig.app.json` alone
+and wrote generated files into a literal `frontend/@/...` directory
+instead of `src/` — fixed by adding matching `compilerOptions.paths` to
+the root `tsconfig.json` too, then moving the files. (3) TypeScript flagged
+`baseUrl` as deprecated (TS6100/5101) once paths were added — resolved by
+dropping `baseUrl` and keeping `paths` alone (resolves relative to the
+tsconfig file in current TS).
 
----
-
-## Stage 2 — Design tokens & fonts
-
-- [ ] `src/styles/tokens.css` — CSS custom properties ported 1:1 from the
-      approved mockup: beige `#F6EFE2`/`#FFFCF6`, gold accent
-      `#C98A1F`/`#E8AE3D`/`#FBEBC9`, sage `#748C69`/`#DCE6D3`, warm-black
-      text `#332B21`. Dark-theme tokens stubbed under
-      `@media (prefers-color-scheme: dark)` + `[data-theme]` but with no
-      UI switch yet (light mode now, dark mode is a documented future
-      item, same decision made for the mockup).
-- [ ] `@fontsource/nunito` (weight 800, headings) and
-      `@fontsource/nunito-sans` (weights 400/700, body/UI) — self-hosted
-      npm packages, not a Google Fonts CDN link (no runtime network
-      dependency).
-- [ ] Tailwind `@theme` block maps the CSS custom properties to Tailwind
-      color/font tokens so components can use e.g. `bg-accent`,
-      `text-ink`, `font-display`.
-
-Exit criteria: a throwaway page rendering the palette swatches + both
-fonts matches the mockup's "Do akceptacji" reference section visually.
+Exit criteria met: `npm run build`, `npm run test`, `npm run lint` all
+green.
 
 ---
 
-## Stage 3 — API client & auth context (no UI yet)
+## Stage 2 — Design tokens & fonts — DONE
 
-- [ ] `src/lib/apiFetch.ts` — base fetch wrapper: reads `VITE_API_BASE_URL`,
-      attaches `Authorization: Bearer <access_token>` from the in-memory
-      auth state, and on a `401` attempts exactly one
-      `POST /auth/refresh` (per `docs/api.md`) then retries the original
-      request once; a second failure clears tokens and falls back to
-      "guest" state.
-- [ ] `src/lib/auth/` — `AuthContext`/`AuthProvider`/`useAuth()`: access
-      token in memory (React state — not `localStorage`, to limit XSS
-      exposure), refresh token in `localStorage` (must survive a page
-      reload since the backend has no httpOnly-cookie option).
-- [ ] `src/lib/queryClient.ts` — TanStack Query client instance.
-- [ ] `src/api/` — thin per-module clients (`auth.ts`, `profile.ts`,
-      `conversations.ts`, `dietPlans.ts`) typed against
-      `docs/openapi.json` request/response shapes. No real call sites yet
-      (Etap 1+ consumes these).
+- [x] Palette ported 1:1 from the approved mockup directly into
+      `src/index.css`'s `:root`/`.dark` blocks (shadcn's generated
+      oklch neutral theme replaced with real hex values): beige
+      `#F6EFE2`/`#FFFCF6`, gold accent `#C98A1F`/`#E8AE3D`/`#FBEBC9`, sage
+      `#748C69`/`#DCE6D3`, warm-black text `#332B21`, mapped onto shadcn's
+      semantic slots (`--primary`, `--secondary`, `--accent`,
+      `--sidebar-*`, etc.) rather than a separate `tokens.css` file.
+      `.dark` variant written (not a naive invert — contrast re-checked)
+      but not switched on by any UI yet, per the mockup's own plan.
+- [x] `@fontsource/nunito` (800, headings) and `@fontsource/nunito-sans`
+      (400/700, body) — self-hosted, no Google Fonts CDN.
+- [x] `@theme` block maps `--font-heading`/`--font-sans` to the two
+      families; verified present in the compiled build CSS/font assets.
 
-Exit criteria: unit tests (Vitest, mocked `fetch`) for `apiFetch`'s
-refresh-once-then-fall-back-to-guest behavior — no real backend needed,
-same "fakes first" spirit as the backend's use-case tests.
-
----
-
-## Stage 4 — Static app shell UI (matches the approved mockup)
-
-- [ ] `features/shell/` — `AppShell`: collapsible left rail (avatar
-      button top-left, "Nowy czat" + category picker placeholder, history
-      placeholder, "O nas" footer) and collapsible right rail ("Co
-      nowego" placeholder), collapse state as local component state
-      (mirrors the mockup's `setLeft`/`setRight`).
-- [ ] `features/chat/` — `ChatCanvas`: hero greeting + composer input,
-      non-functional (no send handler wired yet).
-- [ ] `features/auth/` — `AuthPopup` (shadcn `Dialog`): login/register
-      tabs, dismissible ("Kontynuuj jako gość"), UI only — no real submit
-      handler yet.
-- [ ] `features/profile/` — `ProfileModal` (shadcn `Dialog` + `Tabs`):
-      Profil/Plany/Kalendarz tabs, empty panels for now.
-- [ ] Reuse the mockup's interaction details directly: profile icon click
-      re-opens the auth popup when logged out (gating behavior already
-      proven in the mockup after the `[hidden]`/`display` CSS bug fix).
-
-Exit criteria: side-by-side visual comparison against the published
-mockup artifact — same layout, palette, fonts, and open/close/collapse/
-tab-switch behavior, just backed by React components instead of vanilla
-JS.
+Exit criteria met (adapted): rather than a throwaway swatch page, verified
+directly against the compiled build output (`--background:#f6efe2`/
+`#221d16`, 15 `@font-face` rules, both family names present) — full visual
+side-by-side happened naturally once Stage 4 built real screens.
 
 ---
 
-## Stage 5 — Routing
+## Stage 3 — API client & auth context (no UI yet) — DONE
 
-- [ ] React Router v6: single shell route `/` rendering `AppShell`, plus
-      an optional `/:conversationId` param for deep-linking a specific
-      conversation (so a reload or shared link doesn't lose context).
-      Profile-modal open/tab state stays in component state, not the URL
-      — simpler, no over-engineering at this stage.
+- [x] `src/lib/apiFetch.ts` — fetch wrapper with bearer-token injection,
+      refresh-once-on-401 (concurrent 401s coalesce into a single
+      `POST /auth/refresh` call), falls back to cleared tokens ("guest")
+      if refresh also fails. `ApiError` carries `status`/`code` from the
+      backend's common error shape.
+- [x] `src/lib/auth/tokenStore.ts` + `AuthContext`/`AuthProvider`/
+      `useAuth()` — access token in memory (`useSyncExternalStore`),
+      refresh token in `localStorage`.
+- [x] `src/lib/queryClient.ts` — TanStack Query client, wired into
+      `main.tsx` alongside `AuthProvider`.
+- [x] `src/api/{auth,profile,conversations,dietPlans}.ts` — typed 1:1
+      against `docs/api.md`.
 
-Exit criteria: navigating to `/some-uuid` mounts the same shell (the
-route param is read but not yet used for a real fetch — that's Etap 3).
+Exit criteria met: 9 Vitest unit tests (mocked `fetch`) — success path,
+refresh-then-retry, refresh-fails-clears-tokens, no-refresh-token-guest,
+and concurrent-401-coalescing; plus `AuthContext` login/logout tests.
 
 ---
 
-## Stage 6 — CORS, Docker, docs sync
+## Stage 4 — Static app shell UI (matches the approved mockup) — DONE
 
-- [ ] Backend: new `Settings.cors_origins: list[str]` (default
-      `["http://localhost:5173"]`) + `CORSMiddleware` added in
-      `backend/app/main.py::create_app()` alongside the existing
-      `RequestIdMiddleware` — confirmed missing entirely before this
-      stage (`grep` for `CORSMiddleware`/`allow_origins` found nothing),
-      so without it every browser call from the Vite dev server to the
-      API would fail CORS.
-- [ ] `docker-compose.yml` — new `frontend` service (Vite dev server,
-      `--host 0.0.0.0`, port `5173:5173`), new `frontend/Dockerfile`
-      (dev-mode: `node:20-alpine`, `npm ci`, `npm run dev -- --host`),
-      same bind-mount-for-hot-reload pattern as the existing `backend`
-      service.
-- [ ] `frontend/.env.example` — `VITE_API_BASE_URL=http://localhost:8000/api/v1`.
-- [ ] `README.md` — Frontend section updated from "Not started yet" to
-      the real stack + how to run it; Project Structure tree updated
-      (today's `frontend/ # not started yet` comment is stale).
+- [x] `features/shell/` — `AppShell`, `LeftRail` (avatar button,
+      collapse, `CategoryMenu`, history placeholder gated on
+      `useAuth().isAuthenticated`, "O nas" → `AboutDialog`), `RightRail`
+      ("Co nowego" placeholder).
+- [x] `features/shell/CategoryMenu.tsx` — full multi-select port of the
+      mockup's category picker (checkboxes, "Rozpocznij czat" disabled
+      until ≥1 selected) — kept as real local-state interaction since it
+      doesn't touch the API yet.
+- [x] `features/chat/ChatCanvas.tsx` — hero + composer; hero chips fill
+      the composer text; submit is a no-op (`preventDefault`) — real send
+      wiring is Etap 3.
+- [x] `features/auth/AuthPopup.tsx` — login/register tabs, guest-skip;
+      submit is intentionally a no-op here too (Etap 1 Stage 1 wires it
+      to the already-working `useAuth().login`/`register`, keeping this
+      stage's commit boundary clean).
+- [x] `features/profile/ProfileModal.tsx` — Dialog + Tabs
+      (Profil/Plany/Kalendarz), each tab a placeholder note pointing at
+      the etap that fills it in.
+- [x] Profile-icon gating ported: logged out → reopens `AuthPopup`;
+      logged in → opens `ProfileModal`.
 
-Exit criteria: `docker compose up -d --build frontend` serves the app on
-port 5173; a `fetch()` from a `localhost:5173` page to
-`http://localhost:8000/api/v1/health` succeeds with no CORS error.
+Exit criteria met — **verified live in a real browser** (Chrome via
+`claude-in-chrome`, not just visual inspection): popup dismiss/guest,
+avatar re-opening the popup while logged out, the full category
+multi-select flow (checkboxes → header pills), left-rail collapse/expand,
+and a clean console (no React warnings/errors) all confirmed against the
+running `npm run dev` server.
+
+---
+
+## Stage 5 — Routing — DONE
+
+- [x] React Router v6 (`BrowserRouter` in `main.tsx`); `App.tsx` routes:
+      `/` and `/:conversationId`, both rendering `AppShell`.
+- [x] `AppShell` reads `conversationId` via `useParams()` and passes it to
+      `ChatCanvas`, which shows it as a placeholder title
+      (`Rozmowa #12345678`) when no categories are active yet — read, not
+      fetched (Etap 3 does the real fetch).
+- [x] Starting a new chat (`CategoryMenu` confirm) calls `useNavigate()`
+      back to `/`, so a fresh chat drops any conversation id in the URL.
+
+Exit criteria met: confirmed live in-browser — navigating to
+`/11111111-2222-3333-4444-555555555555` renders the same shell with
+"Rozmowa #11111111" in the header (verified via page-text extraction, not
+just a screenshot). 10/10 Vitest tests green (added a `/:conversationId`
+case to `App.test.tsx` via `MemoryRouter`).
+
+---
+
+## Stage 6 — CORS, Docker, docs sync — DONE
+
+- [x] Backend: `Settings.cors_origins` (comma-separated string + derived
+      `cors_origins_list` property — simpler than a literal `list[str]`
+      env field, which pydantic-settings would otherwise expect as JSON
+      in a `.env` value) + `CORSMiddleware` added last in
+      `create_app()` (so it wraps every other middleware, per Starlette's
+      reverse-registration-order stacking) — confirmed missing entirely
+      beforehand (`grep` for `CORSMiddleware` found nothing).
+- [x] `docker-compose.yml` — new `frontend` service (`npm run dev --
+      --host`, port `5173:5173`, bind-mounted with an anonymous
+      `/app/node_modules` volume so the container's own install isn't
+      shadowed by the host mount); new `frontend/Dockerfile`
+      (`node:20-alpine`, `npm ci`) + `.dockerignore`.
+- [x] `frontend/.env.example` (`VITE_API_BASE_URL`, added back in Stage 3)
+      and root `.env.example`/`docker-compose.yml` gained `CORS_ORIGINS`.
+- [x] `README.md` — Frontend section, architecture diagram, project
+      structure tree, and the stale "Frontend (React/Vite/Tailwind)"
+      future-improvements line all updated to match reality.
+
+Exit criteria met: 2 new backend tests (`test_cors_allows_configured_
+frontend_origin`, `test_cors_does_not_reflect_an_unconfigured_origin`) —
+full backend suite 347/347. `docker build` + standalone `docker run` of
+the frontend image verified the dev server actually starts and responds
+(200 OK) inside the container, not just that the Dockerfile parses.
 
 ---
 
