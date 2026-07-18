@@ -2806,11 +2806,60 @@ Goal: wire the chat canvas and left-rail history to
 `docs/api.md`'s Conversation API (`categories` is a list — see the
 multi-category backend change already shipped).
 
-## Stage 1 — List + create
+## Stage 1 — List + create — DONE
 
-- [ ] "Nowy czat" category picker (multi-select, matches the mockup) →
-      `POST /conversations` with `categories: [...]`; `GET /conversations`
-      backs the left-rail history list.
+- [x] "Nowy czat" category picker (already built in Etap 0) now wired to
+      real `POST /conversations` — `AppShell` gained a `useMutation` that
+      posts `{ title, categories }` and, on success, sets `activeCategories`
+      from the response, navigates to `/{conversation_id}`, and invalidates
+      the `['conversations']` query so the new chat shows up in the sidebar
+      immediately.
+- [x] `title` auto-derived from the selected categories
+      (`formatCategories(categories, CATEGORY_OPTIONS.length)`, e.g.
+      "Dieta, Fitness") — the mockup's category picker never designed a
+      separate title field, and `POST /conversations` requires a non-empty
+      `title`, so deriving it from the (always non-empty) category
+      selection avoids inventing UI the mockup didn't call for.
+- [x] `GET /conversations` backs the left-rail history list —
+      `LeftRail` gained a `useQuery(['conversations'], listConversations,
+      { enabled: isAuthenticated })` with loading/error/empty states,
+      replacing Etap 0's static "Brak jeszcze żadnych rozmów." placeholder
+      with the real (possibly still-empty) list. Rows show title +
+      `formatCategories(...)` + an "· zarchiwizowana" suffix for archived
+      conversations, and highlight the currently open conversation.
+      **Deferred to Stage 4 on purpose**: the richer per-category tag
+      chips + "+N" overflow badge styling from the mockup — this stage's
+      rows are a plain (but fully real-data-backed) list.
+- [x] Clicking a sidebar row (`onSelectConversation`) sets
+      `activeCategories` from the already-fetched `ConversationSummary`
+      and navigates to `/{conversation_id}` — no extra fetch needed since
+      the list summary already carries `categories`.
+- [x] A minimal inline error banner ("Nie udało się utworzyć rozmowy.
+      Spróbuj ponownie.") under the category picker on a failed create —
+      not deferred entirely to Etap 5's global toast system, since a
+      silent failure here would look like a dead button.
+
+**Real problems hit and fixed**: the first `AppShell.test.tsx` draft
+logged in by calling `useAuth().login()` directly from a mounted-once
+helper component (the same trick used in `ProfilTab.test.tsx`). That
+collided with `AppShell`'s own "open the auth popup while logged out"
+effect — the popup opened during the brief window between bootstrap
+finishing and `login()` resolving, and Base UI's dialog marked the rest of
+the page `inert`, hiding every other role-query target and failing the
+test. Fixed by logging in through the real `AuthPopup` UI (typing
+credentials and clicking its submit button, which already closes itself
+on success) instead of bypassing it — also a more faithful test of the
+actual user flow.
+
+Exit criteria met: 4 new `AppShell.test.tsx` cases (list renders, empty
+state, create-and-navigate with a verified `POST` body, error banner on a
+failed create); full suite 43/43, `npm run build`/`npm run lint` green.
+Verified live against the real backend: created two conversations with
+different categories from the category picker, confirmed each appeared
+immediately in the sidebar with correct highlighting, confirmed the list
+and the selected conversation's URL both survive a full page reload, and
+switching between sidebar rows correctly re-navigates and re-highlights —
+clean console throughout.
 
 ## Stage 2 — Chat window
 
