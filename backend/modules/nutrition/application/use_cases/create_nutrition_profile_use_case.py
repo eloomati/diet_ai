@@ -33,6 +33,7 @@ class CreateNutritionProfileUseCase:
             activity_level=ActivityLevel(command.activity_level),
             goal=DietGoal(command.goal),
             diet_type=DietType(command.diet_type),
+            weekly_obligations=tuple(o.to_domain() for o in command.weekly_obligations),
         )
         await self._repository.save(profile)
 

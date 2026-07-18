@@ -137,3 +137,104 @@ def test_each_user_has_their_own_profile(client: TestClient) -> None:
     response_b = client.get("/api/v1/profile", headers=_auth_headers(token_b))
 
     assert response_b.status_code == 404
+
+
+_OBLIGATION = {
+    "day_of_week": "MON",
+    "start_time": "09:00:00",
+    "end_time": "17:00:00",
+    "label": "Work",
+}
+
+
+def test_create_profile_with_weekly_obligations(client: TestClient) -> None:
+    token = _register_and_login(client, "profile.obligations.create")
+
+    response = client.post(
+        "/api/v1/profile",
+        json={**_PROFILE_PAYLOAD, "weekly_obligations": [_OBLIGATION]},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 201
+    obligations = response.json()["weekly_obligations"]
+    assert len(obligations) == 1
+    assert obligations[0]["day_of_week"] == "MON"
+    assert obligations[0]["start_time"] == "09:00"
+    assert obligations[0]["end_time"] == "17:00"
+    assert obligations[0]["label"] == "Work"
+
+
+def test_create_profile_defaults_to_no_obligations(client: TestClient) -> None:
+    token = _register_and_login(client, "profile.obligations.default")
+
+    response = client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+
+    assert response.json()["weekly_obligations"] == []
+
+
+def test_create_profile_rejects_invalid_obligation_time_range(client: TestClient) -> None:
+    token = _register_and_login(client, "profile.obligations.badrange")
+
+    response = client.post(
+        "/api/v1/profile",
+        json={
+            **_PROFILE_PAYLOAD,
+            "weekly_obligations": [{**_OBLIGATION, "start_time": "17:00:00", "end_time": "09:00:00"}],
+        },
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 400
+
+
+def test_update_profile_sets_weekly_obligations(client: TestClient) -> None:
+    token = _register_and_login(client, "profile.obligations.update")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+
+    response = client.put(
+        "/api/v1/profile",
+        json={"weekly_obligations": [_OBLIGATION]},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    obligations = response.json()["weekly_obligations"]
+    assert len(obligations) == 1
+    assert obligations[0]["label"] == "Work"
+
+
+def test_update_profile_without_obligations_field_keeps_existing(client: TestClient) -> None:
+    token = _register_and_login(client, "profile.obligations.keep")
+    client.post(
+        "/api/v1/profile",
+        json={**_PROFILE_PAYLOAD, "weekly_obligations": [_OBLIGATION]},
+        headers=_auth_headers(token),
+    )
+
+    response = client.put(
+        "/api/v1/profile",
+        json={"weight_kg": 82},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()["weekly_obligations"]) == 1
+
+
+def test_update_profile_clears_obligations_with_empty_list(client: TestClient) -> None:
+    token = _register_and_login(client, "profile.obligations.clear")
+    client.post(
+        "/api/v1/profile",
+        json={**_PROFILE_PAYLOAD, "weekly_obligations": [_OBLIGATION]},
+        headers=_auth_headers(token),
+    )
+
+    response = client.put(
+        "/api/v1/profile",
+        json={"weekly_obligations": []},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["weekly_obligations"] == []

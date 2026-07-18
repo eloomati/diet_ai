@@ -55,16 +55,26 @@ Phase 8  - Conversation Lifecycle &  DONE (Stages 1-8/8) — post-Phase-7
                                      empty `shared/security`/`shared/utils`
                                      packages, once noticed they existed
                                      but were never used.
-Phase 9+ - Frontend/Testing/Future  NOT STARTED
+Phase 9  - Meal Scheduling &         IN PROGRESS (Stage 1/6) — pre-frontend
+           Calendar Export           feature: AI-suggested + user-editable
+                                     meal times (a calendar/meetings-style
+                                     view), a weekly "obligations" schedule
+                                     (work/training hours) fed into the
+                                     diet-plan prompt so generation builds
+                                     around it, CSV export of a plan, and
+                                     date-range filtering of plan history
+                                     for a profile "plans" tab. See the
+                                     6-stage breakdown below.
+Phase 10+ - Frontend/Testing/Future  NOT STARTED
 ```
 
 **Phases 3 through 8 are complete** — Identity (including account
 recovery), Nutrition Profile, Conversation + AI chat (including lifecycle
 management), and Diet Plan generation all work end-to-end against the real
 Docker stack, with docs (`architecture.md`, `domain-model.md`, `api.md`,
-`docs/https/*.http`) and `README.md` synced to match. Phase 9+ (Frontend,
-broader Reporting) is next — see that section below for the sparse
-original draft, not yet split into stages.
+`docs/https/*.http`) and `README.md` synced to match. Phase 9 (Meal
+Scheduling & Calendar Export) is in progress — see that section below.
+Phase 10+ (Frontend, broader Reporting) comes after.
 
 ---
 
@@ -1764,7 +1774,269 @@ stays at the Stage 7 count (257 passed).
 
 ---
 
-# Phase 9 - Frontend
+# Phase 9 - Meal Scheduling & Calendar Export
+
+Pre-frontend feature request: a calendar-style view where an AI-generated
+diet plan's meals show up like calendar appointments (day + time), with
+the user able to drag/edit individual meal times afterward; a weekly
+"obligations" schedule (work/training hours) on the profile that feeds the
+diet-plan prompt so generation builds around real commitments; CSV export
+of a plan; and date-range filtering of plan history for a profile "plans"
+tab. Resolved as a hybrid: **AI suggests times, user can edit them
+afterward** (not purely AI-fixed, not purely manual). Plan history
+filtering is a user-chosen display range, **not** a retention/auto-delete
+policy — nothing gets deleted in the background.
+
+Confirmed via a module survey before writing this plan: none of this
+exists today. `Meal` has exactly 5 fields (name/calories/protein/carbs/fat,
+frozen dataclass, no time); `DietDay` only has a relative `day_number`, no
+calendar date; `DietPlan` has no mutator at all (`create()` only — this
+phase adds its first-ever in-place update capability); `NutritionProfile`
+has no schedule concept; `ListDietPlansUseCase`/`DietPlanRepository` take
+no filter params of any kind.
+
+`modules/nutrition/domain/` structure being extended (file paths, for
+reference across all 6 stages):
+
+```
+domain/value_objects/meal.py                  — Meal (add `time`)
+domain/value_objects/diet_day.py              — DietDay (day_number, meals)
+domain/entities/diet_plan.py                  — DietPlan (add reschedule_meal(), updated_at)
+domain/entities/nutrition_profile.py          — NutritionProfile (add weekly_obligations)
+domain/repositories/diet_plan_repository.py   — add date-range params to list_by_user_id
+modules/ai/application/diet_plan_prompt_builder.py — build()/build_schema()
+```
+
+---
+
+## Stage 1 — Weekly obligations schedule on NutritionProfile
+
+`domain/value_objects/weekly_obligation.py` (NEW):
+- [x] `WeeklyObligation` (frozen dataclass): `day_of_week` (new `DayOfWeek`
+      StrEnum, MON..SUN), `start_time: time`, `end_time: time`, `label: str`.
+      Validates `end_time > start_time` and non-empty `label`, raising a
+      new `InvalidWeeklyObligationError` (nutrition domain error base).
+
+`domain/entities/nutrition_profile.py`:
+- [x] `NutritionProfile` gains `weekly_obligations: tuple[WeeklyObligation, ...] = ()`.
+- [x] `update()` gains `weekly_obligations: tuple[WeeklyObligation, ...] | None = None`
+      — same "`None` means keep current value" partial-update convention
+      already used for every other field here; `()` (explicit clear) and
+      `None` (no change) are distinguishable, so clearing the schedule
+      entirely is still possible.
+- [x] `as_prompt_text()` appends a "weekly commitments" clause when
+      obligations exist (empty schedule → output unchanged from today).
+
+`application/dto/nutrition_profile_dto.py`:
+- [x] `CreateNutritionProfileCommand`/`UpdateNutritionProfileCommand` gain
+      `weekly_obligations` as a tuple of `WeeklyObligationInput` at the DTO
+      boundary (day/start/end/label strings — same "raw strings in, domain
+      enums/value objects out" pattern already used for
+      `activity_level`/`goal`/`diet_type`, with `.to_domain()` doing the
+      conversion); `NutritionProfileResult` gains
+      `tuple[WeeklyObligationResult, ...]` for round-tripping to the API layer.
+
+`infrastructure/`:
+- [x] `documents/nutrition_profile_document.py` — new `WeeklyObligationEmbed`
+      sub-document + `weekly_obligations: list[...]` field on
+      `NutritionProfileDocument`.
+- [x] `mappers/nutrition_profile_mapper.py` — both directions updated
+      explicitly (this mapper is a manual field-by-field one, unlike
+      `DietPlanMapper`'s `dataclasses.asdict`/`**`-based auto-propagation).
+
+`api/schemas/nutrition_schemas.py`:
+- [x] `CreateNutritionProfileRequest`/`UpdateNutritionProfileRequest`/
+      `NutritionProfileResponse` gain `weekly_obligations` (`WeeklyObligationRequest`
+      uses native Pydantic `time` fields, so a malformed time string 422s at
+      the schema layer for free). `profile_router.py` also gained an
+      `except InvalidWeeklyObligationError` → 400 in both `create_profile`
+      and `update_profile` — a genuine gap, not pre-existing: unlike the
+      numeric age/height/weight fields (whose domain ranges are already
+      covered by the schema's own `Field(ge=..., le=...)`, making the
+      domain-level `InvalidNutritionProfileError` practically unreachable
+      via the API), "`end_time` after `start_time`" has no equivalent
+      simple Pydantic field constraint, so the domain error is the only
+      thing catching it and needed an explicit handler.
+
+Exit criteria: unit tests for `WeeklyObligation` validation and
+`NutritionProfile.update()`'s obligations handling (including the
+None-vs-empty-tuple distinction); API integration tests — create/update a
+profile with obligations, `GET /profile` returns them, invalid time range →
+400; a real-Mongo repository test confirming round-trip; verified on the
+real Docker stack (Mongo) that a profile with several obligations persists
+and round-trips correctly via curl + a direct `mongosh` check.
+
+**Status: DONE.**
+
+- New tests: `test_weekly_obligation.py` (5), `test_nutrition_profile_entity.py`
+  gained 7 obligations-related cases, `test_nutrition_api.py` gained 6,
+  `test_mongo_nutrition_profile_repository.py` gained 1 (real-Mongo
+  round-trip). Full suite: 257 → **275 passed**.
+- Real Docker-stack verification: created a profile with two obligations
+  (MON work, WED training) via curl, confirmed the response and a
+  follow-up `GET` both echo them back correctly; confirmed via a direct
+  `mongosh` query against the dev Mongo that the document persisted with
+  the `weekly_obligations` array; `PUT` with an empty list correctly
+  cleared it (confirmed via response body); a second test user's `POST
+  /profile` with `start_time > end_time` correctly returned `400
+  BAD_REQUEST` with the domain's own message. Cleaned up all test data
+  (Mongo profiles, Postgres users) afterwards.
+
+---
+
+## Stage 2 — AI-suggested meal times + prompt integration + conflict clamping
+
+**Design decision, flagged transparently**: `DietDay.day_number` is
+relative (1, 2, 3...), with no calendar date of its own — but
+`weekly_obligations` are day-of-week based, so checking a meal for
+conflicts requires mapping `day_number` to an actual weekday. Resolved by
+treating `day_number = 1` as the plan's `created_at` date and counting
+forward — the natural reading of "generate my plan starting today." If
+this assumption is wrong for how plans actually get used, it's an easy
+one-line change (this stage is exactly where to redirect it).
+
+`domain/value_objects/meal.py`:
+- [ ] `Meal` gains `time: time | None = None`. Still frozen — rescheduling
+      (Stage 3) reconstructs via `dataclasses.replace`, never mutates in place.
+
+`modules/ai/application/diet_plan_prompt_builder.py`:
+- [ ] `build_schema()`'s meal item gains a `"time"` string property
+      (format `"HH:MM"`) — **not** added to `"required"`, so a small local
+      model (Ollama) omitting it doesn't hard-fail validation, consistent
+      with this module's documented small-model reliability findings
+      (see `docs/architecture.md` § Structured output). The prompt itself
+      still instructs the model to always include a time.
+- [ ] `build()` gains `obligations_text: str = ""`, interpolated into the
+      question the same way `requirements_text` already is.
+
+`application/use_cases/generate_diet_plan_use_case.py`:
+- [ ] Passes `profile.weekly_obligations` (formatted) to
+      `DietPlanPromptBuilder.build()`.
+- [ ] New post-generation step: for each meal, resolve its weekday from
+      `day_number` + the plan's creation date, check against
+      `weekly_obligations` for that weekday, and if the AI-suggested time
+      falls inside an obligation window, shift it to the nearest free slot
+      (a small deterministic heuristic, not a full constraint solver —
+      good enough to avoid "lunch during your 9-to-5" but not promising a
+      globally-optimal schedule). This is a code-level safety net
+      precisely because the model's own conflict-avoidance reasoning isn't
+      trusted to be reliable (same reasoning as the `"time"` field being
+      optional in the schema above).
+
+`application/dto/diet_plan_dto.py` / `api/schemas/diet_plan_schemas.py` /
+`infrastructure/documents/diet_plan_document.py`:
+- [ ] `MealResult`/`MealResponse`/`MealEmbed` all gain `time` — the
+      `DietPlanMapper` direction needs no code change (it already
+      round-trips `Meal`'s fields via `dataclasses.asdict`/`**`).
+
+Exit criteria: unit tests for the conflict-clamp function (meal inside an
+obligation window gets shifted; a meal outside any window is untouched;
+multiple same-day obligations handled); `GenerateDietPlanUseCase` tested
+against a fake LLM provider returning a colliding time, asserting the
+returned plan's meal time is shifted away from it; verified on the real
+Docker stack with Ollama — generate a plan for a profile with obligations,
+confirm meals carry a `time` and none collide.
+
+---
+
+## Stage 3 — Editable meal schedule (the "calendar" mutation API)
+
+`domain/entities/diet_plan.py`:
+- [ ] `DietPlan` gains `updated_at` (first mutation ever on this aggregate
+      — previously fully immutable post-generation, so there was nothing
+      to timestamp; now genuinely meaningful).
+- [ ] New `reschedule_meal(day_number: int, meal_name: str, new_time: time) -> None`
+      — locates the day/meal, rebuilds the `Meal`/`DietDay`/`days` tuple
+      chain with the new time (everything here is frozen/immutable value
+      objects, so this is reconstruction, not in-place mutation), raises a
+      new `MealNotFoundError` for an unknown `day_number`/`meal_name` pair.
+
+`application/`:
+- [ ] New `RescheduleMealCommand(user_id, plan_id, day_number, meal_name, new_time)`.
+- [ ] New `RescheduleMealUseCase(diet_plan_repository)` — loads the plan
+      (same not-found-vs-not-yours 404 pattern as everywhere else), calls
+      `plan.reschedule_meal(...)`, saves.
+
+`api/routers/diet_plan_router.py`:
+- [ ] New `PATCH /diet-plans/{diet_plan_id}/meals` (body:
+      `day_number`, `meal_name`, `new_time`) → updated `DietPlanResponse`.
+      404 (not found/not yours), 400/422 for an unknown day/meal or a
+      malformed time.
+
+Exit criteria: unit tests for `reschedule_meal` (happy path, unknown day,
+unknown meal); use-case tests; API integration test on the real Mongo-backed
+stack — generate a plan, reschedule one meal, `GET` the plan again and
+confirm only that meal's time changed; verified on the real Docker stack.
+
+---
+
+## Stage 4 — CSV export
+
+`api/routers/diet_plan_router.py`:
+- [ ] New `GET /diet-plans/{diet_plan_id}/export` — `text/csv` response,
+      `Content-Disposition: attachment; filename="diet-plan-{id}.csv"`.
+      Columns: day_number, date (derived the same way as Stage 2's
+      conflict-clamping — plan `created_at` + `day_number`), time, meal
+      name, calories, protein, carbohydrates, fat. Built from the existing
+      `GetDietPlanUseCase` result — no new domain/application layer needed,
+      just a serializer. Same not-found-vs-not-yours 404.
+
+Exit criteria: unit test for the CSV serialization (header row, correct
+values, correct quoting if a meal name contains a comma); API integration
+test asserting content-type + body shape; verified via curl on the real
+Docker stack against a real generated plan.
+
+---
+
+## Stage 5 — Date-range filtering for plan history
+
+`domain/repositories/diet_plan_repository.py`:
+- [ ] `list_by_user_id` gains optional `start_date: date | None = None`,
+      `end_date: date | None = None` — omitting both keeps today's
+      behavior exactly (backward compatible, no breaking change for any
+      existing caller).
+
+`infrastructure/repository/mongo_diet_plan_repository.py`:
+- [ ] Adds `created_at` range clauses to the `find()` query when provided;
+      adds an index on `created_at` (currently unindexed — fine for today's
+      no-filter full scan, not for a range-filtered query going forward).
+
+`application/dto/diet_plan_dto.py` / `use_cases/list_diet_plans_use_case.py`:
+- [ ] `ListDietPlansQuery` gains `start_date`/`end_date`; use case forwards
+      them to the repository unchanged.
+
+`api/routers/diet_plan_router.py`:
+- [ ] `GET /diet-plans` gains optional `from`/`to` query params (ISO date
+      strings), validated (`from <= to`). No deletion/retention logic
+      anywhere in this stage — purely an additive display filter.
+
+Exit criteria: unit/repository tests for date-range filtering; API
+integration test creating plans and confirming the range filters
+correctly (including the omit-both-params case still returning
+everything); verified on the real Docker stack.
+
+---
+
+## Stage 6 — Tests & docs sync
+
+- [ ] `docs/https/nutrition.http` / `diet-plan.http` — extended with
+      weekly-obligations profile updates, a reschedule-meal step, a CSV
+      export request, and date-range-filtered list requests.
+- [ ] `docs/api.md` — new/changed endpoints and response shapes
+      (`weekly_obligations` on profile, `time` on meals, `PATCH
+      /diet-plans/{id}/meals`, `GET /diet-plans/{id}/export`, `GET
+      /diet-plans?from&to`).
+- [ ] `docs/architecture.md` — `WeeklyObligation`, meal scheduling +
+      conflict-clamping heuristic and its day-number-to-weekday
+      assumption, the reschedule capability (DietPlan's first-ever
+      mutator), CSV export, date-range filtering.
+- [ ] `docs/domain-model.md` — `Meal`/`DietDay`/`NutritionProfile`/
+      `DietPlan` entries updated; `WeeklyObligation` documented.
+- [ ] Roadmap status table updated.
+
+---
+
+# Phase 10 - Frontend
 
 Goal:
 
@@ -1810,7 +2082,7 @@ Supplements
 
 ---
 
-# Phase 10 - Testing
+# Phase 11 - Testing
 
 Goal:
 
@@ -1863,7 +2135,7 @@ Receive AI Response
 
 ---
 
-# Phase 11 - Future Improvements
+# Phase 12 - Future Improvements
 
 Only after MVP.
 

@@ -12,6 +12,8 @@ from .nutrition_profile_dto import (
     GetNutritionProfileQuery,
     NutritionProfileResult,
     UpdateNutritionProfileCommand,
+    WeeklyObligationInput,
+    WeeklyObligationResult,
 )
 
 __all__ = [
@@ -19,6 +21,8 @@ __all__ = [
     "UpdateNutritionProfileCommand",
     "GetNutritionProfileQuery",
     "NutritionProfileResult",
+    "WeeklyObligationInput",
+    "WeeklyObligationResult",
     "GenerateDietPlanCommand",
     "ListDietPlansQuery",
     "GetDietPlanQuery",

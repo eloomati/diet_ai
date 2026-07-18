@@ -10,6 +10,8 @@ from .dto import (
     MealResult,
     NutritionProfileResult,
     UpdateNutritionProfileCommand,
+    WeeklyObligationInput,
+    WeeklyObligationResult,
 )
 from .use_cases import (
     CreateNutritionProfileUseCase,
@@ -29,6 +31,8 @@ __all__ = [
     "UpdateNutritionProfileCommand",
     "GetNutritionProfileQuery",
     "NutritionProfileResult",
+    "WeeklyObligationInput",
+    "WeeklyObligationResult",
     "CreateNutritionProfileUseCase",
     "GetNutritionProfileUseCase",
     "UpdateNutritionProfileUseCase",

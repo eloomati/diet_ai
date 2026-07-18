@@ -8,6 +8,7 @@ from backend.modules.nutrition.domain.exceptions.nutrition_domain_errors import 
 from backend.modules.nutrition.domain.value_objects.activity_level import ActivityLevel
 from backend.modules.nutrition.domain.value_objects.diet_goal import DietGoal
 from backend.modules.nutrition.domain.value_objects.diet_type import DietType
+from backend.modules.nutrition.domain.value_objects.weekly_obligation import WeeklyObligation
 
 _MIN_AGE, _MAX_AGE = 1, 120
 _MIN_HEIGHT_CM, _MAX_HEIGHT_CM = 50, 250
@@ -24,6 +25,7 @@ class NutritionProfile:
     activity_level: ActivityLevel
     goal: DietGoal
     diet_type: DietType
+    weekly_obligations: tuple[WeeklyObligation, ...] = ()
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -37,6 +39,7 @@ class NutritionProfile:
         activity_level: ActivityLevel,
         goal: DietGoal,
         diet_type: DietType,
+        weekly_obligations: tuple[WeeklyObligation, ...] = (),
     ) -> "NutritionProfile":
         cls._validate(age, height_cm, weight_kg)
         now = datetime.now(UTC)
@@ -49,6 +52,7 @@ class NutritionProfile:
             activity_level=activity_level,
             goal=goal,
             diet_type=diet_type,
+            weekly_obligations=weekly_obligations,
             created_at=now,
             updated_at=now,
         )
@@ -62,6 +66,7 @@ class NutritionProfile:
         activity_level: ActivityLevel | None = None,
         goal: DietGoal | None = None,
         diet_type: DietType | None = None,
+        weekly_obligations: tuple[WeeklyObligation, ...] | None = None,
     ) -> None:
         new_age = age if age is not None else self.age
         new_height_cm = height_cm if height_cm is not None else self.height_cm
@@ -77,14 +82,25 @@ class NutritionProfile:
             self.goal = goal
         if diet_type is not None:
             self.diet_type = diet_type
+        if weekly_obligations is not None:
+            self.weekly_obligations = weekly_obligations
         self.updated_at = datetime.now(UTC)
 
     def as_prompt_text(self) -> str:
-        return (
+        base = (
             f"{self.age} years old, {self.height_cm}cm, {self.weight_kg}kg, "
             f"activity level: {self.activity_level.value}, "
             f"goal: {self.goal.value}, diet: {self.diet_type.value}"
         )
+        if not self.weekly_obligations:
+            return base
+
+        commitments = "; ".join(
+            f"{o.day_of_week.value} {o.start_time.strftime('%H:%M')}-"
+            f"{o.end_time.strftime('%H:%M')} {o.label}"
+            for o in self.weekly_obligations
+        )
+        return f"{base}. Weekly commitments to work around: {commitments}"
 
     @staticmethod
     def _validate(age: int, height_cm: int, weight_kg: float) -> None:

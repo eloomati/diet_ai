@@ -9,12 +9,16 @@ from .nutrition_schemas import (
     CreateNutritionProfileRequest,
     NutritionProfileResponse,
     UpdateNutritionProfileRequest,
+    WeeklyObligationRequest,
+    WeeklyObligationResponse,
 )
 
 __all__ = [
     "CreateNutritionProfileRequest",
     "UpdateNutritionProfileRequest",
     "NutritionProfileResponse",
+    "WeeklyObligationRequest",
+    "WeeklyObligationResponse",
     "GenerateDietPlanRequest",
     "DietPlanResponse",
     "DietPlanSummaryResponse",

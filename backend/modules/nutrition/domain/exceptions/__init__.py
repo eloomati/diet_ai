@@ -1,4 +1,13 @@
 from .diet_plan_domain_errors import InvalidDietPlanError
-from .nutrition_domain_errors import InvalidNutritionProfileError, NutritionDomainError
+from .nutrition_domain_errors import (
+    InvalidNutritionProfileError,
+    InvalidWeeklyObligationError,
+    NutritionDomainError,
+)
 
-__all__ = ["NutritionDomainError", "InvalidNutritionProfileError", "InvalidDietPlanError"]
+__all__ = [
+    "NutritionDomainError",
+    "InvalidNutritionProfileError",
+    "InvalidWeeklyObligationError",
+    "InvalidDietPlanError",
+]

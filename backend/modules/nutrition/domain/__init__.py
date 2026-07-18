@@ -1,7 +1,12 @@
 from .entities import DietPlan, NutritionProfile
-from .exceptions import InvalidDietPlanError, InvalidNutritionProfileError, NutritionDomainError
+from .exceptions import (
+    InvalidDietPlanError,
+    InvalidNutritionProfileError,
+    InvalidWeeklyObligationError,
+    NutritionDomainError,
+)
 from .repositories import DietPlanRepository, NutritionProfileRepository
-from .value_objects import ActivityLevel, DietDay, DietGoal, DietType, Meal
+from .value_objects import ActivityLevel, DayOfWeek, DietDay, DietGoal, DietType, Meal, WeeklyObligation
 
 __all__ = [
     "NutritionProfile",
@@ -11,9 +16,12 @@ __all__ = [
     "DietType",
     "DietDay",
     "Meal",
+    "DayOfWeek",
+    "WeeklyObligation",
     "NutritionProfileRepository",
     "DietPlanRepository",
     "NutritionDomainError",
     "InvalidNutritionProfileError",
+    "InvalidWeeklyObligationError",
     "InvalidDietPlanError",
 ]
