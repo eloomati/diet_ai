@@ -104,8 +104,11 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
 
             <form className="flex flex-col gap-2.5" onSubmit={handleSubmit}>
               <div>
-                <label className="mb-1 block text-xs font-bold text-muted-foreground">E-mail</label>
+                <label htmlFor="auth-email" className="mb-1 block text-xs font-bold text-muted-foreground">
+                  E-mail
+                </label>
                 <Input
+                  id="auth-email"
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
@@ -115,7 +118,9 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
               </div>
               <div>
                 <div className="mb-1 flex items-center justify-between">
-                  <label className="block text-xs font-bold text-muted-foreground">Hasło</label>
+                  <label htmlFor="auth-password" className="block text-xs font-bold text-muted-foreground">
+                    Hasło
+                  </label>
                   {tab === 'login' && (
                     <button
                       type="button"
@@ -127,6 +132,7 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
                   )}
                 </div>
                 <Input
+                  id="auth-password"
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}

@@ -53,10 +53,18 @@ export function ProfilTab() {
         ) : (
           <form className="flex items-end gap-2" onSubmit={handleVerify}>
             <div className="flex-1">
-              <label className="mb-1 block text-xs font-bold text-muted-foreground">
+              <label
+                htmlFor="email-verification-token"
+                className="mb-1 block text-xs font-bold text-muted-foreground"
+              >
                 Kod z e-maila powitalnego
               </label>
-              <Input value={token} onChange={(event) => setToken(event.target.value)} required />
+              <Input
+                id="email-verification-token"
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+                required
+              />
             </div>
             <Button type="submit" disabled={submitting}>
               {submitting ? 'Chwileczkę…' : 'Zweryfikuj'}

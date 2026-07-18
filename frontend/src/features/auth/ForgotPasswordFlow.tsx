@@ -83,12 +83,25 @@ export function ForgotPasswordFlow({ onBackToLogin }: ForgotPasswordFlowProps) {
         </p>
         <form className="flex flex-col gap-2.5" onSubmit={handleConfirm}>
           <div>
-            <label className="mb-1 block text-xs font-bold text-muted-foreground">Kod z e-maila</label>
-            <Input value={token} onChange={(event) => setToken(event.target.value)} required />
+            <label htmlFor="reset-token" className="mb-1 block text-xs font-bold text-muted-foreground">
+              Kod z e-maila
+            </label>
+            <Input
+              id="reset-token"
+              value={token}
+              onChange={(event) => setToken(event.target.value)}
+              required
+            />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-bold text-muted-foreground">Nowe hasło</label>
+            <label
+              htmlFor="reset-new-password"
+              className="mb-1 block text-xs font-bold text-muted-foreground"
+            >
+              Nowe hasło
+            </label>
             <Input
+              id="reset-new-password"
               type="password"
               value={newPassword}
               onChange={(event) => setNewPassword(event.target.value)}
@@ -119,8 +132,11 @@ export function ForgotPasswordFlow({ onBackToLogin }: ForgotPasswordFlowProps) {
       </p>
       <form className="flex flex-col gap-2.5" onSubmit={handleRequest}>
         <div>
-          <label className="mb-1 block text-xs font-bold text-muted-foreground">E-mail</label>
+          <label htmlFor="reset-email" className="mb-1 block text-xs font-bold text-muted-foreground">
+            E-mail
+          </label>
           <Input
+            id="reset-email"
             type="email"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
