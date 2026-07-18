@@ -2654,7 +2654,7 @@ Exit criteria met: `npm run build`, `npm run test` (30/30), and
 
 ---
 
-# Etap 2 — Profil żywieniowy
+# Etap 2 — Profil żywieniowy — DONE (Stages 1-4/4)
 
 Goal: wire the profile modal's "Profil" tab to
 `docs/api.md`'s Nutrition Profile API.
@@ -2761,7 +2761,42 @@ guessing. 3 new Vitest cases (422 friendly message, 409 resync-to-edit,
 out-of-range save (zero requests sent, confirmed via network-request
 inspection), then a valid save succeeding normally right after.
 
-## Stage 4 — Tests & docs sync
+## Stage 4 — Tests & docs sync — DONE
+
+- [x] Component test coverage assembled across Stages 1-3 reviewed as a
+      whole: `NutritionProfileForm.test.tsx` (6 cases — create-when-missing,
+      pre-fill-and-PUT, unexpected-fetch-error, 422 friendly message, 409
+      resync-to-edit, 404-during-PUT resync-to-create) and
+      `WeeklyObligationsEditor.test.tsx` (3 cases — add-and-clear,
+      disabled+hint on `end <= start`, remove). No gaps found; no new
+      tests needed beyond what each stage already added.
+- [x] `docs/api.md`'s Nutrition Profile API section cross-checked against
+      `profile_router.py`'s actual request/response/error handling for
+      `GET`/`POST`/`PUT /profile` — status codes, error codes
+      (`CONFLICT`, `NOT_FOUND`, `BAD_REQUEST`), and all four enums
+      (`ActivityLevel`, `DietGoal`, `DietType`, `DayOfWeek`) diffed
+      directly against the domain value objects — no discrepancies found.
+- [x] Roadmap status updated (this section) — Etap 2 marked DONE.
+
+**Real problems hit and fixed**: none new in this stage — the accessibility
+and Select-label bugs were caught and fixed in Stages 1-2 as they were
+introduced, not deferred here.
+
+**Noted but out of scope**: a full backend suite run surfaced 2 pre-existing
+failures in `test_diet_plan_api.py`
+(`test_list_diet_plans_from_today_includes_todays_plan`,
+`test_list_diet_plans_to_in_the_past_excludes_todays_plan`), unrelated to
+this Etap — no backend files were touched (`git status backend/` empty
+throughout). Root cause appears to be a UTC-vs-local-timezone boundary
+mismatch between the test's `date.today()` (local time) and however diet
+plans are timestamped/queried, only visible when the local clock has
+crossed midnight but UTC hasn't yet. Left unfixed as out of scope for a
+frontend nutrition-profile stage; worth a dedicated look when Etap 4
+(Plany dietetyczne) is underway.
+
+Exit criteria met: frontend suite 39/39, `npm run build`/`npm run lint`
+green. Backend nutrition module 137/139 (2 pre-existing, unrelated
+failures noted above, not introduced by this Etap).
 
 ---
 
