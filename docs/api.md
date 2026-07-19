@@ -279,7 +279,10 @@ application approval flow promotes them to `DIET_USER` (Phase 12).
 
 Changes another user's role. `SUPER_ADMIN`-only — this is the only way
 any user ever gains `ADMIN`/`SUPER_ADMIN`/`DIET_USER`; there is no
-self-escalation path anywhere in the API.
+self-escalation path anywhere in the API. A `SUPER_ADMIN` also cannot
+change their *own* role through this endpoint (400) — otherwise the
+only `SUPER_ADMIN` in the system could accidentally demote or lock
+themselves out with a single request.
 
 Authentication:
 
@@ -319,6 +322,7 @@ Body:
 ```
 401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
 403 Forbidden code=FORBIDDEN — caller's role is not SUPER_ADMIN
+400 Bad Request code=BAD_REQUEST — user_id is the caller's own id
 404 Not Found code=NOT_FOUND — user_id doesn't exist
 422 Unprocessable Entity code=VALIDATION_ERROR — new_role isn't one of the 4 valid values
 ```

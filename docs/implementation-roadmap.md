@@ -24,7 +24,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 1 (Dietitian applications
                                               & profile): DONE
                                             Etap 2 (Admin module +
-                                              frontend-admin): Stage 2/6
+                                              frontend-admin): Stage 3/6
                                             Etaps 3-6: not started
 ```
 
@@ -719,9 +719,61 @@ gated to `ADMIN`/`SUPER_ADMIN`.
   login → `/auth/me` returns `role: "USER"` (confirming the data the
   frontend's role-gate acts on), and the CORS preflight fix above.
   `docker compose down` after.
-- **Stage 3 — Użytkownicy tab**: list, activate/ban/delete actions;
-  role-change control visible only when the logged-in admin is
-  `SUPER_ADMIN`.
+- **Stage 3 — Użytkownicy tab — DONE**: real list (`GET /admin/users`)
+  in a plain table — email, a status `Badge`, role, created-at, and a
+  per-row actions column (Aktywuj/Zablokuj toggling on `status`, Usuń
+  opening a confirm `Dialog` before calling `DELETE`, per the
+  "confirm before a destructive/irreversible action" convention). The
+  role column is plain text for everyone except a `SUPER_ADMIN` caller,
+  who gets an inline `Select` — and even then, not on their own row
+  (see below). New `Select`/`Dialog`/`Badge` shadcn primitives copied
+  into `frontend-admin` (same generated output as `frontend`'s own).
+
+  **Two self-action guards added, one already planned and one found
+  necessary while wiring the UI**: the existing `CannotDeleteSelfError`
+  (Etap 2 Stage 1) now has a real UI trigger — the Usuń/Zablokuj
+  buttons are disabled on the caller's own row. The *new* one: nothing
+  had ever stopped a `SUPER_ADMIN` from changing their own role via
+  `PATCH /admin/users/{user_id}/role` — harmless with several
+  `SUPER_ADMIN`s around, but if there's only one, a single misclick
+  demotes or locks out the only account that could undo it. Added the
+  same shape of guard identity's admin router already had for deletion:
+  `user_id == caller.id` → 400, checked in
+  `backend/modules/identity/api/routers/admin_router.py` directly
+  (`ChangeUserRoleUseCase` itself doesn't know about the caller, same
+  as before — this stays an authorization concern at the API layer).
+  On the frontend, the role `Select` simply isn't rendered at all for
+  the `SUPER_ADMIN`'s own row, rather than rendering it disabled.
+
+  Exit criteria met: backend — 1 new test
+  (`test_super_admin_cannot_change_their_own_role`) in the existing
+  `test_change_user_role_api.py` (6/6 passing), full identity suite
+  re-run since the router changed (129 passed) and full backend suite
+  since `docker-compose.yml`/CORS-adjacent files weren't touched this
+  time but the shared router was (444 passed, same 2 pre-existing
+  timezone-boundary failures, unrelated). Frontend — 6 new
+  `UzytkownicyTab.test.tsx` tests (list rendering, role selector
+  hidden for a plain `ADMIN`, shown for `SUPER_ADMIN` but not on their
+  own row, ban, self-row actions disabled, delete-with-confirmation)
+  plus `App.test.tsx`'s existing 4 tests updated to mock
+  `GET /admin/users` (the placeholder text they'd asserted on no
+  longer exists once this tab does something real) — 16/16 passing,
+  `npx tsc --noEmit` and `npm run build` both clean.
+
+  Live-verified: `docker compose up -d --build backend frontend-admin`,
+  confirmed clean startup via logs (no new migration — this stage adds
+  no schema). Browser click-through was blocked again by the same
+  Claude-in-Chrome `chrome-extension://` connection error (failed on
+  the very next action after a clean screenshot, across a fresh tab,
+  same pattern as Stage 2) — substituted a thorough `curl` pass instead:
+  bootstrapped a `SUPER_ADMIN` and 3 target users, listed them via
+  `GET /admin/users`, ran ban→activate→role-change on one target (each
+  200, each change reflected in the response body), confirmed both
+  self-guards return 400 for the `SUPER_ADMIN`'s own id (role-change
+  and delete), then deleted the target user (204). Also re-confirmed
+  the CORS preflight for `/admin/users` from `http://localhost:5174`
+  returns `200` with the right `access-control-allow-origin`.
+  `docker compose down` after.
 - **Stage 4 — Dietetycy tab**: list pending/approved/rejected
   applications, approve/reject actions.
 - **Stage 5 — Raporty tab placeholder**: an explicit "coming later"

@@ -57,6 +57,7 @@ describe('App', () => {
       if (url.includes('/auth/login')) {
         return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
       }
+      if (url.includes('/admin/users')) return Promise.resolve(jsonResponse(200, []))
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -72,7 +73,7 @@ describe('App', () => {
     expect(screen.getByRole('tab', { name: 'Użytkownicy' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Dietetycy' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Transakcje' })).toBeInTheDocument()
-    expect(screen.getByText('Lista użytkowników pojawi się tutaj w kolejnym etapie.')).toBeInTheDocument()
+    expect(await screen.findByText('E-mail')).toBeInTheDocument()
   })
 
   it('shows an error and stays on the login page for a non-admin user', async () => {
@@ -120,6 +121,7 @@ describe('App', () => {
           }),
         )
       }
+      if (url.includes('/admin/users')) return Promise.resolve(jsonResponse(200, []))
       return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
     })
     vi.stubGlobal('fetch', fetchMock)
