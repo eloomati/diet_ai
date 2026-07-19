@@ -251,6 +251,13 @@ own `InvalidPasswordError` directly, so it stays put).
                 Claude Provider / Ollama (local)
 ```
 
+`frontend-admin` (Phase 12, in progress) is a second, separate frontend
+calling the same FastAPI API — omitted from the diagram above to keep
+it to the original chat/nutrition flow. It talks to a new `Admin`
+module, which has no database of its own (see "Admin Module" below) —
+so it isn't drawn with a persistence box the way `Identity`/
+`Conversation`/`Nutrition` are.
+
 ---
 
 # 7. Application Modules
@@ -269,7 +276,8 @@ Responsibilities:
 - password reset,
 - email verification,
 - email delivery logging + retry for failed sends,
-- user account management.
+- user account management,
+- role-based access control (Phase 12).
 
 Database:
 
@@ -283,7 +291,8 @@ Technology:
 Main entities:
 
 ```
-User                     — gained email_verified: bool (Phase 8)
+User                     — gained email_verified: bool (Phase 8),
+                            role: Role (Phase 12)
 
 RefreshToken
 
@@ -313,6 +322,32 @@ a credential change. Email verification does **not** gate login:
 `LoginUserUseCase` is untouched by `email_verified` — this is a deliberate
 scope boundary, not an oversight; verifying email is tracked but not
 enforced.
+
+### Role-based access control (Phase 12)
+
+`Role` is a `StrEnum` on `User` — `USER` (default), `DIET_USER`, `ADMIN`,
+`SUPER_ADMIN`. `User.change_role()` is a plain state transition + a
+`UserRoleChanged` domain event; it enforces no authorization rule of its
+own (the entity has no notion of "who's asking"). Authorization —
+*who* may call an endpoint at all, and *who* may change *whose* role —
+is entirely an API-layer concern, via a dependency factory:
+
+```python
+require_role(*roles: Role) -> Callable[[User], Awaitable[User]]
+```
+
+built on top of `get_current_user`, only adding a role-membership check.
+Every role-gated endpoint in every module (`identity`, `dietitian`,
+`admin`) depends on this same function — none of them re-implement
+their own role check.
+
+The only way any user's role ever changes is `PATCH /admin/users/{user_id}/role`
+(`SUPER_ADMIN`-only) or the dietitian-application approval flow (the
+`admin` module, below, promoting an applicant to `DIET_USER`) — there is
+no self-escalation path anywhere in the API, and a `SUPER_ADMIN` cannot
+even change their *own* role through the role-change endpoint (a single
+misclick could otherwise demote or lock out the only such account in
+the system).
 
 ### EmailSender, Mailhog, and the delivery log
 
@@ -368,6 +403,53 @@ attempt was made. The retry use case sends via the **base** `EmailSender`,
 not `LoggingEmailSender` — it owns updating the existing `EmailLog` row
 itself (`attempts`, `next_retry_at`), so wrapping it again would create a
 duplicate row per attempt instead of tracking the original one.
+
+---
+
+## Admin Module (Phase 12)
+
+Responsible for admin-facing orchestration: user management and
+dietitian-application review. Backs `frontend-admin` (see "Docker"
+below) — a separate app from the main `frontend`, gated to
+`ADMIN`/`SUPER_ADMIN` at login.
+
+Responsibilities:
+
+- listing/activating/banning/deleting user accounts,
+- listing dietitian applications and approving/rejecting them.
+
+Database: **none of its own.** This module's use cases call the
+`identity`, `dietitian`, `nutrition`, and `conversation` modules'
+existing repository *ports* directly (`UserRepository`,
+`DietitianApplicationRepository`, `DietitianProfileRepository`,
+`ConversationRepository`, `NutritionProfileRepository`,
+`DietPlanRepository`, `DietPlanExportRepository`) rather than defining
+any persistence model or repository of its own. This is not an
+exception to "modules don't access each other's persistence directly"
+(see Data Ownership Rules below) — it goes through the exact same
+abstraction each owning module's own use cases go through, never a raw
+query against another module's tables/documents.
+
+Two route groups, both gated by `require_role(ADMIN, SUPER_ADMIN)`:
+
+- `/admin/users` — list, activate, ban, delete. `DELETE /admin/users/{id}`
+  is the one place in the backend that has to reason about *all* of a
+  user's data at once: Postgres's `ON DELETE CASCADE` only cleans up
+  other Postgres tables (refresh tokens, dietitian applications/profiles),
+  so the use case explicitly deletes the user's Mongo-held conversations,
+  nutrition profile, diet plans, and diet plan exports first — nothing
+  else in the codebase needed a "delete everything for this user" flow
+  before, so those repositories each gained a `delete`/`delete_by_user_id`
+  method just for this. Also refuses to let an admin delete their own
+  account (`CannotDeleteSelfError`, 400).
+- `/admin/dietitian-applications` — list (optional `?status=` filter),
+  approve, reject. Approving is the one flow in the codebase that
+  actually creates a `DietitianProfile` — it promotes the applicant to
+  `DIET_USER` (`user.change_role()`, called directly, not through
+  identity's `ChangeUserRoleUseCase`, since that object exists
+  specifically to back the separate `SUPER_ADMIN`-only role-change
+  endpoint) and creates the profile from the application's own
+  experience/diplomas/description.
 
 ---
 
@@ -778,6 +860,14 @@ Identity application interface
 Identity module
 ```
 
+The `admin` module (Phase 12) is a deliberate, narrow instance of this
+correct shape, not an exception to it: its use cases call other
+modules' repository *ports* — the same interfaces those modules' own
+use cases depend on — never a raw query against another module's
+Postgres tables or Mongo documents. It has no persistence layer of its
+own to enforce this against; it's pure orchestration over ports that
+already exist. See "Admin Module" above.
+
 ---
 
 # 10. AI Communication Flow
@@ -858,16 +948,20 @@ Examples:
 
 The application should be runnable locally using Docker Compose.
 
-Actual services (`docker-compose.yml`, as of Phase 10 — this list was a
+Actual services (`docker-compose.yml`, as of Phase 12 — this list was a
 sparse Phase 0 draft before and had drifted; several services were added
 since):
 
 ```
 backend
 
-frontend    — React + Vite dev server (Phase 10, the actual web UI)
+frontend        — React + Vite dev server (Phase 10, the actual web UI)
 
-db          — PostgreSQL (Identity)
+frontend-admin  — React + Vite dev server (Phase 12, in progress) — the
+                  admin panel, a fully separate app on its own port;
+                  login requires an ADMIN/SUPER_ADMIN account
+
+db          — PostgreSQL (Identity, Dietitian)
 
 mongo       — MongoDB (Conversation, Nutrition)
 
@@ -877,6 +971,15 @@ mailhog     — local SMTP catcher (Phase 8, password reset/email verification)
 
 sftp        — local SFTP server (Phase 9, diet-plan CSV export archive)
 ```
+
+`CORS_ORIGINS` on the `backend` service must list *both* frontend dev
+server origins (`http://localhost:5173,http://localhost:5174`) — this
+is set as a `docker-compose.yml` environment variable, which overrides
+`Settings.cors_origins`'s own Python default entirely; forgetting to
+update both when adding a new frontend origin silently breaks that
+origin's requests with no server-side error (browser-only CORS
+rejection) — this exact mistake was made and caught while building
+`frontend-admin` (Phase 12).
 
 Example:
 

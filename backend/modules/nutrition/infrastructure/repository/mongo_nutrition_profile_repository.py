@@ -20,3 +20,6 @@ class MongoNutritionProfileRepository(NutritionProfileRepository):
     async def save(self, profile: NutritionProfile) -> None:
         document = NutritionProfileMapper.to_document(profile)
         await document.save()
+
+    async def delete_by_user_id(self, user_id: UUID) -> None:
+        await NutritionProfileDocument.find(NutritionProfileDocument.user_id == user_id).delete()

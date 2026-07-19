@@ -20,6 +20,12 @@ class InMemoryDietitianApplicationRepository:
     async def save(self, application: DietitianApplication) -> None:
         self._by_id[application.id] = application
 
+    async def list_all(self, status=None) -> list[DietitianApplication]:
+        applications = list(self._by_id.values())
+        if status is not None:
+            applications = [a for a in applications if a.status == status]
+        return sorted(applications, key=lambda a: a.created_at)
+
 
 class InMemoryDietitianProfileRepository:
     def __init__(self) -> None:

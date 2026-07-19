@@ -21,3 +21,11 @@ class UserRepository(ABC):
     @abstractmethod
     async def save(self, user: User) -> None:
         raise NotImplementedError
+
+    @abstractmethod
+    async def list_all(self) -> list[User]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def delete(self, user_id: UUID) -> None:
+        raise NotImplementedError

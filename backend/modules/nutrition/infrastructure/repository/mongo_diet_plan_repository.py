@@ -39,3 +39,6 @@ class MongoDietPlanRepository(DietPlanRepository):
     async def save(self, plan: DietPlan) -> None:
         document = DietPlanMapper.to_document(plan)
         await document.save()
+
+    async def delete_by_user_id(self, user_id: UUID) -> None:
+        await DietPlanDocument.find(DietPlanDocument.user_id == user_id).delete()

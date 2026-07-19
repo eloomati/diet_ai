@@ -1,7 +1,15 @@
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi.testclient import TestClient
+
+
+def _today() -> date:
+    # DietPlan.created_at is stored in UTC — comparing against the local
+    # calendar date (date.today()) flakes for ~2 hours a day in any
+    # timezone ahead of UTC (e.g. CEST), where local "today" has already
+    # rolled over but the row's own UTC date hasn't yet.
+    return datetime.now(UTC).date()
 
 
 def unique_email(prefix: str) -> str:
@@ -122,7 +130,7 @@ def test_list_diet_plans_from_in_the_future_excludes_todays_plan(client: TestCli
     client.post(
         "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
     )
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    tomorrow = (_today() + timedelta(days=1)).isoformat()
 
     response = client.get(
         "/api/v1/diet-plans", params={"from": tomorrow}, headers=_auth_headers(token)
@@ -138,7 +146,7 @@ def test_list_diet_plans_from_today_includes_todays_plan(client: TestClient) -> 
     client.post(
         "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
     )
-    today = date.today().isoformat()
+    today = _today().isoformat()
 
     response = client.get("/api/v1/diet-plans", params={"from": today}, headers=_auth_headers(token))
 
@@ -152,7 +160,7 @@ def test_list_diet_plans_to_in_the_past_excludes_todays_plan(client: TestClient)
     client.post(
         "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
     )
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = (_today() - timedelta(days=1)).isoformat()
 
     response = client.get("/api/v1/diet-plans", params={"to": yesterday}, headers=_auth_headers(token))
 
@@ -166,7 +174,7 @@ def test_list_diet_plans_to_today_includes_todays_plan(client: TestClient) -> No
     client.post(
         "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
     )
-    today = date.today().isoformat()
+    today = _today().isoformat()
 
     response = client.get("/api/v1/diet-plans", params={"to": today}, headers=_auth_headers(token))
 
@@ -176,8 +184,8 @@ def test_list_diet_plans_to_today_includes_todays_plan(client: TestClient) -> No
 
 def test_list_diet_plans_from_after_to_returns_400(client: TestClient) -> None:
     token = _register_and_login(client, "dietplan.badrange")
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
-    today = date.today().isoformat()
+    tomorrow = (_today() + timedelta(days=1)).isoformat()
+    today = _today().isoformat()
 
     response = client.get(
         "/api/v1/diet-plans",

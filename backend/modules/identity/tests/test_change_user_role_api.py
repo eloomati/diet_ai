@@ -119,6 +119,33 @@ def test_change_role_rejects_unknown_role_value(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_super_admin_cannot_change_their_own_role(client: TestClient) -> None:
+    email = unique_email("role.self")
+    register = client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
+    )
+    user_id = register.json()["user_id"]
+
+    async def _override_as_self() -> User:
+        user = User.create(email=Email(email), password_hash=PasswordHash("$2b$12$abcdefghijklmnopqrstuv"))
+        user.id = uuid.UUID(user_id)
+        user.change_role(Role.SUPER_ADMIN)
+        return user
+
+    app.dependency_overrides[get_current_user] = _override_as_self
+    try:
+        response = client.patch(
+            f"/api/v1/admin/users/{user_id}/role",
+            json={"new_role": "ADMIN"},
+        )
+    finally:
+        _cleanup_overrides()
+
+    assert response.status_code == 400
+    assert response.json()["code"] == "BAD_REQUEST"
+
+
 def test_change_user_role_without_auth_returns_401(client: TestClient) -> None:
     response = client.patch(
         f"/api/v1/admin/users/{uuid.uuid4()}/role",

@@ -163,6 +163,20 @@ DietitianProfile
 
 ---
 
+## Admin Context
+
+Responsible for:
+
+- user account management (list/activate/ban/delete),
+- dietitian-application review (approve/reject).
+
+Database: **none.** This context has no domain entities or persistence
+of its own — it's pure orchestration over the Identity and Dietitian
+contexts' own repositories. Deliberately absent from the Aggregates and
+Persistence Mapping sections below for that reason, not by omission.
+
+---
+
 ## AI Context
 
 Responsible for:

@@ -23,9 +23,16 @@ router = APIRouter(prefix="/admin", tags=["identity-admin"])
 async def change_user_role(
     user_id: UUID,
     request: ChangeUserRoleRequest,
-    _caller: User = Depends(require_role(Role.SUPER_ADMIN)),
+    caller: User = Depends(require_role(Role.SUPER_ADMIN)),
     use_case: ChangeUserRoleUseCase = Depends(get_change_user_role_use_case),
 ) -> ChangeUserRoleResponse:
+    if user_id == caller.id:
+        raise AppException(
+            code=ErrorCode.BAD_REQUEST,
+            message="You cannot change your own role.",
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
     try:
         user = await use_case.execute(ChangeUserRoleCommand(user_id=user_id, new_role=request.new_role))
     except UserNotFoundError as exc:

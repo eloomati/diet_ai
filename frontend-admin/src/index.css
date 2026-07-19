@@ -1,0 +1,124 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@import "@fontsource/nunito/800.css";
+@import "@fontsource/nunito-sans/400.css";
+@import "@fontsource/nunito-sans/700.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: 'Nunito', sans-serif;
+    --font-sans: 'Nunito Sans', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* Same palette as the main frontend (docs/implementation-roadmap.md Etap 0
+   of Phase 10) — brand consistency, since this is the same product's admin
+   tool, not a separate one. The layout stays deliberately plainer (no rail
+   choreography), but the colors/type shouldn't feel like a different app. */
+:root {
+    --background: #F6EFE2;
+    --foreground: #332B21;
+    --card: #FFFCF6;
+    --card-foreground: #332B21;
+    --popover: #FFFFFF;
+    --popover-foreground: #332B21;
+    --primary: #C98A1F;
+    --primary-foreground: #FFFFFF;
+    --secondary: #DCE6D3;
+    --secondary-foreground: #33422C;
+    --muted: #F0E6D2;
+    --muted-foreground: #8C7F68;
+    --accent: #FBEBC9;
+    --accent-foreground: #5C3D0B;
+    --destructive: #B4523D;
+    --border: #E7DAC0;
+    --input: #E7DAC0;
+    --ring: #C98A1F;
+    --radius: 1rem;
+    --sidebar: #FFFCF6;
+    --sidebar-foreground: #332B21;
+    --sidebar-primary: #C98A1F;
+    --sidebar-primary-foreground: #FFFFFF;
+    --sidebar-accent: #FBEBC9;
+    --sidebar-accent-foreground: #5C3D0B;
+    --sidebar-border: #E7DAC0;
+    --sidebar-ring: #C98A1F;
+}
+
+.dark {
+    --background: #221D16;
+    --foreground: #ECE4D3;
+    --card: #2A241A;
+    --card-foreground: #ECE4D3;
+    --popover: #2F2820;
+    --popover-foreground: #ECE4D3;
+    --primary: #E8AE3D;
+    --primary-foreground: #221D16;
+    --secondary: #3A4632;
+    --secondary-foreground: #DCE6D3;
+    --muted: #34291C;
+    --muted-foreground: #B3A88E;
+    --accent: #4A3B1E;
+    --accent-foreground: #F6DFA8;
+    --destructive: #D97561;
+    --border: #3D3323;
+    --input: #3D3323;
+    --ring: #E8AE3D;
+    --sidebar: #2A241A;
+    --sidebar-foreground: #ECE4D3;
+    --sidebar-primary: #E8AE3D;
+    --sidebar-primary-foreground: #221D16;
+    --sidebar-accent: #4A3B1E;
+    --sidebar-accent-foreground: #F6DFA8;
+    --sidebar-border: #3D3323;
+    --sidebar-ring: #E8AE3D;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+  }
+}

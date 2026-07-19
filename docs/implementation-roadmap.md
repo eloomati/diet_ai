@@ -15,14 +15,17 @@ Phase 12.
 
 ---
 
-## Status (as of 2026-07-19)
+## Status (as of 2026-07-20)
 
 ```
 Phase 0-11  - Foundation through Testing   DONE — see the archived roadmap
-Phase 12    - Dietitian Marketplace,       PLANNED — not started. This
-              Admin Panel & Roles           document's prospective plan,
-                                            awaiting stage-by-stage
-                                            implementation.
+Phase 12    - Dietitian Marketplace,       IN PROGRESS —
+              Admin Panel & Roles           Etap 0 (Roles & RBAC): DONE
+                                            Etap 1 (Dietitian applications
+                                              & profile): DONE
+                                            Etap 2 (Admin module +
+                                              frontend-admin): DONE
+                                            Etaps 3-6: not started
 ```
 
 ---
@@ -494,7 +497,46 @@ profile they manage from inside the existing `frontend/` app.
   available substitute; an actual in-browser pass of the new tabs is
   still outstanding and should happen opportunistically once the
   extension recovers. `docker compose down` after.
-- **Stage 5 — Tests + docs sync**.
+- **Stage 5 — Tests + docs sync — DONE**: closing stage for Etap 1 as a
+  whole, so — per the standing testing-scope rule — the *full* suite
+  ran rather than just the dietitian module.
+  - `docs/api.md`: new **Dietitian API** module section covering all 6
+    endpoints built across Stages 2-4 (`POST`/`GET .../applications*`,
+    `GET`/`PUT .../profile`, `POST`/`DELETE .../profile/photos*`), plus
+    an Overview bullet mentioning dietitian applications/profiles.
+  - `docs/domain-model.md`: new **Dietitian Context** (bounded contexts)
+    and **Dietitian Domain** section (`DietitianApplication`,
+    `DietitianProfile` — both aggregate roots, their rules, and an
+    explicit note that neither currently emits domain events, unlike
+    `User.change_role()`), both added to Aggregates/Persistence Mapping,
+    and a short addendum on the Relationships diagram. Inserting a new
+    domain section required renumbering sections 7-13 to 8-14 — done
+    and verified sequential.
+  - `docs/openapi.json` regenerated via `scripts/export_openapi.py` —
+    confirmed the new dietitian paths are present.
+  - This document's own status block flipped Phase 12 from PLANNED to
+    IN PROGRESS, with Etap 0/Etap 1 marked DONE.
+
+  **Full-suite closing gate run (backend + frontend)**: frontend clean
+  (105/105). Backend: 416 passed, **2 pre-existing failures unrelated to
+  this etap** — `test_diet_plan_api.py::test_list_diet_plans_from_today_includes_todays_plan`
+  and `::test_list_diet_plans_to_in_the_past_excludes_todays_plan`
+  (Phase 10 nutrition tests, untouched this whole session). Root cause:
+  both compute `date.today()` in the *local* timezone (CEST, UTC+2) and
+  compare it against `DietPlan.created_at`, which is stored in UTC —
+  for roughly 2 hours after local midnight but before UTC midnight,
+  local "today" and the plan's actual UTC-dated `created_at` disagree
+  by one day, flipping both tests' expected result. Confirmed by
+  comparing `date.today()` vs `datetime.now(UTC).date()` at the time of
+  the run (`2026-07-20` vs `2026-07-19`) — a genuine latent bug, but a
+  clock-window flake unrelated to any dietitian-module change, so it
+  wasn't fixed here; left as a flagged, separately-scoped issue for
+  whoever next touches `nutrition`'s date-range filtering.
+
+Etap 1 (Dietitian applications & profile) is now **DONE** — all 5
+stages complete: the module (Postgres, Stage 1), the apply flow
+(Stage 2), photo upload (Stage 3), the dietitian's own profile
+management UI (Stage 4), and this docs/tests sync (Stage 5).
 
 ---
 
@@ -503,59 +545,370 @@ profile they manage from inside the existing `frontend/` app.
 Goal: the actual admin panel — a separate app, separate backend module,
 gated to `ADMIN`/`SUPER_ADMIN`.
 
-- **Stage 1 — New `backend/modules/admin/` module**: no new persistence
-  of its own — its use cases call the existing `identity`/`dietitian`/
-  (later) `transactions` modules' repository ports directly (an
-  established cross-module pattern already used elsewhere in this
-  codebase), so admin logic stays a thin orchestration layer rather than
-  a second source of truth. Endpoints: `GET /admin/users` (list, no
-  sensitive fields), `POST /admin/users/{id}/activate`,
+- **Stage 1 — New `backend/modules/admin/` module — DONE**: no new
+  persistence of its own, exactly as planned — its use cases call the
+  existing `identity`/`dietitian`/`nutrition`/`conversation` modules'
+  repository ports directly, reusing their already-exported API-layer
+  provider functions (`get_conversation_repository`,
+  `get_nutrition_profile_repository`, `get_diet_plan_repository`,
+  `get_diet_plan_export_repository`, `get_dietitian_application_repository`,
+  `get_dietitian_profile_repository`) the same way every module already
+  reuses identity's `get_current_user`/`require_role` — so admin logic
+  stays a thin orchestration layer, not a second source of truth, and no
+  new repository implementation had to be written for it.
+  Endpoints, all gated by `require_role(ADMIN, SUPER_ADMIN)`:
+  `GET /admin/users`, `POST /admin/users/{id}/activate`,
   `POST /admin/users/{id}/ban`, `DELETE /admin/users/{id}`,
-  `GET /admin/dietitian-applications`,
+  `GET /admin/dietitian-applications` (optional `?status=` filter),
   `POST /admin/dietitian-applications/{id}/approve` (promotes the user
-  to `DIET_USER` via Etap 0 Stage 1's `change_role()`),
-  `POST /admin/dietitian-applications/{id}/reject`. All gated by
-  Etap 0's `require_role(ADMIN, SUPER_ADMIN)` (role-change itself stays
-  `SUPER_ADMIN`-only per Etap 0 Stage 3).
+  to `DIET_USER` and creates their `DietitianProfile` — see below),
+  `POST /admin/dietitian-applications/{id}/reject`.
 
-  **`DELETE /admin/users/{id}` needs explicit cross-database cleanup —
-  flagged now (2026-07-19), before this stage is built, not discovered
-  mid-implementation.** `ConversationDocument`/`NutritionProfileDocument`/
-  `DietPlanDocument`/`DietPlanExportDocument` (all Mongo) and now
-  `DietitianApplication`/`DietitianProfile` (Postgres, Etap 1 Stage 1)
-  all store a plain `user_id` pointing at the Postgres `users` row —
-  Postgres's `ON DELETE CASCADE` only cleans up *other Postgres tables*
-  (so deleting a user correctly cascades to their dietitian application/
-  profile), it does **not** reach into Mongo. No account-deletion flow
-  exists anywhere in the backend yet, so this isn't a regression of
-  working behavior — it's a real gap this specific new endpoint has to
-  close itself: the use case needs to explicitly delete the user's Mongo-
-  held conversations, nutrition profile, and diet plans (and, once
-  Etap 5's `messaging` module exists, their dietitian chat threads too)
-  *before or alongside* the Postgres delete, not assume the DB cascade
-  covers it.
-- **Stage 2 — `frontend-admin/` scaffold**: new sibling folder to
-  `frontend/` — its own Vite+React+TS+Tailwind v4 project (per the
-  confirmed decision), reusing the same `docker-compose.yml` pattern as
-  `frontend`'s own service (new `frontend-admin` service, its own port).
-  Login reuses the existing `/auth/login` endpoint (no separate admin
-  auth system) — the login form just also checks the returned role and
-  refuses entry below `ADMIN`. Layout: a plain, legible shell (no rail
-  choreography like the main app) — a top bar with a "Powrót do
-  aplikacji" link back to the main frontend, and a tab bar: Raporty /
-  Użytkownicy / Dietetycy / Transakcje (Transakcje's real content
-  arrives in Etap 3).
-- **Stage 3 — Użytkownicy tab**: list, activate/ban/delete actions;
-  role-change control visible only when the logged-in admin is
-  `SUPER_ADMIN`.
-- **Stage 4 — Dietetycy tab**: list pending/approved/rejected
-  applications, approve/reject actions.
-- **Stage 5 — Raporty tab placeholder**: an explicit "coming later"
-  empty state (matching this project's existing convention of shipping
-  honest placeholders — e.g. the main app's "Co nowego" rail before this
-  phase) — no report generation logic yet, out of scope per the user's
-  own framing ("do implementacji później").
-- **Stage 6 — Tests + docs sync**.
+  **New repository capabilities added to support this stage** (each
+  module's own domain/infrastructure layers, not admin's): `UserRepository`
+  gained `list_all()`/`delete()`; `DietitianApplicationRepository`
+  gained `list_all(status=None)`; `NutritionProfileRepository`,
+  `DietPlanRepository`, `DietPlanExportRepository` each gained
+  `delete_by_user_id()` (Mongo bulk deletes — nothing in this codebase
+  had ever deleted these before). `ConversationRepository` needed no
+  change — `list_by_user()` + `delete(id)` already existed and compose
+  into exactly what `DeleteUserUseCase` needs.
+
+  **`DELETE /admin/users/{id}`'s cross-database cleanup, flagged before
+  this stage and now built exactly as flagged**: `DeleteUserUseCase`
+  deletes the user's Mongo-held conversations (via `list_by_user` +
+  `delete`), nutrition profile, diet plans, and diet plan exports —
+  all *before* the Postgres `user_repository.delete()` call, which
+  cascades to `refresh_tokens`/`password_reset_tokens`/
+  `email_verification_tokens`/`dietitian_applications`/
+  `dietitian_profiles` (all already `ON DELETE CASCADE`; `email_logs`
+  correctly has no FK and is deliberately left behind). Also added a
+  guard the original plan didn't call out but the entity model made
+  obviously necessary once actually building the endpoint: an admin
+  cannot delete their own account (`CannotDeleteSelfError`, 400) —
+  the same spirit as "no self-escalation path" for role changes.
+
+  **The dietitian-approval flow closes the exact gap Etap 1 left
+  open**: since Etap 1, there was no way for a `DietitianProfile` to
+  ever be created through the API — `ApproveDietitianApplicationUseCase`
+  is that path. It calls `application.approve(reviewed_by)` (raising
+  `ApplicationAlreadyReviewedError` on a second attempt), promotes the
+  user via `user.change_role(Role.DIET_USER)` directly (not through
+  identity's `ChangeUserRoleUseCase` — that object exists for the
+  `SUPER_ADMIN`-only role-change endpoint specifically; this is a
+  deliberately different path, gated by its own endpoint's
+  `require_role(ADMIN, SUPER_ADMIN)`), then creates the
+  `DietitianProfile` from the application's own experience/diplomas/
+  description. Defensively checks for an existing profile first (not
+  expected in practice — one application per user, ever, approvable
+  only once — but manual DB fixes during earlier live-verification
+  passes are exactly the kind of state that could violate that
+  assumption, so it's guarded rather than trusted).
+
+  Exit criteria met — scoped to the new `admin` module plus the small
+  repository additions in `identity`/`dietitian`/`nutrition` (genuinely
+  cross-cutting, so the *full* suite ran, not just the new module): 43
+  new tests total — 16 admin use-case unit tests (list/activate/ban/
+  delete users; list/approve/reject dietitian applications, including
+  the self-delete guard and the already-reviewed/already-exists edge
+  cases) using in-memory fakes reused directly from each source
+  module's own `tests/fakes.py`, plus 11 API-level tests across two new
+  files (`test_users_api.py`, `test_dietitian_applications_api.py`) —
+  27 tests in the new `backend/modules/admin/tests/` package
+  (`pytest.ini` gained the new test path), and existing-fake updates
+  (`InMemoryUserRepository` ×2, `InMemoryDietitianApplicationRepository`,
+  three nutrition fakes) so the new abstract repository methods didn't
+  break any ABC-inheriting fake. Full backend suite: 443 passed — the
+  same 2 pre-existing timezone-boundary failures from Etap 1 Stage 5
+  (unrelated, already flagged there) and nothing else.
+
+  Live-verified against the real Docker backend via `curl` (no new
+  migration needed — confirmed by `docker compose logs`, since this
+  module adds no persistence of its own): bootstrapped an `ADMIN` via
+  direct SQL (same pattern as Etap 0's first `SUPER_ADMIN`), confirmed
+  `GET /admin/users` lists both accounts, submitted a dietitian
+  application and approved it — confirmed via `GET /auth/me` that the
+  applicant's role flipped to `DIET_USER` and via
+  `GET /dietitian/profile/me` that a real profile now exists with the
+  application's own data. Separately verified ban→activate,
+  self-delete correctly rejected with 400, and — the part that mattered
+  most — the cross-database cleanup: gave a second user a real Mongo
+  nutrition profile, conversation, and diet plan, confirmed all three
+  existed via `mongosh` (`UUID('...')` query syntax, not a plain string
+  — `user_id` is stored as a native BSON UUID, an early verification
+  attempt silently matched zero documents until this was corrected),
+  called `DELETE /admin/users/{id}`, then confirmed all three Mongo
+  documents and the Postgres `users` row were gone. `docker compose down`
+  after.
+- **Stage 2 — `frontend-admin/` scaffold — DONE**: new sibling folder
+  to `frontend/` — its own Vite+React+TS+Tailwind v4 project (per the
+  confirmed decision), same shadcn `base-nova` style and the identical
+  design tokens/palette as the main app (brand consistency — this is
+  the same product's admin tool, not a separate one), but no
+  `react-router` (a single-page tab switcher needs no routes) and no
+  registration/password-reset/email-verification flows (admin accounts
+  are provisioned by role change, never self-registered). Own
+  `docker-compose.yml` service (`frontend-admin`, port 5174, mirroring
+  `frontend`'s exact pattern) and its own `Dockerfile`.
+
+  **Login gate**: reuses the existing `POST /auth/login` +
+  `GET /auth/me` endpoints — no separate admin auth system. `AuthContext.login()`
+  fetches `/auth/me` right after storing tokens and immediately clears
+  them and throws `InsufficientRoleError` if the role isn't
+  `ADMIN`/`SUPER_ADMIN` — a `DIET_USER` or plain `USER` can authenticate
+  against the backend but is never treated as "logged in" by this app's
+  own state, not even for an instant. The same check runs during the
+  silent bootstrap-refresh path on page load, not just on the login
+  form's explicit submit.
+
+  **Layout**: a plain top bar (title, logged-in email, a "← Powrót do
+  aplikacji" link to `VITE_MAIN_APP_URL`, a logout button) — no rail
+  choreography like the main app — plus a `Tabs` bar: Raporty /
+  Użytkownicy / Dietetycy / Transakcje. All four are honest placeholders
+  for now ("pojawi się w kolejnym etapie" / "po wdrożeniu modułu
+  płatności"), each already its own file
+  (`features/shell/tabs/*.tsx`) so Stage 3/4 replace one at a time
+  without touching the others.
+
+  **Two real bugs found and fixed while live-verifying, both would
+  have silently broken the admin panel in the browser despite
+  passing every automated test**:
+  1. `docker-compose.yml`'s `backend` service hardcodes
+     `CORS_ORIGINS: http://localhost:5173` as an environment variable,
+     which overrides `Settings.cors_origins`'s default entirely —
+     editing the Python default (also done, `"http://localhost:5173,http://localhost:5174"`,
+     for anyone running the backend outside Docker) had no effect on
+     the actual running container. Confirmed via a real CORS preflight
+     (`OPTIONS` with `Origin: http://localhost:5174`) returning
+     `400 Disallowed CORS origin` even after rebuilding — fixed by
+     updating the compose file's env var too, re-verified as `200` with
+     `access-control-allow-origin: http://localhost:5174`. Neither
+     `pytest` nor a component test would ever catch this class of bug —
+     it's purely a Docker Compose environment-variable precedence
+     issue, only visible by actually issuing a cross-origin request
+     against the containerized backend.
+  2. (Caught before it shipped, while writing the tests, not after) —
+     `App.test.tsx`'s first draft imported the module-level
+     `queryClient` singleton from `@/lib/queryClient` for every test
+     instead of a fresh `new QueryClient()` per render, which would
+     have let cached `/auth/me` responses leak between unrelated test
+     cases — fixed before running.
+
+  Exit criteria met: `npx tsc --noEmit` and `npm run build` both clean;
+  10 new tests (`AuthContext.test.tsx`: 6, covering ADMIN/SUPER_ADMIN
+  acceptance, USER/DIET_USER rejection with token cleanup, and logout;
+  `App.test.tsx`: 4, covering the login page, the full shell with all 4
+  tabs after a real ADMIN login, the non-admin rejection message, and
+  logout back to the login page) — both passing and exercising the
+  exact role-gate logic that matters most in this stage. Backend's full
+  suite re-run after the CORS settings change: 443 passed, same 2
+  pre-existing timezone-boundary failures from Etap 1 Stage 5 and
+  nothing else.
+
+  Live-verified: `docker compose up -d --build backend frontend-admin`
+  — confirmed via `docker compose logs` no new migration ran (this
+  stage touches no backend persistence) and both services started
+  clean; bootstrapped an `ADMIN` via direct SQL (same pattern as
+  Etap 0's first `SUPER_ADMIN`); confirmed the login page renders with
+  the shared design tokens in a real browser (one clean screenshot —
+  the Claude-in-Chrome extension hit the same intermittent
+  `chrome-extension://` connection error as Etap 1 Stage 4's browser
+  check and didn't reliably recover across multiple fresh tabs this
+  time either); fell back to `curl` for the functional checks: real
+  `ADMIN` login → `/auth/me` returns `role: "ADMIN"`, a plain `USER`
+  login → `/auth/me` returns `role: "USER"` (confirming the data the
+  frontend's role-gate acts on), and the CORS preflight fix above.
+  `docker compose down` after.
+- **Stage 3 — Użytkownicy tab — DONE**: real list (`GET /admin/users`)
+  in a plain table — email, a status `Badge`, role, created-at, and a
+  per-row actions column (Aktywuj/Zablokuj toggling on `status`, Usuń
+  opening a confirm `Dialog` before calling `DELETE`, per the
+  "confirm before a destructive/irreversible action" convention). The
+  role column is plain text for everyone except a `SUPER_ADMIN` caller,
+  who gets an inline `Select` — and even then, not on their own row
+  (see below). New `Select`/`Dialog`/`Badge` shadcn primitives copied
+  into `frontend-admin` (same generated output as `frontend`'s own).
+
+  **Two self-action guards added, one already planned and one found
+  necessary while wiring the UI**: the existing `CannotDeleteSelfError`
+  (Etap 2 Stage 1) now has a real UI trigger — the Usuń/Zablokuj
+  buttons are disabled on the caller's own row. The *new* one: nothing
+  had ever stopped a `SUPER_ADMIN` from changing their own role via
+  `PATCH /admin/users/{user_id}/role` — harmless with several
+  `SUPER_ADMIN`s around, but if there's only one, a single misclick
+  demotes or locks out the only account that could undo it. Added the
+  same shape of guard identity's admin router already had for deletion:
+  `user_id == caller.id` → 400, checked in
+  `backend/modules/identity/api/routers/admin_router.py` directly
+  (`ChangeUserRoleUseCase` itself doesn't know about the caller, same
+  as before — this stays an authorization concern at the API layer).
+  On the frontend, the role `Select` simply isn't rendered at all for
+  the `SUPER_ADMIN`'s own row, rather than rendering it disabled.
+
+  Exit criteria met: backend — 1 new test
+  (`test_super_admin_cannot_change_their_own_role`) in the existing
+  `test_change_user_role_api.py` (6/6 passing), full identity suite
+  re-run since the router changed (129 passed) and full backend suite
+  since `docker-compose.yml`/CORS-adjacent files weren't touched this
+  time but the shared router was (444 passed, same 2 pre-existing
+  timezone-boundary failures, unrelated). Frontend — 6 new
+  `UzytkownicyTab.test.tsx` tests (list rendering, role selector
+  hidden for a plain `ADMIN`, shown for `SUPER_ADMIN` but not on their
+  own row, ban, self-row actions disabled, delete-with-confirmation)
+  plus `App.test.tsx`'s existing 4 tests updated to mock
+  `GET /admin/users` (the placeholder text they'd asserted on no
+  longer exists once this tab does something real) — 16/16 passing,
+  `npx tsc --noEmit` and `npm run build` both clean.
+
+  Live-verified: `docker compose up -d --build backend frontend-admin`,
+  confirmed clean startup via logs (no new migration — this stage adds
+  no schema). Browser click-through was blocked again by the same
+  Claude-in-Chrome `chrome-extension://` connection error (failed on
+  the very next action after a clean screenshot, across a fresh tab,
+  same pattern as Stage 2) — substituted a thorough `curl` pass instead:
+  bootstrapped a `SUPER_ADMIN` and 3 target users, listed them via
+  `GET /admin/users`, ran ban→activate→role-change on one target (each
+  200, each change reflected in the response body), confirmed both
+  self-guards return 400 for the `SUPER_ADMIN`'s own id (role-change
+  and delete), then deleted the target user (204). Also re-confirmed
+  the CORS preflight for `/admin/users` from `http://localhost:5174`
+  returns `200` with the right `access-control-allow-origin`.
+  `docker compose down` after.
+- **Stage 4 — Dietetycy tab — DONE**: real list
+  (`GET /admin/dietitian-applications`) with a status filter `Select`
+  (Oczekujące / Zaakceptowane / Odrzucone / Wszystkie, defaulting to
+  Oczekujące — what an admin needs day-to-day), each application shown
+  as a card (experience/diplomas/description + a status `Badge`), with
+  Zaakceptuj/Odrzuć actions only on `PENDING` ones.
+
+  **The endpoint only returns `user_id`, not an email** — solved
+  client-side rather than adding a backend field: reuses the
+  `['admin-users']` query (same key `UzytkownicyTab` already fetches,
+  so TanStack Query dedupes/shares the one request) to build a
+  `user_id → email` lookup map, falling back to the raw UUID if a
+  match isn't found (covered by a test, though it shouldn't happen in
+  practice — every application has a real owning user).
+
+  **A real, fully broken layout bug found and fixed in the browser,
+  invisible to every automated test**: `AdminShell`'s tab bar rendered
+  as a vertical column of four stacked links in the page's far-left
+  margin instead of a horizontal bar under the header — completely
+  unusable, but every unit test still passed, because jsdom doesn't
+  compute Flexbox layout at all, so `getByRole('tab', ...)` finds the
+  elements regardless of how (or whether) they're visually arranged.
+  Root cause: the shared `tabs.tsx` primitive's root class is
+  `"group/tabs flex gap-2 data-horizontal:flex-col"` — `data-horizontal:`
+  is a Tailwind arbitrary-attribute selector keyed on a boolean
+  `data-horizontal` attribute that this version of Base UI never
+  actually sets (it only sets `data-orientation="horizontal"`), so the
+  class silently never applies and `Tabs` falls back to a plain `flex`
+  (row) instead of the intended column (list-above-panel) layout. The
+  main app's own `ProfileModal` never hit this because it happens to
+  pass `className="flex h-full flex-col gap-0"` explicitly on its own
+  `<Tabs>` — a workaround, not a fix, that this stage's `AdminShell`
+  simply hadn't copied. Fixed the same way: `<Tabs defaultValue="uzytkownicy"
+  className="flex flex-col gap-0">`, with a comment explaining why,
+  so the next `<Tabs>` usage in this codebase doesn't rediscover the
+  same bug. The underlying `tabs.tsx` primitive itself was left
+  unpatched — fixing the arbitrary-selector bug at its source is a
+  larger, riskier change (affects every `Tabs` usage in both apps) than
+  this stage's scope justified; noted here for whoever next touches
+  that primitive.
+
+  Exit criteria met: 6 new `DietetycyTab.test.tsx` tests (email
+  resolution + details, empty state, no-actions-for-non-pending,
+  approve, reject, UUID fallback when the user list has no match) — all
+  passing, 22/22 for the whole `frontend-admin` suite, `npx tsc --noEmit`
+  and `npm run build` both clean.
+
+  Live-verified in a real browser this time (the Claude-in-Chrome
+  extension held up for the whole session, unlike the last two
+  stages): `docker compose up -d --build backend frontend-admin` —
+  ran into a genuine "No space left on device" failure starting
+  Postgres, caused by ~29GB of accumulated Docker images/build cache
+  from this session's many rebuilds eating nearly all free disk space;
+  resolved with `docker image prune -f` + `docker builder prune -f`
+  (dangling images and build cache only, no volumes touched) before
+  retrying successfully. Bootstrapped a `SUPER_ADMIN` and two dietitian
+  applications via `curl`/direct SQL, then logged into
+  `frontend-admin` for real: confirmed the (post-fix) horizontal tab
+  bar, clicked into Dietetycy, approved one application, watched it
+  disappear from the "Oczekujące" filter and the success toast fire,
+  switched the filter to "Zaakceptowane" and confirmed it now appeared
+  there with no action buttons, and confirmed directly via `psql` that
+  the approved applicant's Postgres row now has `role = 'DIET_USER'`.
+  `docker compose down` after.
+- **Stage 5 — Raporty tab placeholder — DONE**: elevated Raporty (and,
+  since it's in the same boat — a placeholder with no real fix date —
+  Transakcje too) from Stage 2's bare paragraph to a proper `EmptyState`
+  component: icon + centered message, matching the main app's own
+  `EmptyState` shape exactly (new `frontend-admin/src/components/EmptyState.tsx`,
+  same props/layout, since the two apps don't share a component
+  library). No report-generation logic — explicitly out of scope per
+  the user's own framing ("do implementacji później"). New
+  `RaportyTab.test.tsx` (the tab's first dedicated test — it had none
+  before, having only ever been asserted on indirectly through
+  `App.test.tsx`).
+
+  Exit criteria met: 23/23 `frontend-admin` tests passing (1 new),
+  `npx tsc --noEmit` and `npm run build` both clean. Live-verified in a
+  real browser (Claude-in-Chrome held up again): bootstrapped a fresh
+  `SUPER_ADMIN`, logged in, clicked Raporty, confirmed the bar-chart
+  icon + message render centered and the Stage 4 tab-bar layout fix
+  still holds. `docker compose down` after — no backend touched this
+  stage, so no backend test run was needed.
+- **Stage 6 — Tests + docs sync — DONE**: closing stage for Etap 2 as a
+  whole, so — per the standing testing-scope rule — the full suite ran
+  across all three codebases (backend, `frontend`, `frontend-admin`),
+  not just what this etap touched.
+
+  **Docs sync** (all three doc gaps below were genuinely missing, not
+  just stale — the new `admin` module and RBAC had never been written
+  up in `docs/architecture.md` at all, across three prior etaps):
+  - `docs/api.md`: new **Admin API** module section — all 7 endpoints
+    (`GET /admin/users`, activate/ban/delete, `GET /admin/dietitian-applications`
+    with its `?status=` filter, approve/reject), plus an Overview bullet.
+  - `docs/architecture.md`: added the **Role-based access control**
+    subsection to the Identity Module (a gap from Etap 0 — RBAC had
+    never been documented here even though `docs/domain-model.md` and
+    `docs/api.md` both got it at the time), a new **Admin Module**
+    section explaining its no-own-persistence design and explicitly
+    why that isn't an exception to the Data Ownership Rules (goes
+    through the same repository ports each owning module's own use
+    cases already use), updated the Docker services list
+    (`frontend-admin`, plus a note on the `CORS_ORIGINS` env-var
+    override gotcha from Etap 2 Stage 2), and a short addendum on the
+    High Level Architecture diagram.
+  - `docs/domain-model.md`: new **Admin Context** bounded-context entry
+    — explicitly "no domain entities of its own," so its absence from
+    Aggregates/Persistence Mapping reads as intentional, not forgotten.
+  - `README.md`: added a Phase 12 row to the status table (Stage 2 had
+    already covered the Docker services table and file tree).
+  - `docs/openapi.json` regenerated — confirmed all 7 new paths present.
+
+  **A second pre-existing bug fixed, not just flagged this time**: the
+  same timezone-boundary flake called out (but left alone) in both
+  Etap 1 Stage 5 and Etap 2 Stage 1's retrospectives —
+  `test_diet_plan_api.py` comparing `date.today()` (local timezone) against
+  `DietPlan.created_at` (stored UTC), flaky for ~2 hours a day in any
+  UTC+ timezone. Fixed for real this time (closing-stage full-suite
+  runs are exactly when a flake like this keeps resurfacing): a new
+  `_today()` test helper using `datetime.now(UTC).date()`, all 6
+  call sites in the file switched to it. This is a test-only change —
+  no production code was touched, and full backend suite is now **446
+  passed, 0 failed**, clean for the first time all session instead of
+  "444 passed, 2 pre-existing failures."
+
+  Exit criteria met: full suite across all three codebases —
+  **backend: 446/446**, **frontend: 105/105**, **frontend-admin: 23/23**
+  — all clean, zero known failures anywhere. Both frontend builds
+  (`npm run build`) clean.
+
+Etap 2 (Admin backend module + `frontend-admin` app) is now **DONE** —
+all 6 stages complete: the module itself (Stage 1), the app scaffold
+with its role-gated login (Stage 2), the Użytkownicy tab (Stage 3), the
+Dietetycy tab (Stage 4), the Raporty placeholder (Stage 5), and this
+docs/tests close-out (Stage 6).
 
 ---
 
