@@ -231,14 +231,59 @@ Goal: a `USER` can apply to become a dietitian; once approved
 (Etap 2 handles the admin-side approval action), they get a public
 profile they manage from inside the existing `frontend/` app.
 
-- **Stage 1 — New `backend/modules/dietitian/` module**: `DietitianApplication`
-  entity (`status`: `PENDING`/`APPROVED`/`REJECTED`, applicant user id,
-  submitted form fields, `reviewed_by`/`reviewed_at`), `DietitianProfile`
-  entity (experience text, diplomas, description, up to 3 photo
-  references, two fixed `Offer`s — "oceń wygenerowany plan" /
-  "stwórz plan indywidualny" — each with a price). Mongo persistence
-  (matching `conversation`/`nutrition`'s existing choice, not Postgres —
-  this is document-shaped content, not transactional).
+- **Stage 1 — New `backend/modules/dietitian/` module — DONE**:
+  **Deviation from the sketch above, per explicit user direction mid-stage**:
+  Mongo was the original plan (matching `conversation`/`nutrition`'s
+  document-shaped choice), but the user asked for the dietitian profile
+  to be "a separate table with a proper connection to the user" —
+  Postgres, relational, FK to `users.id`. Both `DietitianApplication`
+  and `DietitianProfile` moved to Postgres for consistency within the
+  module (one persistence technology, not split), which also sets up
+  cleanly for Etap 3/4's `transactions`/reviews tables (already planned
+  as Postgres) to join against a dietitian's profile without a cross-
+  database join. New module built mirroring `identity`'s exact
+  SQLAlchemy convention (not `nutrition`'s Mongo one): domain entities →
+  `infrastructure/persistence/models` (SQLAlchemy) → mappers →
+  repositories, plus `backend/alembic/version/20260719_07_dietitian_tables.py`.
+  - `DietitianApplication`: `status` (`PENDING`/`APPROVED`/`REJECTED`),
+    `experience`/`diplomas` (Postgres `TEXT[]`, a first for this
+    codebase — every prior Postgres column has been scalar)/`description`,
+    `reviewed_by`/`reviewed_at` (nullable FK to `users.id`,
+    `ON DELETE SET NULL` — losing the reviewing admin account shouldn't
+    cascade-delete the application it reviewed). `approve()`/`reject()`
+    guard against re-reviewing an already-decided application
+    (`ApplicationAlreadyReviewedError`) — a genuine domain invariant
+    about the application's *own* state, unlike Etap 0's role-transition
+    authorization question, which was about the *caller's* permission
+    and therefore stayed out of the entity.
+  - `DietitianProfile`: kept deliberately minimal for this stage —
+    `experience`/`diplomas`/`description` only. Photos (Stage 3) and the
+    two fixed offer prices (Stage 4) get their own columns via their own
+    migrations when those stages actually need them, mirroring how
+    Etap 0 added `role` as its own migration rather than guessing the
+    full shape upfront.
+  - Both tables: `user_id` is a `UNIQUE` FK to `users.id` (`ON DELETE
+    CASCADE`) — one row per user, ever. No re-application-after-rejection
+    flow exists yet (flagged as a scope decision, not an oversight — the
+    user's spec didn't call for one; revisit if needed by dropping the
+    unique constraint and querying "latest" instead of a 1:1 row).
+  - **Applied the Etap-0 lesson directly**: both repositories' `save()`
+    update-branch lists *every* mutable field explicitly, with an
+    inline comment pointing at the exact bug Etap 0 Stage 1 found (a
+    missing field there was `role`; the equivalent mistake here would
+    have been forgetting `status` on the application, silently breaking
+    approve/reject persistence).
+
+  Exit criteria met (scoped per the new testing-scope guidance — this
+  stage is fully isolated with no other module depending on it yet, so
+  only the new module's own tests ran, not the full suite): 11 new
+  entity unit tests. `pytest.ini` gained the new test path.
+  Live-verified against both the ephemeral test Postgres (implicitly,
+  via the autouse migration fixture succeeding) and the real Docker dev
+  Postgres — confirmed via `docker compose logs` that
+  `20260719_07_dietitian_tables` applied cleanly, and via `psql \d` that
+  both tables have the exact FKs/unique constraints/array column
+  designed above. Clean backend logs, `docker compose down` after.
 - **Stage 2 — Apply flow**: `POST /dietitian/applications` (any `USER`,
   one pending application at a time). Frontend: "Zgłoszenie dietetyka"
   button in the bottom-right corner of the Profil tab, opening a form
