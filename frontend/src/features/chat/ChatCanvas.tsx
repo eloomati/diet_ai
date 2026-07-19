@@ -6,11 +6,10 @@ import { useNavigate } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { categoryEmoji } from '@/lib/categoryOptions'
 import { ApiError } from '@/lib/apiFetch'
-import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
 import { archiveConversation, deleteConversation, getConversation, sendMessage } from '@/api/conversations'
 import type { ConversationCategory, ConversationDetail, Message } from '@/api/conversations'
 import { generateDietPlan } from '@/api/dietPlans'
-import type { DietPlan } from '@/api/dietPlans'
+import { DietPlanCard } from '@/features/dietPlans/DietPlanCard'
 
 interface HeroChip {
   emoji: string
@@ -56,45 +55,6 @@ const GENERATE_ERROR_MESSAGES: Record<string, string> = {
 function generateErrorMessage(error: unknown): string {
   if (error instanceof ApiError) return GENERATE_ERROR_MESSAGES[error.code] ?? 'Nie udało się wygenerować planu. Spróbuj ponownie.'
   return 'Nie udało się wygenerować planu. Spróbuj ponownie.'
-}
-
-function DietPlanCard({ plan }: { plan: DietPlan }) {
-  return (
-    <div className="mx-auto w-full max-w-2xl rounded-2xl border border-border bg-card p-4 shadow-sm">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="rounded-full bg-accent px-2.5 py-1 text-xs font-bold text-accent-foreground uppercase">
-          Wygenerowany plan
-        </span>
-        <span className="text-[12.5px] font-bold text-muted-foreground">
-          {goalLabel(plan.goal)} · {dietTypeLabel(plan.diet_type)} · {plan.duration_days}{' '}
-          {plan.duration_days === 1 ? 'dzień' : 'dni'}
-        </span>
-      </div>
-      <div className="flex flex-col gap-3">
-        {plan.days.map((day) => (
-          <div key={day.day_number}>
-            <p className="mb-1 text-[12.5px] font-bold text-foreground">Dzień {day.day_number}</p>
-            <ul className="flex flex-col gap-1">
-              {day.meals.map((meal) => (
-                <li
-                  key={meal.name}
-                  className="flex items-center justify-between gap-2 rounded-lg bg-muted px-2.5 py-1.5 text-[12.5px]"
-                >
-                  <span className="font-bold">
-                    {meal.time ? `${meal.time} · ` : ''}
-                    {meal.name}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {meal.calories} kcal · B{meal.protein}/W{meal.carbohydrates}/T{meal.fat}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
 }
 
 function MessageBubble({ message }: { message: Message }) {

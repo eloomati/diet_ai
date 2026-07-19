@@ -3076,10 +3076,40 @@ CPU load (a tooling/resource hiccup, not an app issue — network-request
 inspection independently confirmed the `POST` returned `201`). Clean
 console throughout.
 
-## Stage 2 — Plan list with date filter
+## Stage 2 — Plan list with date filter — DONE
 
-- [ ] "Plany" tab → `GET /diet-plans?from&to` (matches the mockup's date
-      inputs + filter button).
+- [x] `PlanyTab` (Etap 0's placeholder) wired to `GET /diet-plans?from&to`
+      via `useQuery` keyed on the applied range; two native
+      `<input type="date">` fields + a "Filtruj" button — filter state is
+      only applied on submit, not on every keystroke, so typing a partial
+      date doesn't refetch mid-edit.
+- [x] Each row shows goal + diet type + duration (`goalLabel`/
+      `dietTypeLabel`, reused from Etap 2) and the plan's `created_at`
+      formatted via `Intl`/`toLocaleDateString('pl-PL', ...)` (e.g.
+      "19 lipca 2026").
+- [x] Clicking a row expands it in place and lazily fetches
+      `GET /diet-plans/{id}` (full `days`/`meals`), rendering the same
+      shared `DietPlanCard` component used by Stage 1's inline
+      just-generated view — extracted out of `ChatCanvas.tsx` into a new
+      `features/dietPlans/DietPlanCard.tsx` so both call sites (chat and
+      the Plany tab) share one implementation instead of duplicating it.
+- [x] 400 `BAD_REQUEST` (`from` after `to`) maps to a friendly message
+      ("Data początkowa musi być wcześniejsza niż data końcowa.");
+      generic fetch failures get a retry message; an empty result set gets
+      its own "Brak wygenerowanych planów w tym zakresie dat." — distinct
+      from the error state.
+
+Exit criteria met: 5 new `PlanyTab.test.tsx` cases (list render, empty
+state, 400 friendly message, filter-submit sends the right query params,
+row-expand fetches and renders detail); full suite 66/66, `npm run build`/
+`npm run lint` green. Verified live against the real backend, reusing the
+two real diet plans persisted from Stage 1's live testing: the list showed
+both ("3 dni" and "1 dzień", both dated "19 lipca 2026" in Polish),
+expanding the 1-day plan correctly fetched and rendered its real meals,
+and filtering to a January 2026 range correctly returned the
+"brak planów" empty state (confirmed via the actual `GET
+.../diet-plans?from=2026-01-01&to=2026-01-31` network request) — clean
+console throughout.
 
 ## Stage 3 — Calendar view
 
