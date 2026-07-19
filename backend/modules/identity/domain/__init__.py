@@ -6,7 +6,7 @@ from .entities import (
     RefreshToken,
     User,
 )
-from .events import EmailVerified, PasswordChanged, UserLoggedIn, UserRegistered
+from .events import EmailVerified, PasswordChanged, UserLoggedIn, UserRegistered, UserRoleChanged
 from .exceptions import (
     IdentityDomainError,
     InactiveUserAuthenticationError,
@@ -24,7 +24,7 @@ from .repositories import (
     UserRepository,
 )
 from .services import PasswordPolicy
-from .value_objects import Email, PasswordHash, UserStatus
+from .value_objects import Email, PasswordHash, Role, UserStatus
 
 __all__ = [
     "User",
@@ -35,11 +35,13 @@ __all__ = [
     "EmailDeliveryStatus",
     "Email",
     "PasswordHash",
+    "Role",
     "UserStatus",
     "UserRegistered",
     "UserLoggedIn",
     "PasswordChanged",
     "EmailVerified",
+    "UserRoleChanged",
     "UserRepository",
     "PasswordResetTokenRepository",
     "EmailVerificationTokenRepository",

@@ -102,13 +102,44 @@ Checked before writing this plan, so it's grounded rather than guessed:
 Goal: introduce the role system every later etap depends on, without
 touching any other module's behavior yet.
 
-- **Stage 1 — `Role` value object + migration**: `Role` enum
+- **Stage 1 — `Role` value object + migration — DONE**: `Role` enum
   (`USER`, `DIET_USER`, `ADMIN`, `SUPER_ADMIN`), new `role` column on
-  `users` (Postgres, Alembic migration, default `USER` for every existing
-  row). `User` entity gains `role: Role` + a `change_role()` domain
-  method (validates legal transitions — e.g. only `SUPER_ADMIN` can
-  promote to `ADMIN`/`SUPER_ADMIN`; approving a dietitian application
-  promotes `USER` → `DIET_USER`).
+  `users` (`backend/alembic/version/20260719_06_user_roles.py`, default
+  `'USER'` for every existing row via `server_default`). `User` entity
+  gained `role: Role = Role.USER` + a `change_role(new_role)` method +
+  a new `UserRoleChanged` domain event.
+  **Deviation from the sketch above**: `change_role()` does *not*
+  itself validate "only `SUPER_ADMIN` can promote to `ADMIN`" — that's
+  an authorization rule (who's allowed to call this), not a domain
+  invariant (a fact about the entity's own state), so it's deferred to
+  the API layer's `require_role` dependency (Stage 2) guarding whatever
+  endpoint calls `change_role` (Stage 3), matching how `assert_can_authenticate()`
+  is about the user's *own* state, never about a caller's permission.
+  The entity stays a plain setter + event; the dietitian-approval
+  `USER`→`DIET_USER` promotion (Etap 1) is just another caller of the
+  same method, gated by its own endpoint's role requirement — no
+  transition-legality table needed inside the entity.
+  **Real bug found and fixed while wiring persistence**:
+  `SqlAlchemyUserRepository.save()`'s update branch
+  (`infrastructure/persistence/repository/sqlalchemy_user_repository.py`)
+  set `existing.{email,password_hash,status,email_verified,updated_at}`
+  field-by-field on an already-loaded row, but the new `role` field was
+  missing from that list — a role change would have applied to the
+  in-memory `User` object, returned success, and then silently
+  vanished on the next fetch. Caught before any endpoint existed to
+  call it, purely by re-reading the repository during this stage rather
+  than assuming `to_model()`'s mapping (used only for brand-new rows)
+  covered updates too.
+
+  Exit criteria met: new unit tests (`Role`'s 4 members; `User.create()`
+  defaults to `Role.USER`; `change_role()` updates the field and emits
+  `UserRoleChanged`), `test_domain_exports.py` extended. Full backend
+  suite **356/356 passed** (up from 353), including the migration
+  itself — `conftest.py` runs a real `alembic upgrade head` against the
+  ephemeral test Postgres before every run, so this wasn't just an ORM
+  check; `alembic history` confirmed a clean single-head chain with no
+  branching.
+
 - **Stage 2 — RBAC dependency**: a `require_role(*roles)` FastAPI
   dependency (alongside the existing `current_user` dependency),
   raising 403 `FORBIDDEN` outside the allowed set. `GET /auth/me`

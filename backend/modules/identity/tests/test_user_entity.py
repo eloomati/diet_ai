@@ -4,6 +4,7 @@ from backend.modules.identity.domain import (
     Email,
     InactiveUserAuthenticationError,
     PasswordHash,
+    Role,
     User,
     UserStatus,
 )
@@ -11,6 +12,7 @@ from backend.modules.identity.domain.events.user_events import (
     PasswordChanged,
     UserLoggedIn,
     UserRegistered,
+    UserRoleChanged,
 )
 
 
@@ -69,3 +71,25 @@ def test_change_password_updates_hash_and_adds_event() -> None:
 
     assert user.password_hash == new_hash
     assert any(isinstance(evt, PasswordChanged) for evt in user.domain_events)
+
+
+def test_create_user_defaults_to_role_user() -> None:
+    user = User.create(
+        email=Email("user@example.com"),
+        password_hash=PasswordHash("$2b$12$abcdefghijklmnopqrstuv"),
+    )
+    assert user.role == Role.USER
+
+
+def test_change_role_updates_role_and_adds_event() -> None:
+    user = User.create(
+        email=Email("user@example.com"),
+        password_hash=PasswordHash("$2b$12$abcdefghijklmnopqrstuv"),
+    )
+
+    user.change_role(Role.DIET_USER)
+
+    assert user.role == Role.DIET_USER
+    role_events = [evt for evt in user.domain_events if isinstance(evt, UserRoleChanged)]
+    assert len(role_events) == 1
+    assert role_events[0].new_role == "DIET_USER"
