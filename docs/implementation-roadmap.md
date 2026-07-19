@@ -3660,10 +3660,49 @@ would just be redone later against a still-moving target.
 Goal: close out Phase 10 the same way every backend phase closed —
 tests + docs synced to what actually shipped.
 
-## Stage 1 — Component tests
+## Stage 1 — Component tests — DONE
 
-- [ ] Vitest + Testing Library coverage for the key screens (auth, chat,
-      profile, plans, calendar) built up across Etap 1-5.
+Every Etap already added its own tests as it went (auth in Etap 1,
+profile in Etap 2, chat in Etap 3, diet plans/calendar in Etap 4, the
+Etap 5 polish pass), so this stage was a coverage *audit* — close real
+gaps left over, not rewrite what's already well tested.
+
+- [x] Audited every non-UI-primitive source file against its test file
+      (or lack of one), and judged indirect coverage where a file had
+      no dedicated test of its own.
+- [x] **Real gap found**: `ProfileModal.tsx` (the shared Dialog + Tabs
+      wrapper around Profil/Plany/Kalendarz) had no dedicated test at
+      all — nothing exercised opening it, switching tabs, or the
+      documented "logs out from inside → auto-closes" `useEffect`
+      (previously only ever checked live in the browser, in Etap 4's
+      `ScrollArea` bug-hunt). New `ProfileModal.test.tsx`: default tab
+      is Profil, clicking Plany/Kalendarz switches content, and logging
+      out from inside calls `onOpenChange(false)`.
+      **Real problem hit while writing it**: asserting the dialog fully
+      unmounts after logout (`queryByRole('tab', ...)).not.toBeInTheDocument()`)
+      flaked — Base UI's Dialog stays mounted mid-exit-animation
+      (`data-closed`/`data-ending-style`) and jsdom doesn't reliably
+      drive that animation-frame-based unmount to completion. Fixed by
+      asserting the *documented behavior* directly instead — an
+      `onClose` spy passed through the test wrapper's `onOpenChange`,
+      confirming `onOpenChange(false)` was called — rather than fighting
+      Base UI's animated-close DOM lifecycle in jsdom.
+- [x] Reviewed and judged sufficient without a dedicated test:
+      `src/api/*.ts` (thin one-line wrappers around `apiFetch`,
+      thoroughly exercised indirectly through every component test that
+      mocks `fetch`), `useIsMobile.ts` (its actual effect — mobile
+      defaults collapsed, desktop defaults open — is already exercised
+      both ways by `AppShell.test.tsx`'s responsiveness tests; an
+      isolated `renderHook` test would just re-verify the same
+      matchMedia-stub-to-boolean mapping), `CategoryMenu.tsx` (exercised
+      end-to-end via `AppShell.test.tsx`'s "Nowy czat" → category →
+      "Rozpocznij czat" flow), and `AboutDialog.tsx` (static text behind
+      a boolean prop — no logic worth a dedicated test).
+
+Exit criteria met: 4 new `ProfileModal.test.tsx` cases. Full suite
+96/96 (up from 92 — 15 test files, up from 14), `npm run build`/
+`npm run lint`/typecheck all clean (lint's 3 warnings are the same
+pre-existing shadcn-generated notices from Etap 5 Stage 3).
 
 ## Stage 2 — Manual smoke walkthrough
 
