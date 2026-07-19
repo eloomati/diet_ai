@@ -15,7 +15,8 @@ The API provides functionality for:
 - AI conversations,
 - conversation history, archiving, and deletion,
 - diet plan generation, AI-suggested + user-editable meal scheduling,
-- diet plan CSV export (archived for later re-download) and date-range filtering of plan history.
+- diet plan CSV export (archived for later re-download) and date-range filtering of plan history,
+- dietitian applications and (once approved) dietitian profile management, including up to 3 photos.
 
 Base URL:
 
@@ -1127,6 +1128,260 @@ Errors:
 ```
 404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another
                 user (not distinguished, so existence isn't leaked)
+```
+
+---
+
+# Dietitian API
+
+Module:
+
+```
+Dietitian
+```
+
+Database:
+
+```
+PostgreSQL
+```
+
+All endpoints below require `Authorization: Bearer {access_token}`. The
+application endpoints (`POST`/`GET .../applications*`) are open to any
+authenticated `USER`. The profile endpoints (`.../profile*`) additionally
+require the caller's role to already be `DIET_USER` — there is currently
+no API path that grants `DIET_USER` or creates the `DietitianProfile` row
+(that's the admin-approval flow, not yet built); until it exists, both
+are set directly against Postgres out of band.
+
+---
+
+## POST /dietitian/applications
+
+Submits a dietitian application. One application per user, ever — a
+second submission is rejected regardless of the first one's status (no
+reapply-after-rejection flow in this MVP scope).
+
+### Request
+
+```json
+{
+  "experience": "5 years as a clinical dietitian",
+  "diplomas": ["MSc Dietetics"],
+  "description": "I specialize in weight management and sports nutrition."
+}
+```
+
+`diplomas` may be an empty list.
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body:
+
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "experience": "5 years as a clinical dietitian",
+  "diplomas": ["MSc Dietetics"],
+  "description": "I specialize in weight management and sports nutrition.",
+  "status": "PENDING",
+  "created_at": "2026-07-19T12:00:00+00:00"
+}
+```
+
+`status` is one of `PENDING`, `APPROVED`, `REJECTED` — always `PENDING`
+on submission.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+409 Conflict code=CONFLICT — an application already exists for this user
+422 Unprocessable Entity code=VALIDATION_ERROR — experience/description blank
+```
+
+---
+
+## GET /dietitian/applications/me
+
+Returns the caller's own application, whatever its status — lets the
+frontend show "pending"/"approved"/"rejected" instead of the apply
+button once one exists.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `POST /dietitian/applications`'s response.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+404 Not Found code=NOT_FOUND — no application submitted yet
+```
+
+---
+
+## GET /dietitian/profile/me
+
+Returns the caller's own dietitian profile.
+
+Authentication:
+
+Required — caller's role must be `DIET_USER`.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "experience": "5 years as a clinical dietitian",
+  "diplomas": ["MSc Dietetics"],
+  "description": "I specialize in weight management and sports nutrition.",
+  "photos": ["/static/dietitian-photos/<uuid>.jpg"],
+  "created_at": "2026-07-19T12:00:00+00:00"
+}
+```
+
+`photos` holds up to 3 entries — each a root-absolute path served by a
+static file mount, not under `/api/v1` (see `POST .../photos` below).
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
+404 Not Found code=NOT_FOUND — no profile exists for this user
+```
+
+---
+
+## PUT /dietitian/profile
+
+Partial update — only the given fields change (same convention as
+`PUT /profile`). At least one field should be given, but none are
+individually required.
+
+Authentication:
+
+Required — caller's role must be `DIET_USER`.
+
+### Request
+
+```json
+{
+  "description": "Updated description."
+}
+```
+
+`experience`, `diplomas`, `description` — all optional.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `GET /dietitian/profile/me`.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
+404 Not Found code=NOT_FOUND — no profile exists for this user
+400 Bad Request code=BAD_REQUEST — experience/description blanked out
+```
+
+---
+
+## POST /dietitian/profile/photos
+
+Uploads one photo, appending it to the profile's `photos` list — up to
+3 total. `multipart/form-data`, field name `file`. Accepts
+`image/jpeg`, `image/png`, `image/webp`, max 5 MB. Stored on local disk
+(MVP decision, not object storage) under a server-generated filename —
+the client's own filename is never trusted beyond its extension, which
+also rules out path traversal by construction.
+
+Authentication:
+
+Required — caller's role must be `DIET_USER`.
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body: same shape as `GET /dietitian/profile/me`, with the new photo
+appended to `photos`.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
+404 Not Found code=NOT_FOUND — no profile exists for this user
+400 Bad Request code=BAD_REQUEST — unsupported content-type, file over 5 MB,
+                                     or the profile already has 3 photos
+```
+
+---
+
+## DELETE /dietitian/profile/photos/{index}
+
+Removes the photo at `index` (0-based, matching the `photos` array
+order returned by `GET .../me`) from the profile. The file itself is
+left on disk — this endpoint only detaches it from the profile record.
+
+Authentication:
+
+Required — caller's role must be `DIET_USER`.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `GET /dietitian/profile/me`, with the photo removed
+from `photos`.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
+404 Not Found code=NOT_FOUND — no profile exists for this user
+400 Bad Request code=BAD_REQUEST — index out of range
 ```
 
 ---

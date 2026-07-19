@@ -1165,6 +1165,243 @@
           }
         }
       }
+    },
+    "/api/v1/dietitian/applications": {
+      "post": {
+        "tags": [
+          "dietitian"
+        ],
+        "summary": "Submit Application",
+        "operationId": "submit_application_api_v1_dietitian_applications_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitDietitianApplicationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietitianApplicationResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dietitian/applications/me": {
+      "get": {
+        "tags": [
+          "dietitian"
+        ],
+        "summary": "Get My Application",
+        "operationId": "get_my_application_api_v1_dietitian_applications_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietitianApplicationResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dietitian/profile/me": {
+      "get": {
+        "tags": [
+          "dietitian"
+        ],
+        "summary": "Get My Profile",
+        "operationId": "get_my_profile_api_v1_dietitian_profile_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietitianProfileResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dietitian/profile": {
+      "put": {
+        "tags": [
+          "dietitian"
+        ],
+        "summary": "Update Profile",
+        "operationId": "update_profile_api_v1_dietitian_profile_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDietitianProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietitianProfileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dietitian/profile/photos": {
+      "post": {
+        "tags": [
+          "dietitian"
+        ],
+        "summary": "Upload Profile Photo",
+        "operationId": "upload_profile_photo_api_v1_dietitian_profile_photos_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_profile_photo_api_v1_dietitian_profile_photos_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietitianProfileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/dietitian/profile/photos/{index}": {
+      "delete": {
+        "tags": [
+          "dietitian"
+        ],
+        "summary": "Remove Profile Photo",
+        "operationId": "remove_profile_photo_api_v1_dietitian_profile_photos__index__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "index",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Index"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietitianProfileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1178,6 +1415,20 @@
           "VERY_HIGH"
         ],
         "title": "ActivityLevel"
+      },
+      "Body_upload_profile_photo_api_v1_dietitian_profile_photos_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_profile_photo_api_v1_dietitian_profile_photos_post"
       },
       "ChangeUserRoleRequest": {
         "properties": {
@@ -1614,6 +1865,107 @@
           "GLUTEN_FREE"
         ],
         "title": "DietType"
+      },
+      "DietitianApplicationResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "experience": {
+            "type": "string",
+            "title": "Experience"
+          },
+          "diplomas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Diplomas"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "experience",
+          "diplomas",
+          "description",
+          "status",
+          "created_at"
+        ],
+        "title": "DietitianApplicationResponse"
+      },
+      "DietitianProfileResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "experience": {
+            "type": "string",
+            "title": "Experience"
+          },
+          "diplomas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Diplomas"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "photos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Photos"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "experience",
+          "diplomas",
+          "description",
+          "photos",
+          "created_at"
+        ],
+        "title": "DietitianProfileResponse"
       },
       "EmailVerificationConfirmedResponse": {
         "properties": {
@@ -2111,6 +2463,75 @@
           "assistant_content"
         ],
         "title": "SendMessageResponse"
+      },
+      "SubmitDietitianApplicationRequest": {
+        "properties": {
+          "experience": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Experience"
+          },
+          "diplomas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Diplomas"
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "experience",
+          "description"
+        ],
+        "title": "SubmitDietitianApplicationRequest"
+      },
+      "UpdateDietitianProfileRequest": {
+        "properties": {
+          "experience": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Experience"
+          },
+          "diplomas": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diplomas"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "title": "UpdateDietitianProfileRequest"
       },
       "UpdateNutritionProfileRequest": {
         "properties": {

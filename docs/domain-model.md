@@ -140,6 +140,29 @@ Meal
 
 ---
 
+## Dietitian Context
+
+Responsible for:
+
+- dietitian applications,
+- dietitian profiles, including uploaded photos.
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+DietitianApplication
+
+DietitianProfile
+```
+
+---
+
 ## AI Context
 
 Responsible for:
@@ -708,7 +731,101 @@ previous one.
 
 ---
 
-# 7. AI Domain
+# 7. Dietitian Domain
+
+## DietitianApplication
+
+Aggregate Root.
+
+A user's application to become a dietitian, reviewed by an admin.
+
+Example:
+
+```
+DietitianApplication
+
+id
+
+userId
+
+experience
+
+diplomas
+
+description
+
+status
+
+reviewedBy
+
+reviewedAt
+
+createdAt
+
+updatedAt
+```
+
+Rules:
+
+- one application per user, ever — enforced by a `UNIQUE` constraint on
+  `userId`, not just an application-layer check; there is no
+  reapply-after-rejection flow in this MVP scope,
+- `status` is one of `PENDING` (default), `APPROVED`, `REJECTED`,
+- `approve()`/`reject()` both guard via an internal `_assert_pending()`
+  — an already-reviewed application cannot be reviewed a second time
+  (`ApplicationAlreadyReviewedError`), a genuine invariant about the
+  entity's own state, unlike `User.change_role()`'s authorization split,
+- `experience`/`description` cannot be blank.
+
+---
+
+## DietitianProfile
+
+Aggregate Root.
+
+A dietitian's public-facing profile — created once an application is
+approved (not yet automated; see `docs/implementation-roadmap.md`
+Etap 2).
+
+Example:
+
+```
+DietitianProfile
+
+id
+
+userId
+
+experience
+
+diplomas
+
+description
+
+photos
+
+createdAt
+
+updatedAt
+```
+
+Rules:
+
+- one profile per user, ever (`UNIQUE` constraint on `userId`),
+- `photos` holds at most 3 entries — `add_photo()` raises
+  `PhotoLimitExceededError` beyond that; `remove_photo(index)` raises
+  `InvalidDietitianProfileError` for an out-of-range index,
+- `update_details()` changes only the given fields (same partial-update
+  shape as `NutritionProfile.update_details()`),
+- `experience`/`description` cannot be blanked out via `update_details()`,
+- neither entity in this domain currently emits domain events (unlike
+  `User.change_role()` → `UserRoleChanged`) — their state transitions
+  are plain mutations for now; add events here if a future consumer
+  (e.g. a notification on approval) needs to react to them.
+
+---
+
+# 8. AI Domain
 
 The AI context provides abstraction over external AI systems.
 
@@ -790,7 +907,7 @@ executionTime
 
 ---
 
-# 8. Aggregates
+# 9. Aggregates
 
 Current aggregate roots:
 
@@ -802,6 +919,10 @@ Conversation
 NutritionProfile
 
 DietPlan
+
+DietitianApplication
+
+DietitianProfile
 ```
 
 Rules:
@@ -811,7 +932,7 @@ Rules:
 
 ---
 
-# 9. Domain Events
+# 10. Domain Events
 
 Possible domain events:
 
@@ -841,7 +962,7 @@ Domain events represent important business facts.
 
 ---
 
-# 10. Relationships
+# 11. Relationships
 
 High-level relationship diagram:
 
@@ -881,9 +1002,14 @@ Meal
 
 ```
 
+`User` also has an at-most-one relationship to each of
+`DietitianApplication` and `DietitianProfile` (both `UNIQUE` on
+`userId`), omitted from the diagram above to keep it to the original
+chat/nutrition flow — see the Dietitian Domain section for their shape.
+
 ---
 
-# 11. Persistence Mapping
+# 12. Persistence Mapping
 
 ## PostgreSQL
 
@@ -899,6 +1025,14 @@ password_reset_tokens
 email_verification_tokens
 
 email_logs
+```
+
+Dietitian context:
+
+```
+dietitian_applications
+
+dietitian_profiles
 ```
 
 ---
@@ -923,7 +1057,7 @@ diet_plan_exports   — Phase 9; metadata only, files live on SFTP
 
 ---
 
-# 12. Domain Rules
+# 13. Domain Rules
 
 The following rules must always be respected:
 
@@ -941,7 +1075,7 @@ The following rules must always be respected:
 
 ---
 
-# 13. Future Extensions
+# 14. Future Extensions
 
 Possible future domain extensions:
 
@@ -960,5 +1094,11 @@ BodyMeasurementHistory
 
 AllergyProfile
 ```
+
+Already in progress (Phase 12, see `docs/implementation-roadmap.md`):
+admin panel + roles (roles themselves are done — Etap 0), dietitian
+applications and profile management (this domain — Etap 1, done through
+Stage 4), transactions, reviews, and a Kafka-backed human chat with
+dietitians (Etaps 2-6, not yet started).
 
 These should be introduced only when supported by real business requirements.
