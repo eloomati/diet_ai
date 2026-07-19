@@ -16,7 +16,8 @@ The API provides functionality for:
 - conversation history, archiving, and deletion,
 - diet plan generation, AI-suggested + user-editable meal scheduling,
 - diet plan CSV export (archived for later re-download) and date-range filtering of plan history,
-- dietitian applications and (once approved) dietitian profile management, including up to 3 photos.
+- dietitian applications and (once approved) dietitian profile management, including up to 3 photos,
+- admin user management and dietitian-application review (ADMIN/SUPER_ADMIN-only).
 
 Base URL:
 
@@ -1386,6 +1387,227 @@ from `photos`.
 403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
 404 Not Found code=NOT_FOUND — no profile exists for this user
 400 Bad Request code=BAD_REQUEST — index out of range
+```
+
+---
+
+# Admin API
+
+Module:
+
+```
+Admin
+```
+
+Database:
+
+```
+none — this module has no persistence of its own; see docs/architecture.md
+```
+
+All endpoints below require `Authorization: Bearer {access_token}` and
+the caller's role to be `ADMIN` or `SUPER_ADMIN`. Changing a user's role
+directly (as opposed to via dietitian-application approval, below) is a
+separate, `SUPER_ADMIN`-only endpoint — see
+`PATCH /admin/users/{user_id}/role` under the Authentication API above.
+
+---
+
+## GET /admin/users
+
+Lists every user account.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+[
+  {
+    "id": "uuid",
+    "email": "user@example.com",
+    "status": "ACTIVE",
+    "role": "USER",
+    "email_verified": false,
+    "created_at": "2026-07-19T12:00:00+00:00"
+  }
+]
+```
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+```
+
+---
+
+## POST /admin/users/{user_id}/activate
+
+Sets the user's status to `ACTIVE`.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as one entry of `GET /admin/users`.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — user_id doesn't exist
+```
+
+---
+
+## POST /admin/users/{user_id}/ban
+
+Sets the user's status to `BLOCKED` — they can no longer authenticate.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as one entry of `GET /admin/users`.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — user_id doesn't exist
+```
+
+---
+
+## DELETE /admin/users/{user_id}
+
+Permanently deletes the user and all of their data — Postgres rows
+(refresh/reset/verification tokens, dietitian application/profile, via
+`ON DELETE CASCADE`) and Mongo documents (conversations, nutrition
+profile, diet plans, diet plan exports, deleted explicitly since
+Postgres cascades can't reach Mongo). `email_logs` rows are
+deliberately left behind — they have no foreign key to the user by
+design. Cannot be undone.
+
+An admin cannot delete their own account through this endpoint.
+
+### Response
+
+Status:
+
+```
+204 No Content
+```
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+400 Bad Request code=BAD_REQUEST — user_id is the caller's own id
+404 Not Found code=NOT_FOUND — user_id doesn't exist
+```
+
+---
+
+## GET /admin/dietitian-applications
+
+Lists dietitian applications, optionally filtered by status.
+
+### Query parameters
+
+```
+status   optional, one of PENDING | APPROVED | REJECTED
+```
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: an array in the same shape as `POST /dietitian/applications`'s
+response (see the Dietitian API above).
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+```
+
+---
+
+## POST /admin/dietitian-applications/{application_id}/approve
+
+Approves the application: sets its status to `APPROVED`, promotes the
+applicant's role to `DIET_USER`, and creates their `DietitianProfile`
+from the application's own experience/diplomas/description (unless one
+already exists, which is not expected in normal operation).
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `GET /admin/dietitian-applications`'s entries.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — application_id doesn't exist
+409 Conflict code=CONFLICT — application was already approved/rejected
+```
+
+---
+
+## POST /admin/dietitian-applications/{application_id}/reject
+
+Rejects the application: sets its status to `REJECTED`. Does not change
+the applicant's role.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `GET /admin/dietitian-applications`'s entries.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — application_id doesn't exist
+409 Conflict code=CONFLICT — application was already approved/rejected
 ```
 
 ---

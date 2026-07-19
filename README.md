@@ -221,6 +221,7 @@ Allow users to:
 | Meal Scheduling & Calendar Export (weekly obligations, AI meal times, reschedule, CSV export/archive, date-range filtering) | ✅ |
 | Frontend | ✅ |
 | Reporting | ⏳ |
+| Phase 12 — Dietitian Marketplace, Admin Panel & Roles | 🚧 in progress — see `docs/implementation-roadmap.md` |
 
 See `docs/implementation/implementation-roadmap-done190726.md` for the full stage-by-stage history of Phases 0-11; `docs/implementation-roadmap.md` holds the current phase's prospective plan.
 

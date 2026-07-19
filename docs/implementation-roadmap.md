@@ -24,7 +24,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 1 (Dietitian applications
                                               & profile): DONE
                                             Etap 2 (Admin module +
-                                              frontend-admin): Stage 5/6
+                                              frontend-admin): DONE
                                             Etaps 3-6: not started
 ```
 
@@ -857,7 +857,58 @@ gated to `ADMIN`/`SUPER_ADMIN`.
   icon + message render centered and the Stage 4 tab-bar layout fix
   still holds. `docker compose down` after — no backend touched this
   stage, so no backend test run was needed.
-- **Stage 6 — Tests + docs sync**.
+- **Stage 6 — Tests + docs sync — DONE**: closing stage for Etap 2 as a
+  whole, so — per the standing testing-scope rule — the full suite ran
+  across all three codebases (backend, `frontend`, `frontend-admin`),
+  not just what this etap touched.
+
+  **Docs sync** (all three doc gaps below were genuinely missing, not
+  just stale — the new `admin` module and RBAC had never been written
+  up in `docs/architecture.md` at all, across three prior etaps):
+  - `docs/api.md`: new **Admin API** module section — all 7 endpoints
+    (`GET /admin/users`, activate/ban/delete, `GET /admin/dietitian-applications`
+    with its `?status=` filter, approve/reject), plus an Overview bullet.
+  - `docs/architecture.md`: added the **Role-based access control**
+    subsection to the Identity Module (a gap from Etap 0 — RBAC had
+    never been documented here even though `docs/domain-model.md` and
+    `docs/api.md` both got it at the time), a new **Admin Module**
+    section explaining its no-own-persistence design and explicitly
+    why that isn't an exception to the Data Ownership Rules (goes
+    through the same repository ports each owning module's own use
+    cases already use), updated the Docker services list
+    (`frontend-admin`, plus a note on the `CORS_ORIGINS` env-var
+    override gotcha from Etap 2 Stage 2), and a short addendum on the
+    High Level Architecture diagram.
+  - `docs/domain-model.md`: new **Admin Context** bounded-context entry
+    — explicitly "no domain entities of its own," so its absence from
+    Aggregates/Persistence Mapping reads as intentional, not forgotten.
+  - `README.md`: added a Phase 12 row to the status table (Stage 2 had
+    already covered the Docker services table and file tree).
+  - `docs/openapi.json` regenerated — confirmed all 7 new paths present.
+
+  **A second pre-existing bug fixed, not just flagged this time**: the
+  same timezone-boundary flake called out (but left alone) in both
+  Etap 1 Stage 5 and Etap 2 Stage 1's retrospectives —
+  `test_diet_plan_api.py` comparing `date.today()` (local timezone) against
+  `DietPlan.created_at` (stored UTC), flaky for ~2 hours a day in any
+  UTC+ timezone. Fixed for real this time (closing-stage full-suite
+  runs are exactly when a flake like this keeps resurfacing): a new
+  `_today()` test helper using `datetime.now(UTC).date()`, all 6
+  call sites in the file switched to it. This is a test-only change —
+  no production code was touched, and full backend suite is now **446
+  passed, 0 failed**, clean for the first time all session instead of
+  "444 passed, 2 pre-existing failures."
+
+  Exit criteria met: full suite across all three codebases —
+  **backend: 446/446**, **frontend: 105/105**, **frontend-admin: 23/23**
+  — all clean, zero known failures anywhere. Both frontend builds
+  (`npm run build`) clean.
+
+Etap 2 (Admin backend module + `frontend-admin` app) is now **DONE** —
+all 6 stages complete: the module itself (Stage 1), the app scaffold
+with its role-gated login (Stage 2), the Użytkownicy tab (Stage 3), the
+Dietetycy tab (Stage 4), the Raporty placeholder (Stage 5), and this
+docs/tests close-out (Stage 6).
 
 ---
 
