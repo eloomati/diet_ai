@@ -73,6 +73,9 @@ describe('ProfilTab', () => {
       if (url.includes('/profile')) {
         return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile yet' }))
       }
+      if (url.includes('/dietitian/applications')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no application yet' }))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -99,6 +102,9 @@ describe('ProfilTab', () => {
       }
       if (url.includes('/profile')) {
         return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile yet' }))
+      }
+      if (url.includes('/dietitian/applications')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no application yet' }))
       }
       return Promise.resolve(jsonResponse(200, {}))
     })
@@ -127,6 +133,9 @@ describe('ProfilTab', () => {
       if (url.includes('/profile')) {
         return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile yet' }))
       }
+      if (url.includes('/dietitian/applications')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no application yet' }))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -151,6 +160,9 @@ describe('ProfilTab', () => {
       }
       if (url.includes('/profile')) {
         return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile yet' }))
+      }
+      if (url.includes('/dietitian/applications')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no application yet' }))
       }
       return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
     })

@@ -1,5 +1,3 @@
-from collections.abc import AsyncGenerator
-
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,17 +35,7 @@ from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_u
 )
 from backend.modules.identity.infrastructure.security import BcryptPasswordHasher, JwtTokenService
 from backend.shared.config import get_settings
-from backend.shared.database.postgres import get_postgres_session
-
-
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    async with get_postgres_session() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+from backend.shared.database import get_db_session
 
 
 def _build_token_service() -> JwtTokenService:

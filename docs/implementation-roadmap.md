@@ -284,12 +284,69 @@ profile they manage from inside the existing `frontend/` app.
   `20260719_07_dietitian_tables` applied cleanly, and via `psql \d` that
   both tables have the exact FKs/unique constraints/array column
   designed above. Clean backend logs, `docker compose down` after.
-- **Stage 2 — Apply flow**: `POST /dietitian/applications` (any `USER`,
-  one pending application at a time). Frontend: "Zgłoszenie dietetyka"
-  button in the bottom-right corner of the Profil tab, opening a form
-  (experience, description, etc.) — matches the mockup precedent of
-  building real screens against the existing design system
-  (`FieldError`/`Skeleton`/`EmptyState`/`Badge` from Etap 5's pass).
+- **Stage 2 — Apply flow — DONE**: `POST /dietitian/applications`
+  (any authenticated `USER`, one pending application per user — the
+  DB's `UNIQUE` constraint on `user_id` from Stage 1 backs this, and the
+  use case also checks `get_by_user_id` first to return a clean 409
+  rather than surfacing a raw integrity-error) and
+  `GET /dietitian/applications/me` (404 when none submitted yet — lets
+  the frontend distinguish "no application" from "application exists"
+  without a separate boolean flag). New use cases
+  (`SubmitDietitianApplicationUseCase`, `GetMyDietitianApplicationUseCase`)
+  and their DTOs/exceptions threaded through `application/__init__.py`
+  exactly like Etap 0's `ChangeUserRoleUseCase` was. New
+  `api/schemas/application_schemas.py`, `api/dependencies/dietitian_dependencies.py`,
+  `api/routers/application_router.py` (prefix `/dietitian`), and a new
+  module-level `api/router.py` aggregator — this module had no API
+  surface mounted at all before this stage, so `backend/app/api_router.py`
+  also gained its `dietitian_router` import/include.
+  **Shared dependency promoted before the new code needed it**:
+  `get_db_session` moved from `identity/api/dependencies/auth_dependencies.py`
+  to `backend/shared/database/postgres.py` (re-exported from its old
+  location so identity's existing imports keep working unchanged) —
+  the same "promote once a second module needs an identity-only utility"
+  pattern Phase 8 established for `SecureToken`/JSON-Schema helpers.
+  Frontend: `frontend/src/api/dietitian.ts` (types +
+  `getMyDietitianApplication`/`submitDietitianApplication`) and a new
+  `DietitianApplicationSection.tsx`, mounted at the bottom-right of the
+  Profil tab (`ProfilTab.tsx`) exactly where the mockup spec called for
+  it. It queries `GET .../me` on mount: 404 → the "Zgłoszenie dietetyka"
+  button, which opens a `Dialog` form (experience/diplomas/description,
+  diplomas as one-per-line free text) reusing the existing design system
+  (`FieldError`, the new `Textarea` shadcn primitive, `Badge` for the
+  post-submit status); any other status → a `Badge` showing the Polish
+  status label instead of the button, so a pending/approved/rejected
+  application can never be resubmitted from the UI.
+
+  Exit criteria met (scoped, not the full suite — this stage only
+  touches the new `dietitian` module and one already-isolated
+  `get_db_session` refactor): the `get_db_session` move was verified by
+  running all of `identity`'s tests (128 passed, since that dependency
+  threads through identity's whole API surface) rather than just the
+  new file; the apply-flow itself added 2 new API test files' worth of
+  coverage — `test_submit_dietitian_application_use_case.py` (3 tests),
+  `test_get_my_dietitian_application_use_case.py` (2 tests), and
+  `test_dietitian_application_api.py` (6 tests, including the 409-on-
+  duplicate and 401-when-unauthenticated cases) — 22 tests total in the
+  module. Frontend: a new `DietitianApplicationSection.test.tsx` (2
+  tests: button→submit→badge, and badge-shown-directly for an existing
+  application) plus `ProfilTab.test.tsx`'s 4 existing tests updated to
+  mock the new `/dietitian/applications/me` call (404) so they stay
+  deterministic. `npx tsc --noEmit` and `npm run build` both clean.
+
+  Live-verified against the real Docker backend: registered a fresh
+  user, confirmed `GET .../me` → 404 before applying, `POST` → 201 with
+  `status: "PENDING"`, `GET .../me` → 200 with the same row, and a
+  second `POST` → 409 — all via `curl`, then cross-checked the row
+  directly with `psql \d dietitian_applications` / `SELECT ...`. Then
+  live-verified the frontend in a real browser (Vite dev server +
+  Docker backend): opened the Profil tab, confirmed the button renders
+  bottom-right, filled and submitted the form, confirmed the dialog
+  closed and the button was replaced by a "Zgłoszenie w trakcie
+  rozpatrywania" badge, then closed and reopened the Profil modal to
+  confirm the badge is refetched from the server (not just local state)
+  rather than resetting to the button. Dev server and
+  `docker compose down` both stopped after.
 - **Stage 3 — Photo upload**: new generic upload endpoint
   (`POST /dietitian/profile/photos`, max 3, local-disk storage per the
   confirmed decision, served via a static route) — built as a small
@@ -325,6 +382,23 @@ gated to `ADMIN`/`SUPER_ADMIN`.
   `POST /admin/dietitian-applications/{id}/reject`. All gated by
   Etap 0's `require_role(ADMIN, SUPER_ADMIN)` (role-change itself stays
   `SUPER_ADMIN`-only per Etap 0 Stage 3).
+
+  **`DELETE /admin/users/{id}` needs explicit cross-database cleanup —
+  flagged now (2026-07-19), before this stage is built, not discovered
+  mid-implementation.** `ConversationDocument`/`NutritionProfileDocument`/
+  `DietPlanDocument`/`DietPlanExportDocument` (all Mongo) and now
+  `DietitianApplication`/`DietitianProfile` (Postgres, Etap 1 Stage 1)
+  all store a plain `user_id` pointing at the Postgres `users` row —
+  Postgres's `ON DELETE CASCADE` only cleans up *other Postgres tables*
+  (so deleting a user correctly cascades to their dietitian application/
+  profile), it does **not** reach into Mongo. No account-deletion flow
+  exists anywhere in the backend yet, so this isn't a regression of
+  working behavior — it's a real gap this specific new endpoint has to
+  close itself: the use case needs to explicitly delete the user's Mongo-
+  held conversations, nutrition profile, and diet plans (and, once
+  Etap 5's `messaging` module exists, their dietitian chat threads too)
+  *before or alongside* the Postgres delete, not assume the DB cascade
+  covers it.
 - **Stage 2 — `frontend-admin/` scaffold**: new sibling folder to
   `frontend/` — its own Vite+React+TS+Tailwind v4 project (per the
   confirmed decision), reusing the same `docker-compose.yml` pattern as

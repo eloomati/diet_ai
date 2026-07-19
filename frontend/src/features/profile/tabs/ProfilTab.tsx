@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/apiFetch'
 import { useAuth } from '@/lib/auth'
 
+import { DietitianApplicationSection } from './DietitianApplicationSection'
 import { NutritionProfileForm } from './NutritionProfileForm'
 
 function verifyErrorMessage(error: unknown): string {
@@ -82,6 +83,8 @@ export function ProfilTab() {
       <Button variant="outline" className="w-fit" onClick={() => void logout()}>
         Wyloguj się
       </Button>
+
+      <DietitianApplicationSection />
     </div>
   )
 }
