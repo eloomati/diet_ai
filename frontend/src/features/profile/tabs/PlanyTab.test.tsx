@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -115,5 +115,65 @@ describe('PlanyTab', () => {
 
     expect(await screen.findByText('Wygenerowany plan')).toBeInTheDocument()
     expect(screen.getByText(/08:00 · Owsianka/)).toBeInTheDocument()
+  })
+
+  it('exports and downloads a plan when "Pobierz" is clicked', async () => {
+    const user = userEvent.setup()
+    const createObjectURL = vi.fn(() => 'blob:mock-url')
+    const revokeObjectURL = vi.fn()
+    vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.includes('/diet-plans/p1/export')) {
+        return Promise.resolve(
+          jsonResponse(201, {
+            export_id: 'e1',
+            diet_plan_id: 'p1',
+            filename: 'p1-export.csv',
+            created_at: '2026-01-15T10:05:00Z',
+          }),
+        )
+      }
+      if (url.includes('/diet-plans/p1/exports/e1/download')) {
+        return Promise.resolve(new Response(new Blob(['day,meal\n1,Owsianka'], { type: 'text/csv' }), { status: 200 }))
+      }
+      return Promise.resolve(jsonResponse(200, [PLAN_SUMMARY]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPlanyTab()
+    await user.click(await screen.findByRole('button', { name: 'Pobierz' }))
+
+    await waitFor(() => expect(clickSpy).toHaveBeenCalled())
+
+    expect(fetchMock.mock.calls.some(([u, i]) => i?.method === 'POST' && u.includes('/diet-plans/p1/export'))).toBe(
+      true,
+    )
+    expect(fetchMock.mock.calls.some(([u]) => u.includes('/diet-plans/p1/exports/e1/download'))).toBe(true)
+    expect(createObjectURL).toHaveBeenCalled()
+    const savedLink = clickSpy.mock.instances[0] as unknown as HTMLAnchorElement
+    expect(savedLink.download).toBe('p1-export.csv')
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url')
+
+    clickSpy.mockRestore()
+  })
+
+  it('shows a friendly error when the export request fails', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (init?.method === 'POST' && url.includes('/diet-plans/p1/export')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'plan not found' }))
+      }
+      return Promise.resolve(jsonResponse(200, [PLAN_SUMMARY]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPlanyTab()
+    await user.click(await screen.findByRole('button', { name: 'Pobierz' }))
+
+    expect(
+      await screen.findByText('Nie udało się wyeksportować planu. Spróbuj ponownie.'),
+    ).toBeInTheDocument()
   })
 })

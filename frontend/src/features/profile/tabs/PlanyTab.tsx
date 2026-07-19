@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useState, type FormEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -6,7 +6,7 @@ import { Input } from '@/components/ui/input'
 import { DietPlanCard } from '@/features/dietPlans/DietPlanCard'
 import { ApiError } from '@/lib/apiFetch'
 import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
-import { getDietPlan, listDietPlans } from '@/api/dietPlans'
+import { downloadDietPlanExport, exportDietPlan, getDietPlan, listDietPlans } from '@/api/dietPlans'
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pl-PL', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -17,6 +17,26 @@ function listErrorMessage(error: unknown): string {
     return 'Data początkowa musi być wcześniejsza niż data końcowa.'
   }
   return 'Nie udało się wczytać planów. Spróbuj ponownie.'
+}
+
+/** Saves a blob to disk via a throwaway `<a download>` — no server-side
+ * presigned URL exists (SFTP has no equivalent), so the file arrives as a
+ * blob in memory and has to be handed to the browser this way. */
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+async function exportAndDownloadPlan(planId: string) {
+  const { export_id, filename } = await exportDietPlan(planId)
+  const blob = await downloadDietPlanExport(planId, export_id)
+  saveBlob(blob, filename)
 }
 
 export function PlanyTab() {
@@ -36,6 +56,10 @@ export function PlanyTab() {
     queryKey: ['diet-plan', expandedPlanId],
     queryFn: () => getDietPlan(expandedPlanId!),
     enabled: !!expandedPlanId,
+  })
+
+  const exportMutation = useMutation({
+    mutationFn: exportAndDownloadPlan,
   })
 
   function handleFilter(event: FormEvent<HTMLFormElement>) {
@@ -75,18 +99,37 @@ export function PlanyTab() {
         <p className="text-sm text-muted-foreground">Brak wygenerowanych planów w tym zakresie dat.</p>
       ) : (
         <ul className="flex flex-col gap-2">
-          {plansQuery.data.map((plan) => (
+          {plansQuery.data.map((plan) => {
+            const isExportingThis = exportMutation.isPending && exportMutation.variables === plan.plan_id
+            const exportFailedThis = exportMutation.isError && exportMutation.variables === plan.plan_id
+            return (
             <li key={plan.plan_id} className="rounded-xl border border-border">
-              <button
-                onClick={() => toggleExpand(plan.plan_id)}
-                className="flex w-full flex-wrap items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-muted/60"
-              >
-                <span className="text-[13px] font-bold">
-                  {goalLabel(plan.goal)} · {dietTypeLabel(plan.diet_type)} · {plan.duration_days}{' '}
-                  {plan.duration_days === 1 ? 'dzień' : 'dni'}
-                </span>
-                <span className="text-[12px] text-muted-foreground">{formatDate(plan.created_at)}</span>
-              </button>
+              <div className="flex items-center gap-2 px-3 py-2.5 hover:bg-muted/60">
+                <button
+                  onClick={() => toggleExpand(plan.plan_id)}
+                  className="flex flex-1 flex-wrap items-center justify-between gap-2 text-left"
+                >
+                  <span className="text-[13px] font-bold">
+                    {goalLabel(plan.goal)} · {dietTypeLabel(plan.diet_type)} · {plan.duration_days}{' '}
+                    {plan.duration_days === 1 ? 'dzień' : 'dni'}
+                  </span>
+                  <span className="text-[12px] text-muted-foreground">{formatDate(plan.created_at)}</span>
+                </button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isExportingThis}
+                  onClick={() => exportMutation.mutate(plan.plan_id)}
+                >
+                  {isExportingThis ? 'Pobieranie…' : 'Pobierz'}
+                </Button>
+              </div>
+              {exportFailedThis && (
+                <p className="px-3 pb-2 text-[12px] font-bold text-destructive">
+                  Nie udało się wyeksportować planu. Spróbuj ponownie.
+                </p>
+              )}
               {expandedPlanId === plan.plan_id && (
                 <div className="border-t border-border p-3">
                   {expandedPlanQuery.isPending ? (
@@ -99,7 +142,8 @@ export function PlanyTab() {
                 </div>
               )}
             </li>
-          ))}
+            )
+          })}
         </ul>
       )}
     </div>

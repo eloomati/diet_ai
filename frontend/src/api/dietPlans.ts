@@ -1,4 +1,4 @@
-import { apiFetch } from '@/lib/apiFetch'
+import { apiFetch, apiFetchBlob } from '@/lib/apiFetch'
 import type { DietType, Goal } from '@/api/profile'
 
 export interface Meal {
@@ -81,6 +81,6 @@ export function listDietPlanExports(planId: string): Promise<DietPlanExport[]> {
   return apiFetch(`/diet-plans/${planId}/exports`)
 }
 
-// Downloading the archived CSV (a file stream, not JSON) needs an
-// auth-aware blob fetch rather than apiFetch's JSON handling — deferred to
-// Etap 4 Stage 5, where it has a real UI call site.
+export function downloadDietPlanExport(planId: string, exportId: string): Promise<Blob> {
+  return apiFetchBlob(`/diet-plans/${planId}/exports/${exportId}/download`)
+}

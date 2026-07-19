@@ -3315,10 +3315,58 @@ cluster clearly separated from the switch on the right, rather than the
 "Następny tydzień" button looking grouped with the switch next to it.
 Live-verified; full suite still 79/79.
 
-## Stage 5 — CSV export
+## Stage 5 — CSV export — DONE
 
-- [ ] `POST .../export`, `GET .../exports`, `GET .../exports/{id}/download`
-      — "Pobierz" button on the right of each plan row, per the mockup.
+- [x] "Pobierz" button on the right of each `PlanyTab` row, per the
+      mockup (`api/dietPlans.ts` already stubbed `exportDietPlan`/
+      `listDietPlanExports` from Etap 0; added `downloadDietPlanExport`).
+      One click both creates a fresh archived export (`POST .../export`
+      → 201, metadata only — a plan can be exported more than once,
+      each call archives a brand new file rather than overwriting) and
+      immediately downloads it (`GET .../exports/{export_id}/download`
+      → streamed CSV) via a single `exportAndDownloadPlan(planId)`
+      helper — no separate export-history browser, since the mockup
+      only shows one download action per row and the backend already
+      keeps every past export reachable through the API regardless of
+      what the UI exposes.
+- [x] `apiFetch.ts` refactored: the auth/401-refresh dance moved into a
+      private `authedFetch`, shared by `apiFetch` (parses JSON) and a
+      new `apiFetchBlob` (returns the raw `Blob`) — avoids duplicating
+      that retry logic for the one endpoint that streams a file instead
+      of JSON.
+- [x] Per-row pending/error state via `useMutation`'s `variables`
+      (`exportMutation.variables === plan.plan_id`), not a single
+      tab-wide flag, since every row's "Pobierz" button is independently
+      clickable; button reads "Pobieranie…" and disables itself only for
+      the row actually in flight.
+- [x] Real browser download via a throwaway `<a download>` +
+      `URL.createObjectURL`/`revokeObjectURL` (`saveBlob`), filename
+      taken straight from the export metadata's `filename` field — no
+      `Content-Disposition` header parsing needed.
+- [x] The row markup changed from one full-width `<button>` per plan to
+      a flex `<div>` holding the (still-clickable) expand toggle plus a
+      sibling "Pobierz" `<Button>` — nesting a button inside a button
+      isn't valid HTML and would also fire both handlers on one click.
+
+Exit criteria met: 2 new `PlanyTab.test.tsx` cases (clicking "Pobierz"
+fires the real `POST .../export` then `GET .../download`, saves via a
+mocked `URL.createObjectURL`/anchor `click()` with the exact filename
+from the response, and revokes the object URL; a 404 from the export
+call shows a friendly retry message) — `URL.createObjectURL` doesn't
+exist in jsdom by default, so it's stubbed per-test via `vi.stubGlobal`.
+All 5 pre-existing `PlanyTab` tests still pass unchanged (the row
+restructure didn't touch the clickable text). Full suite 81/81,
+typecheck clean.
+
+Live-verified against the real backend (Docker `db`/`mongo`/`mailhog`/
+`ollama`/`sftp`/`backend`, not just mocks): clicking "Pobierz" on the
+real 3-day plan fired a real `POST .../export` → 201 followed by a real
+`GET .../exports/{id}/download` → 200, and the CSV genuinely landed in
+the OS Downloads folder (`{plan_id}-{suffix}.csv`) with the plan's real
+current data — including the 08:00/08:00/17:00 meal times from this
+session's earlier live drag-and-drop tests, confirming the SFTP-backed
+archive round-trips real state, not stale/cached data. Clean console.
+The test download was deleted afterward as a testing artifact.
 
 ## Stage 6 — Tests & docs sync
 
