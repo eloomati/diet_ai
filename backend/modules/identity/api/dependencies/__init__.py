@@ -1,4 +1,5 @@
 from .auth_dependencies import (
+    get_change_user_role_use_case,
     get_confirm_email_verification_use_case,
     get_confirm_password_reset_use_case,
     get_db_session,
@@ -23,4 +24,5 @@ __all__ = [
     "get_request_password_reset_use_case",
     "get_confirm_password_reset_use_case",
     "get_confirm_email_verification_use_case",
+    "get_change_user_role_use_case",
 ]

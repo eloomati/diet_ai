@@ -166,14 +166,55 @@ touching any other module's behavior yet.
   Phase 10's frontend smoke walkthrough) also returned `"role": "USER"`,
   confirming the migration's `server_default` backfill actually took
   effect on real pre-existing rows, not just fresh ones.
-- **Stage 3 — Role-change endpoint**: `PATCH /admin/users/{id}/role`
-  (`SUPER_ADMIN`-only) — lives here, not in Etap 2's admin module yet,
-  since it's really an Identity-module concern (mutating a `User`); the
-  admin module in Etap 2 will just call it.
-- **Stage 4 — Tests + docs sync**: unit tests for `Role`/`change_role()`
-  transition rules, integration test for the dependency (403 for wrong
-  role), `docs/api.md` gains the `role` field + the new endpoint,
-  `docs/domain-model.md` documents `Role`.
+- **Stage 3 — Role-change endpoint — DONE**: `PATCH /admin/users/{user_id}/role`
+  (`SUPER_ADMIN`-only via `Depends(require_role(Role.SUPER_ADMIN))`) —
+  lives in the identity module (not Etap 2's admin module yet), exactly
+  as planned, since it's really an Identity-module concern (mutating a
+  `User`); the admin module in Etap 2 will just call it. New
+  `ChangeUserRoleUseCase`/`ChangeUserRoleCommand` (loads the target user
+  via `UserRepository`, calls `user.change_role(...)`, saves — a
+  `UserNotFoundError` maps to 404 `NOT_FOUND`, matching the direct-ID-
+  lookup convention used elsewhere in the app, unlike the 400 mapping
+  `UserNotFoundError` gets in the email-verification flow where it's
+  really a token-validity edge case).
+
+  Exit criteria met: 5 new tests in `test_change_user_role_api.py`
+  (SUPER_ADMIN can change a role — including a persistence check via a
+  follow-up real `/auth/me` call, not just trusting the response body;
+  every other role gets 403; an unknown user id gets 404; a
+  non-enum role value gets 422; no auth at all gets 401). Non-caller
+  setup uses `app.dependency_overrides[get_current_user]` to become
+  whichever role a given test needs — the same override mechanism
+  `test_auth_me_api.py` already established — rather than inventing new
+  direct-Postgres test scaffolding just to mint a `SUPER_ADMIN` caller.
+  Full backend suite **365/365**.
+
+  Live-verified against the real Docker backend end to end: registered
+  two real users, promoted one to `SUPER_ADMIN` via a direct
+  `UPDATE users SET role = ...` (there is no self-escalation path by
+  design, and no bootstrap-admin seed mechanism exists yet — noted
+  below as an open item for Etap 2, not solved here), logged in as that
+  real `SUPER_ADMIN`, called the real endpoint against the second
+  user's real id, confirmed `DIET_USER` in the response, then — a
+  second, independent real login as the *target* user — confirmed
+  `/auth/me` also returned `DIET_USER` (real persistence, not just
+  the response echoing the request). Also confirmed a real 403 when
+  that same now-`DIET_USER` account tried calling the endpoint itself.
+  Clean backend logs throughout, `docker compose down` after.
+
+  **Open item flagged, not solved now**: there's currently no way to
+  create the *first* `SUPER_ADMIN` in a real deployment short of a
+  direct SQL `UPDATE` (fine for this dev demo, not fine for anything
+  real) — Etap 2 (or a dedicated small stage before it) should add a
+  proper bootstrap mechanism (e.g. a one-off management script, or a
+  `SUPER_ADMIN_SEED_EMAIL` env var the app promotes on startup).
+
+- **Stage 4 — Docs sync**: unit/integration tests were already added
+  incrementally in Stages 1-3 (not deferred here, unlike a first read
+  of this plan might suggest) — this stage is now just `docs/api.md`
+  gaining the `role` field on `/me` plus the new
+  `PATCH /admin/users/{id}/role` endpoint, and `docs/domain-model.md`
+  documenting `Role`/`UserRoleChanged`.
 
 ---
 

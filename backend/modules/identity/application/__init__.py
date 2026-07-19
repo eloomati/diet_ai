@@ -1,4 +1,5 @@
 from .dto import (
+    ChangeUserRoleCommand,
     ConfirmEmailVerificationCommand,
     ConfirmPasswordResetCommand,
     LoginUserCommand,
@@ -12,6 +13,7 @@ from .dto import (
 )
 from .ports import CaptchaVerifier, EmailSender, PasswordHasher, RefreshTokenRepository, TokenService
 from .use_cases import (
+    ChangeUserRoleUseCase,
     ConfirmEmailVerificationUseCase,
     ConfirmPasswordResetUseCase,
     EmailRetryStrategy,
@@ -32,6 +34,7 @@ from .use_cases import (
 )
 
 __all__ = [
+    "ChangeUserRoleCommand",
     "RegisterUserCommand",
     "RegisterUserResult",
     "LoginUserCommand",
@@ -47,6 +50,7 @@ __all__ = [
     "RefreshTokenRepository",
     "EmailSender",
     "CaptchaVerifier",
+    "ChangeUserRoleUseCase",
     "RegisterUserUseCase",
     "LoginUserUseCase",
     "LogoutUseCase",
