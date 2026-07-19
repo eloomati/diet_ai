@@ -5,9 +5,11 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuth } from '@/lib/auth'
 
+import { DietitianProfileTab } from './tabs/DietitianProfileTab'
 import { KalendarzTab } from './tabs/KalendarzTab'
 import { PlanyTab } from './tabs/PlanyTab'
 import { ProfilTab } from './tabs/ProfilTab'
+import { TransakcjeTab } from './tabs/TransakcjeTab'
 
 interface ProfileModalProps {
   open: boolean
@@ -15,7 +17,8 @@ interface ProfileModalProps {
 }
 
 export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
-  const { isAuthenticated } = useAuth()
+  const { isAuthenticated, user } = useAuth()
+  const isDietitian = user?.role === 'DIET_USER'
 
   // Logging out from inside the modal (Profil tab) shouldn't leave a
   // signed-out user staring at their own Plany/Kalendarz tabs.
@@ -38,6 +41,19 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
             <TabsTrigger value="kalendarz" className="px-4 py-2.5 font-heading text-sm font-extrabold">
               Kalendarz
             </TabsTrigger>
+            {isDietitian && (
+              <TabsTrigger
+                value="profil-dietetyka"
+                className="px-4 py-2.5 font-heading text-sm font-extrabold"
+              >
+                Profil dietetyka
+              </TabsTrigger>
+            )}
+            {isDietitian && (
+              <TabsTrigger value="transakcje" className="px-4 py-2.5 font-heading text-sm font-extrabold">
+                Transakcje
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <ScrollArea className="min-h-0 flex-1">
@@ -50,6 +66,16 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
             <TabsContent value="kalendarz" className="p-6">
               <KalendarzTab />
             </TabsContent>
+            {isDietitian && (
+              <TabsContent value="profil-dietetyka" className="p-6">
+                <DietitianProfileTab />
+              </TabsContent>
+            )}
+            {isDietitian && (
+              <TabsContent value="transakcje" className="p-6">
+                <TransakcjeTab />
+              </TabsContent>
+            )}
           </ScrollArea>
         </Tabs>
       </DialogContent>

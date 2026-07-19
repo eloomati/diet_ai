@@ -410,13 +410,90 @@ profile they manage from inside the existing `frontend/` app.
   `docker compose down` after. The locally-created `./data/dietitian_photos/`
   scratch directory (a side effect of importing `main.py` during local
   verification) was deleted and added to `.gitignore`.
-- **Stage 4 — Dietitian's own profile management (main app)**: once
-  `role == DIET_USER` (set in Etap 2 via admin approval), the Profil
-  modal gains a **"Profil dietetyka"** tab (alongside today's
-  Profil/Plany/Kalendarz) — edit experience/diplomas/description/photos,
-  view submitted reviews (Etap 4). A **"Transakcje"** tab also appears
-  here (Etap 3 wires its actual content) showing transactions routed to
-  this dietitian.
+- **Stage 4 — Dietitian's own profile management (main app) — DONE**:
+  the Profil modal now conditionally gains **"Profil dietetyka"** and
+  **"Transakcje"** tabs, gated purely on `user.role === 'DIET_USER'`
+  (`ProfileModal.tsx`) — a regular `USER` never sees either tab. Reviews
+  (Etap 4) and real transaction data (Etap 3) are deliberately *not*
+  built here — the "Transakcje" tab is a shell (`TransakcjeTab.tsx`, an
+  `EmptyState` placeholder) per the plan's own note that Etap 3 wires
+  its actual content; a reviews section wasn't added at all, since the
+  plan attributed it to Etap 4 specifically, not this stage.
+  Backend gained the rest of the profile-management surface beyond
+  Stage 3's upload-only endpoint: `GET /dietitian/profile/me`,
+  `PUT /dietitian/profile` (partial update, reusing Stage 1's
+  `update_details()` domain method verbatim), and
+  `DELETE /dietitian/profile/photos/{index}` (new `remove_photo()`
+  domain method, symmetric with `add_photo()` — an out-of-range index
+  raises `InvalidDietitianProfileError`, mapped to 400). All three
+  reuse `require_role(Role.DIET_USER)` directly, unchanged since Etap 0.
+  Frontend: `DietitianProfileTab.tsx` (edit form mirroring
+  `NutritionProfileForm`'s save-mutation pattern, plus a photo gallery —
+  thumbnails with a hover-remove button, an "add" button disabled at the
+  3-photo cap) and a new `frontend/src/lib/apiFetch.ts` capability:
+  `authedFetch` now detects a `FormData` body and skips both
+  JSON-stringifying it and forcing a `Content-Type` header, letting the
+  browser set its own multipart boundary — the first real upload from
+  the frontend since the CSV *export* work only ever needed downloads.
+  A new `resolveStaticUrl()` helper resolves a root-absolute photo path
+  (e.g. `/static/dietitian-photos/x.jpg`) against the API's own origin,
+  since those files are served outside the `/api/v1` prefix and a bare
+  `<img src>` would otherwise resolve against the frontend's own origin.
+  **Frontend type gap fixed in passing**: `MeResponse` never gained a
+  `role` field back in Etap 0 Stage 4 even though the backend has
+  returned it since then — this stage's tab-gating needed it, so it was
+  added now (`UserRole` union type + `role: UserRole` on `MeResponse`).
+
+  **Genuine repo-hygiene bug found and fixed while checking `git
+  status` before this retrospective**: `.gitignore`'s bare `lib/` /
+  `lib64/` entries (meant for Python's packaging output) also matched
+  `frontend/src/lib/` at any depth, since an unanchored gitignore
+  pattern matches every directory with that name regardless of
+  location. Consequence: **all 12 files under `frontend/src/lib/`
+  (`apiFetch.ts`, the entire `auth/` module — `AuthContext.tsx`,
+  `useAuth.ts`, `tokenStore.ts` — plus `toast.ts`, `queryClient.ts`,
+  `utils.ts`, `profileOptions.ts`, `categoryOptions.ts`, and 2 test
+  files) had never been committed in any prior session**, despite all
+  of Phase 10 being marked DONE — a fresh clone of this repo would not
+  have built the frontend at all. Fixed by anchoring both patterns to
+  the repo root (`/lib/`, `/lib64/`) and staging the 12 previously-
+  untracked files alongside the `.gitignore` fix (confirmed via the
+  user) — left for the user to commit, per the standing rule.
+
+  Exit criteria met (scoped — this stage only extends the already-
+  isolated `dietitian` module and adds new frontend components; the
+  `apiFetch.ts` change is small and additive, not a behavior change to
+  the existing JSON path): domain tests for `remove_photo()` (2),
+  three new use-case test files (`get_my_dietitian_profile`,
+  `update_dietitian_profile`, `remove_dietitian_profile_photo` — 8
+  tests total), and a new `test_dietitian_profile_api.py` (7 tests:
+  get/update/remove success and error paths) — 53 tests total in the
+  module (up from 35 after Stage 3). The two API test files' shared
+  DB-seeding helpers (`_test_db_session`, `promote_to_dietitian(_with_profile)`)
+  were extracted into a new `tests/db_helpers.py` rather than
+  duplicated a second time. Frontend: `DietitianProfileTab.test.tsx`
+  (4), `TransakcjeTab.test.tsx` (1), and `ProfileModal.test.tsx` gained
+  2 new tests asserting the tabs are hidden for `USER` and shown for
+  `DIET_USER` — full suite run since `apiFetch.ts`/`auth.ts` are
+  genuinely shared, cross-cutting files (105 passed, up from 105 total
+  including the new ones). `npx tsc --noEmit` and `npm run build` both
+  clean.
+
+  Live-verified against the real Docker backend via `curl` (registered
+  a user, promoted to `DIET_USER` with a seeded profile via direct SQL —
+  same Etap-2-doesn't-exist-yet stand-in as Stage 3 — then confirmed
+  `GET`/`PUT`/upload/`DELETE` all round-trip correctly, and that
+  `GET /auth/me` now returns `role: "DIET_USER"`). **Browser-based UI
+  verification could not be completed this stage**: the Claude-in-
+  Chrome extension entered a persistent `Cannot access a chrome-
+  extension:// URL of different extension` error across two separate
+  tabs and did not recover — flagged rather than worked around, per the
+  guidance to stop after repeated tool failures rather than loop.
+  Substituted the `curl`-based backend verification above plus the full
+  automated test suites (53 backend, 105 frontend) as the closest
+  available substitute; an actual in-browser pass of the new tabs is
+  still outstanding and should happen opportunistically once the
+  extension recovers. `docker compose down` after.
 - **Stage 5 — Tests + docs sync**.
 
 ---

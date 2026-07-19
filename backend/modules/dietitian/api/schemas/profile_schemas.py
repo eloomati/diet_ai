@@ -6,6 +6,12 @@ from pydantic import BaseModel
 from backend.modules.dietitian.application.dto.dietitian_profile_dto import DietitianProfileResult
 
 
+class UpdateDietitianProfileRequest(BaseModel):
+    experience: str | None = None
+    diplomas: list[str] | None = None
+    description: str | None = None
+
+
 class DietitianProfileResponse(BaseModel):
     id: UUID
     user_id: UUID

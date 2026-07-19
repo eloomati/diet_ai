@@ -27,3 +27,39 @@ export function submitDietitianApplication(
 ): Promise<DietitianApplication> {
   return apiFetch('/dietitian/applications', { method: 'POST', body: payload })
 }
+
+export interface DietitianProfile {
+  id: string
+  user_id: string
+  experience: string
+  diplomas: string[]
+  description: string
+  photos: string[]
+  created_at: string
+}
+
+export interface UpdateDietitianProfileRequest {
+  experience?: string
+  diplomas?: string[]
+  description?: string
+}
+
+export function getMyDietitianProfile(): Promise<DietitianProfile> {
+  return apiFetch('/dietitian/profile/me')
+}
+
+export function updateDietitianProfile(
+  payload: UpdateDietitianProfileRequest,
+): Promise<DietitianProfile> {
+  return apiFetch('/dietitian/profile', { method: 'PUT', body: payload })
+}
+
+export function uploadDietitianProfilePhoto(file: File): Promise<DietitianProfile> {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiFetch('/dietitian/profile/photos', { method: 'POST', body: formData })
+}
+
+export function removeDietitianProfilePhoto(index: number): Promise<DietitianProfile> {
+  return apiFetch(`/dietitian/profile/photos/${index}`, { method: 'DELETE' })
+}

@@ -6,6 +6,14 @@ from backend.modules.dietitian.domain.entities.dietitian_profile import Dietitia
 
 
 @dataclass(frozen=True, slots=True)
+class UpdateDietitianProfileCommand:
+    user_id: UUID
+    experience: str | None = None
+    diplomas: tuple[str, ...] | None = None
+    description: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class DietitianProfileResult:
     id: UUID
     user_id: UUID

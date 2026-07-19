@@ -5,8 +5,17 @@ from backend.modules.dietitian.application.ports.file_storage import FileStorage
 from backend.modules.dietitian.application.use_cases.get_my_dietitian_application_use_case import (
     GetMyDietitianApplicationUseCase,
 )
+from backend.modules.dietitian.application.use_cases.get_my_dietitian_profile_use_case import (
+    GetMyDietitianProfileUseCase,
+)
+from backend.modules.dietitian.application.use_cases.remove_dietitian_profile_photo_use_case import (
+    RemoveDietitianProfilePhotoUseCase,
+)
 from backend.modules.dietitian.application.use_cases.submit_dietitian_application_use_case import (
     SubmitDietitianApplicationUseCase,
+)
+from backend.modules.dietitian.application.use_cases.update_dietitian_profile_use_case import (
+    UpdateDietitianProfileUseCase,
 )
 from backend.modules.dietitian.application.use_cases.upload_dietitian_profile_photo_use_case import (
     UploadDietitianProfilePhotoUseCase,
@@ -67,3 +76,21 @@ def get_upload_dietitian_profile_photo_use_case(
     file_storage: FileStorage = Depends(get_file_storage),
 ) -> UploadDietitianProfilePhotoUseCase:
     return UploadDietitianProfilePhotoUseCase(profile_repository, file_storage)
+
+
+def get_my_dietitian_profile_use_case(
+    repository: DietitianProfileRepository = Depends(get_dietitian_profile_repository),
+) -> GetMyDietitianProfileUseCase:
+    return GetMyDietitianProfileUseCase(repository)
+
+
+def get_update_dietitian_profile_use_case(
+    repository: DietitianProfileRepository = Depends(get_dietitian_profile_repository),
+) -> UpdateDietitianProfileUseCase:
+    return UpdateDietitianProfileUseCase(repository)
+
+
+def get_remove_dietitian_profile_photo_use_case(
+    repository: DietitianProfileRepository = Depends(get_dietitian_profile_repository),
+) -> RemoveDietitianProfilePhotoUseCase:
+    return RemoveDietitianProfilePhotoUseCase(repository)

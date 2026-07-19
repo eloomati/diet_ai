@@ -49,6 +49,14 @@ class DietitianProfile:
         self.photos = (*self.photos, photo_url)
         self.updated_at = datetime.now(UTC)
 
+    def remove_photo(self, index: int) -> None:
+        if index < 0 or index >= len(self.photos):
+            raise InvalidDietitianProfileError(f"No photo at index {index}.")
+        photos = list(self.photos)
+        photos.pop(index)
+        self.photos = tuple(photos)
+        self.updated_at = datetime.now(UTC)
+
     def update_details(
         self,
         *,

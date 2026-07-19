@@ -70,3 +70,24 @@ def test_add_photo_rejects_a_fourth() -> None:
 
     with pytest.raises(PhotoLimitExceededError):
         profile.add_photo("/static/dietitian-photos/d.jpg")
+
+
+def test_remove_photo_drops_the_given_index() -> None:
+    profile = _create()
+    profile.add_photo("/static/dietitian-photos/a.jpg")
+    profile.add_photo("/static/dietitian-photos/b.jpg")
+
+    profile.remove_photo(0)
+
+    assert profile.photos == ("/static/dietitian-photos/b.jpg",)
+
+
+def test_remove_photo_rejects_an_out_of_range_index() -> None:
+    profile = _create()
+    profile.add_photo("/static/dietitian-photos/a.jpg")
+
+    with pytest.raises(InvalidDietitianProfileError):
+        profile.remove_photo(1)
+
+    with pytest.raises(InvalidDietitianProfileError):
+        profile.remove_photo(-1)
