@@ -8,6 +8,8 @@ import { categoryEmoji } from '@/lib/categoryOptions'
 import { ApiError } from '@/lib/apiFetch'
 import { archiveConversation, deleteConversation, getConversation, sendMessage } from '@/api/conversations'
 import type { ConversationCategory, ConversationDetail, Message } from '@/api/conversations'
+import { generateDietPlan } from '@/api/dietPlans'
+import { DietPlanCard } from '@/features/dietPlans/DietPlanCard'
 
 interface HeroChip {
   emoji: string
@@ -44,6 +46,15 @@ function sendErrorMessage(error: unknown): string {
     return ARCHIVED_NOTICE
   }
   return 'Nie udało się wysłać wiadomości. Spróbuj ponownie.'
+}
+
+const GENERATE_ERROR_MESSAGES: Record<string, string> = {
+  NOT_FOUND: 'Uzupełnij najpierw profil żywieniowy (zakładka Profil), żeby wygenerować plan.',
+}
+
+function generateErrorMessage(error: unknown): string {
+  if (error instanceof ApiError) return GENERATE_ERROR_MESSAGES[error.code] ?? 'Nie udało się wygenerować planu. Spróbuj ponownie.'
+  return 'Nie udało się wygenerować planu. Spróbuj ponownie.'
 }
 
 function MessageBubble({ message }: { message: Message }) {
@@ -155,6 +166,14 @@ export function ChatCanvas({
       deleteMutation.mutate()
     }
   }
+
+  const generatePlanMutation = useMutation({
+    mutationFn: () =>
+      generateDietPlan({
+        duration_days: 3,
+        requirements: message.trim() ? [message.trim()] : undefined,
+      }),
+  })
 
   const isArchived = conversationQuery.data?.status === 'ARCHIVED'
 
@@ -280,12 +299,35 @@ export function ChatCanvas({
             )}
           </div>
         )}
+
+        {generatePlanMutation.isPending && (
+          <p className="mx-auto mt-4 max-w-2xl text-center text-sm text-muted-foreground">
+            Generowanie planu…
+          </p>
+        )}
+        {generatePlanMutation.isError && (
+          <p className="mx-auto mt-4 max-w-2xl text-center text-[13px] font-bold text-destructive">
+            {generateErrorMessage(generatePlanMutation.error)}
+          </p>
+        )}
+        {generatePlanMutation.data && (
+          <div className="mx-auto mt-4 max-w-2xl pb-3">
+            <DietPlanCard plan={generatePlanMutation.data} />
+          </div>
+        )}
       </div>
 
       <form className="flex flex-col items-center gap-2.5 px-5 py-5" onSubmit={handleSubmit}>
-        <Button type="button" variant="secondary" size="sm" className="rounded-full">
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="rounded-full"
+          onClick={() => generatePlanMutation.mutate()}
+          disabled={generatePlanMutation.isPending}
+        >
           <span className="size-1.5 rounded-full bg-current" />
-          Generuj plan
+          {generatePlanMutation.isPending ? 'Generowanie…' : 'Generuj plan'}
         </Button>
         {isArchived ? (
           <p className="text-[12.5px] font-bold text-muted-foreground">{ARCHIVED_NOTICE}</p>

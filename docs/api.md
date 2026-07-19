@@ -786,11 +786,14 @@ Module:
 Nutrition
 ```
 
-All endpoints below require `Authorization: Bearer {access_token}` and a
-nutrition profile must already exist for the caller (`POST /profile` —
-see Nutrition Profile API above). `goal` and `diet_type` are **not**
-request fields — they're read from the caller's existing
-`NutritionProfile`, the same way chat responses are personalized from it.
+All endpoints below require `Authorization: Bearer {access_token}`. Only
+`POST /diet-plans/generate` requires a nutrition profile to already exist
+for the caller (`POST /profile` — see Nutrition Profile API above) — the
+other six endpoints (list, get, reschedule, and the three export
+endpoints) only check plan/export ownership, never the profile. `goal`
+and `diet_type` are **not** request fields on generation — they're read
+from the caller's existing `NutritionProfile`, the same way chat
+responses are personalized from it.
 
 ---
 
@@ -845,10 +848,14 @@ Body:
       ]
     }
   ],
-  "created_at": "2026-01-01T10:00:00Z",
-  "updated_at": "2026-01-01T10:00:00Z"
+  "created_at": "2026-01-01T10:00:00.482391+00:00",
+  "updated_at": "2026-01-01T10:00:00.482391+00:00"
 }
 ```
+
+`created_at`/`updated_at` are plain `datetime.isoformat()` output —
+microseconds and a `+00:00` offset, **not** `Z`-normalized like the error
+envelope's `timestamp` field below.
 
 `time` (Phase 9): AI-suggested time of day for the meal, `"HH:MM"` or
 `null` if the model didn't provide one (never required — see
@@ -908,6 +915,9 @@ Errors:
 400 Bad Request code=BAD_REQUEST — day_number or meal_name doesn't exist
                 within this plan (the plan itself is fine, so this is 400,
                 not 404 — see architecture.md)
+422 Unprocessable Entity code=VALIDATION_ERROR — day_number < 1, or
+                meal_name is empty — request-shape validation, checked
+                before the day/meal lookup above ever runs
 ```
 
 ---
@@ -945,7 +955,7 @@ Body:
     "goal": "MUSCLE_GAIN",
     "diet_type": "VEGETARIAN",
     "duration_days": 3,
-    "created_at": "2026-01-01T10:00:00Z"
+    "created_at": "2026-01-01T10:00:00.482391+00:00"
   }
 ]
 ```
@@ -954,6 +964,8 @@ Errors:
 
 ```
 400 Bad Request code=BAD_REQUEST — from is after to
+422 Unprocessable Entity code=VALIDATION_ERROR — from/to isn't a valid
+                ISO date (e.g. "from=not-a-date")
 ```
 
 ---
@@ -982,7 +994,7 @@ Body:
   "export_id": "uuid",
   "diet_plan_id": "uuid",
   "filename": "3fa8...-a1b2c3d4.csv",
-  "created_at": "2026-01-01T10:05:00Z"
+  "created_at": "2026-01-01T10:05:00.482391+00:00"
 }
 ```
 

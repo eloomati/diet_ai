@@ -40,7 +40,7 @@ export function ProfileModal({ open, onOpenChange }: ProfileModalProps) {
             </TabsTrigger>
           </TabsList>
 
-          <ScrollArea className="flex-1">
+          <ScrollArea className="min-h-0 flex-1">
             <TabsContent value="profil" className="p-6">
               <ProfilTab />
             </TabsContent>

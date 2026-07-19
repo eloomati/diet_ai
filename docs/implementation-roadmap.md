@@ -3022,43 +3022,402 @@ with its "+2" badge) all rendering correctly together — clean console.
 
 ---
 
-# Etap 4 — Plany dietetyczne
+# Etap 4 — Plany dietetyczne — DONE (Stages 1-6/6)
 
 Goal: wire the profile modal's "Plany" and "Kalendarz" tabs, plus the
 chat's "Generuj plan" button, to `docs/api.md`'s Diet Plan API.
 
-## Stage 1 — Generate
+## Stage 1 — Generate — DONE
 
-- [ ] "Generuj plan" button in the chat composer → `POST
-      /diet-plans/generate` (404 if no profile yet, per the API contract
-      — surfaced as a prompt to complete the profile first). Graying out
-      the button until the conversation has "enough" info is an explicit
-      documented future item (needs a backend heuristic first), not part
-      of this stage.
+- [x] "Generuj plan" button in the chat composer (Etap 0's placeholder)
+      wired to `POST /diet-plans/generate` via a `useMutation`. Works from
+      any state — the bare hero screen with no conversation at all, or
+      inside an existing one — since plan generation is purely
+      profile-based and doesn't need a `conversation_id`.
+      **Deviation**: 404 (no profile yet) maps to a friendly prompt
+      ("Uzupełnij najpierw profil żywieniowy (zakładka Profil), żeby
+      wygenerować plan.") per the roadmap's plan; graying out the button
+      proactively is confirmed out of scope (needs a backend heuristic for
+      "enough info", not built yet).
+- [x] `duration_days`: no UI control exists yet (the mockup never designed
+      one) — hardcoded to **3**, not the originally-planned 7. Found live:
+      the small local Ollama model (`AI_PROVIDER=ollama`, this repo's dev
+      default) reliably failed to produce valid structured output for a
+      7-day plan (two consecutive real `500`s), while `duration_days: 1`
+      succeeded immediately — confirmed via direct `curl` against the real
+      backend, isolating the failure to generation size, not a frontend
+      bug. Switched the default to 3, matching `docs/api.md`'s own request
+      example; a real 3-day generation succeeded live afterward. Exit
+      criteria for later stages should keep this in mind if a duration
+      picker is ever added — day-count directly trades off against local
+      model reliability (Claude in production doesn't have this problem
+      per the docs' own error note).
+- [x] `requirements`: derived from the composer's current text (trimmed,
+      single-element array) if non-empty, otherwise omitted — lets a user
+      type free-text hints and either send it as a chat message or use it
+      to steer plan generation instead, with no separate requirements
+      input needed.
+- [x] Successful generations render inline as a new `DietPlanCard` (goal +
+      diet type + duration header, then each day's meals with time/
+      calories/macros) directly in the chat canvas — Stages 2/3 (plan
+      list, calendar) don't exist yet, so this is the only place to see a
+      freshly generated plan right now.
 
-## Stage 2 — Plan list with date filter
+Exit criteria met: 4 new `ChatCanvas.test.tsx` cases (renders a generated
+plan with no active conversation, includes typed composer text as a
+requirement, 404 → profile-completion prompt, 500 → generic retry
+message); full suite 61/61, `npm run build`/`npm run lint` green.
+Verified live against the real backend (`AI_PROVIDER=ollama`): the
+duration_days-7-fails/1-succeeds isolation above, then a real 3-day plan
+generated successfully end-to-end and rendered correctly (3 days × 5
+meals each with real macros) — confirmed via `get_page_text` after the
+browser's screenshot capture started timing out under the host's Ollama
+CPU load (a tooling/resource hiccup, not an app issue — network-request
+inspection independently confirmed the `POST` returned `201`). Clean
+console throughout.
 
-- [ ] "Plany" tab → `GET /diet-plans?from&to` (matches the mockup's date
-      inputs + filter button).
+## Stage 2 — Plan list with date filter — DONE
 
-## Stage 3 — Calendar view
+- [x] `PlanyTab` (Etap 0's placeholder) wired to `GET /diet-plans?from&to`
+      via `useQuery` keyed on the applied range; two native
+      `<input type="date">` fields + a "Filtruj" button — filter state is
+      only applied on submit, not on every keystroke, so typing a partial
+      date doesn't refetch mid-edit.
+- [x] Each row shows goal + diet type + duration (`goalLabel`/
+      `dietTypeLabel`, reused from Etap 2) and the plan's `created_at`
+      formatted via `Intl`/`toLocaleDateString('pl-PL', ...)` (e.g.
+      "19 lipca 2026").
+- [x] Clicking a row expands it in place and lazily fetches
+      `GET /diet-plans/{id}` (full `days`/`meals`), rendering the same
+      shared `DietPlanCard` component used by Stage 1's inline
+      just-generated view — extracted out of `ChatCanvas.tsx` into a new
+      `features/dietPlans/DietPlanCard.tsx` so both call sites (chat and
+      the Plany tab) share one implementation instead of duplicating it.
+- [x] 400 `BAD_REQUEST` (`from` after `to`) maps to a friendly message
+      ("Data początkowa musi być wcześniejsza niż data końcowa.");
+      generic fetch failures get a retry message; an empty result set gets
+      its own "Brak wygenerowanych planów w tym zakresie dat." — distinct
+      from the error state.
 
-- [ ] "Kalendarz" tab → `GET /diet-plans/{id}` rendered as the mockup's
-      weekly grid (day columns × time rows), prev/next week navigation.
+Exit criteria met: 5 new `PlanyTab.test.tsx` cases (list render, empty
+state, 400 friendly message, filter-submit sends the right query params,
+row-expand fetches and renders detail); full suite 66/66, `npm run build`/
+`npm run lint` green. Verified live against the real backend, reusing the
+two real diet plans persisted from Stage 1's live testing: the list showed
+both ("3 dni" and "1 dzień", both dated "19 lipca 2026" in Polish),
+expanding the 1-day plan correctly fetched and rendered its real meals,
+and filtering to a January 2026 range correctly returned the
+"brak planów" empty state (confirmed via the actual `GET
+.../diet-plans?from=2026-01-01&to=2026-01-31` network request) — clean
+console throughout.
 
-## Stage 4 — Reschedule (drag & drop)
+## Stage 3 — Calendar view — DONE
 
-- [ ] `PATCH /diet-plans/{id}/meals` — dragging a meal chip to a new
-      day/time (mockup already proved this interaction with a
-      pointer-events-based drag; port the same mechanic against real
-      data) persists via the API and shows a confirmation toast.
+- [x] `KalendarzTab` (Etap 0's placeholder) wired to `GET /diet-plans`
+      (for a plan picker) + `GET /diet-plans/{id}` (for the grid) — a new
+      `<Select>` lets the user pick which generated plan to view, defaulting
+      to the newest one. **Deviation from a literal reading of the plan**:
+      a `DietPlan`'s `days` only carry a relative `day_number` (1..N), never
+      an absolute calendar date, so "weekly grid with prev/next week
+      navigation" is interpreted as paginating through *that one plan's own*
+      days in chunks of 7 — not a real Mon-Sun calendar. Since
+      `duration_days` is capped at 14 (`docs/api.md`), that's at most two
+      "weeks" per plan, which is exactly what "prev/next week" suggests.
+- [x] Grid: day columns (the current 7-day window) × time rows, where rows
+      are derived from the actual distinct meal times present across the
+      visible days (sorted chronologically), plus one "Bez pory" row for
+      meals with no AI-suggested time — not an arbitrary fixed hourly
+      scale, so the grid never has empty rows for times nothing uses.
+      Each populated cell is a small meal chip (name + calories).
+- [x] Prev/next week buttons disable at the plan's own boundaries; a
+      1-3-day plan (this repo's current real data) simply never enables
+      "Następny tydzień" since it only has one window.
 
-## Stage 5 — CSV export
+**Real problems hit and fixed**: (1) the first draft's `Select` flipped
+from uncontrolled (`value=undefined`, before the plans list loaded) to
+controlled (a real plan id) once a `useEffect` set the auto-selected plan
+— Base UI (like React) warns against this, and a live check confirmed it.
+Fixed by deriving `effectivePlanId` synchronously during render
+(`selectedPlanId ?? plansQuery.data?.[0]?.plan_id ?? null`) instead of an
+effect + separate state, so the Select is never mounted before a real
+value exists. (2) Same `<SelectValue>`-shows-the-raw-id bug as Etap 2
+Stage 1 (Base UI's trigger echoes the literal value unless given a
+render-function child) — the plan picker showed a raw UUID instead of its
+formatted label; fixed the same way, with a render function that looks the
+plan up by id. (3) An initial extra "Pełne szczegóły planu"
+`<details>`-collapsed `DietPlanCard` caused duplicate-text test failures,
+since collapsed `<details>` content is still present in the DOM (and
+duplicated the "Dzień N" headings already in the grid) — removed
+entirely as redundant scope beyond what this stage asked for; the grid
+already shows every meal, and the Plany tab (Stage 2) already offers the
+full macro breakdown.
 
-- [ ] `POST .../export`, `GET .../exports`, `GET .../exports/{id}/download`
-      — "Pobierz" button on the right of each plan row, per the mockup.
+Exit criteria met: 4 new `KalendarzTab.test.tsx` cases (empty state,
+auto-select-and-render-grid, 10-day plan paginates across two weeks with
+correct boundary-disabling, error state); full suite 70/70, `npm run
+build`/`npm run lint` green — including confirmation the Base UI
+controlled-value console warning is gone. Verified live against the real
+backend, reusing the two real plans from Stage 1/2: the plan picker
+correctly showed formatted labels (not raw ids) for both, the grid
+rendered the real all-null-`time` plan correctly under a single "Bez pory"
+row, and switching plans via the picker correctly re-fetched and
+re-rendered the other one — clean console throughout.
 
-## Stage 6 — Tests & docs sync
+## Stage 4 — Reschedule (drag & drop) — DONE
+
+- [x] `KalendarzTab`'s grid meal chips are draggable via pointer events
+      (`onPointerDown`/`onPointerEnter`/a window-level `pointerup`), not
+      native HTML5 drag/drop — porting the same pointer-events mechanic
+      the mockup already proved, per the plan. Dropping on a new time
+      cell within the plan calls `PATCH /diet-plans/{id}/meals` and
+      replaces the whole cached plan with the response (the endpoint
+      returns the full plan, not just the changed meal).
+      **Deviation confirmed by backend research before writing any UI
+      code**: `PATCH .../meals` has no field to change which *day* a meal
+      belongs to — `day_number` in the request only locates the existing
+      meal, it's never a move target.
+- [x] Visual feedback: the dragged chip dims, and the cell currently
+      under the pointer gets a highlighted ring while a drag is in
+      progress (an amber/destructive ring instead of the normal accent
+      ring when hovering a foreign day, previewing that the day change
+      won't stick).
+- [x] Success shows a transient inline confirmation ("Przeniesiono
+      „{posiłek}” na {godzina}. ✓", auto-clearing after 3s) rather than a
+      real toast — Etap 5 Stage 1 is where a proper global toast system
+      is planned; inventing one early for a single call site would be
+      scope creep. A 400 (meal/day mismatch — e.g. a race with another
+      tab) maps to a friendly retry message.
+
+Exit criteria met (original scope): 4 new `KalendarzTab.test.tsx` cases,
+full suite 74/74, `npm run build`/`npm run lint` green, and live
+verification against the real backend with a real mouse drag.
+
+### Post-hoc enhancement — full-week/full-hour calendar grid
+
+After this stage shipped, a follow-up request asked the calendar to
+always show a genuine Mon–Sun week (even days the plan doesn't cover)
+and a full 07:00–21:00 hour grid (even hours with no meals), matching
+the free-canvas feel of the approved mockup
+(`claude.ai/code/artifact/7c786e26-...`) more closely than the original
+day-number-chunked-in-7s pagination. Two design questions were resolved
+via `AskUserQuestion` rather than guessed:
+
+- **Cross-day drag**: the mockup drags freely across days, but the
+  backend genuinely cannot move a meal to a different day (see above).
+  Chose free/fluid dragging with **snap-back to the meal's own day on
+  drop, keeping the new time** — over a hard horizontal lock — so the
+  UI stays honest about what persists without sacrificing the mockup's
+  feel. A drop that changes the time but lands on a foreign day now
+  fires the reschedule (day forced back to origin) and shows "Zmieniono
+  godzinę na {czas} — dnia nie można zmienić przez przeciąganie."
+- **Mapping `day_number` to real dates**: `day_number` is only ever a
+  relative offset from a plan's own `created_at` — the API has no
+  per-day date field. Chose `date = created_at + (day_number − 1)` so
+  each day lands on its true weekday; weekdays the plan doesn't cover
+  render as empty columns instead of being hidden.
+
+Changes: `buildHourRows` (baseline 07:00–21:00, grows only if a real
+meal falls outside it) replaced the old `buildTimeRows` (discrete times
+only); week pagination now walks real Monday-aligned calendar weeks
+(`startOfWeek`/`addDays`) instead of `day_number` chunks of 7;
+`dayByDateKey` maps each visible date to its `DietDay` via the formula
+above. `KalendarzTab.test.tsx` grew to 10 cases, including two new ones
+asserting the always-full week and always-full hour grid, and the old
+"cross-day drop silently rejected" case was replaced with "cross-day
+drop snaps back to origin day, keeping the new time" (the case it
+replaced was coincidentally passing for the wrong reason — its target
+time matched the origin time, so no request would have fired either
+way — the new version drags to a genuinely different time).
+
+**Bug found during live re-verification** (not present before this
+enhancement): `ProfileModal`'s shared `<ScrollArea className="flex-1">`
+wrapping all three tab panels had no `min-h-0`. A flex child without
+`min-h-0` won't shrink below its content's natural height, so instead of
+scrolling internally the `ScrollArea` grew to fit the now-much-taller
+calendar grid (~1416px) and got clipped by the dialog's own
+`overflow-hidden` (`h-[80vh] max-h-[640px]`) — every hour row past
+~09:30 was in the DOM but permanently unreachable, with no scrollbar.
+Profil/Plany never exposed this because their content already fit
+under 640px. Fixed with one class (`min-h-0` added alongside `flex-1`)
+in `ProfileModal.tsx`; verified live afterward that the grid scrolls
+smoothly through all of 07:00–20:30.
+
+Live verification (real Docker backend + real mouse drags, `computer`
+tool click-and-drag): full Mon–Sun week rendered with correct real
+dates for the two existing plans; full hour grid scrolled correctly
+after the `ScrollArea` fix; a same-day drag (13:00 → 15:00) persisted
+via a real `PATCH .../meals` → 200; a cross-day drag (Sunday 15:00 →
+Monday 17:00) correctly snapped back onto Sunday while adopting 17:00,
+confirmed via a second real `PATCH .../meals` → 200 and the grid
+re-rendering accordingly. Clean console throughout. Full suite 76/76
+after the fix.
+
+### Post-hoc enhancement 2 — date range in the picker + "Ogólny"/"Szczegółowy" toggle
+
+A second follow-up request: (1) the plan picker only ever showed a
+plan's *creation* date, not the span it covers, which read ambiguously
+for anything longer than one day; (2) an "Ogólny" (general/overview)
+view was wanted alongside the existing detailed grid — a less precise
+calendar that fits the modal without scrolling, for a quick glance.
+
+- `planOptionLabel` now reads the plan's full span (`planDateRangeLabel`,
+  reusing the existing `formatWeekRange` date-range formatter against
+  `created_at` → `created_at + (duration_days − 1)`), e.g. "19–21 lipca
+  2026 · Budowa masy mięśniowej · 3 dni" instead of just "19 lipca
+  2026 · …". Falls back to a single date for `duration_days <= 1`
+  (a range would misleadingly repeat the same day).
+- New `viewMode` state (`'szczegolowy' | 'ogolny'`) with a small
+  segmented-button toggle above the grid. "Ogólny" replaces the
+  hour-row grid with one column per visible day holding that day's
+  meals stacked and sorted by time (`sortMealsForOverview`, untimed
+  meals sorted last) — no hour axis, no "Bez pory" row, so total height
+  is bounded by meal count rather than the clock, which is what lets it
+  fit the modal without scrolling. Verified live via
+  `scrollHeight === clientHeight` on the tab panel in this mode.
+- **Deliberately read-only**: meal chips in "Ogólny" aren't draggable
+  (`MealChip` gained a `draggable` prop, default `true`; overview chips
+  pass `draggable={false}`, dropping the grab cursor and the
+  `onPointerDown` handler entirely) since there's no discrete time slot
+  to drop onto without the hour axis. A footer hint points back to
+  "Szczegółowy" for rescheduling — a scope call made without asking,
+  flagged to the user for correction if they actually wanted drag to
+  work here too.
+- 3 new `KalendarzTab.test.tsx` cases (date range in the picker, the
+  overview rendering without an hour grid and round-tripping back to
+  detailed, no PATCH fires from a pointer drag inside the overview).
+  Full suite 79/79, typecheck clean.
+- Live-verified: picker showed "19–21 lipca 2026 · …" for the real
+  3-day plan; "Ogólny" showed all 5 of Sunday's meals (including the
+  17:00 lunch from the prior enhancement's live test) stacked and
+  sorted by time, every other day showing "—"; toggling back to
+  "Szczegółowy" restored the scrollable hour grid. Clean console.
+
+**Follow-up styling tweak**: the two-`Button` toggle was replaced with
+shadcn's `Switch` (`npx shadcn add switch`, backed by
+`@base-ui/react/switch` — same primitive family as the existing
+`Select`/`ScrollArea`) plus a "Szczegółowy"/"Ogólny" label on either
+side, the active side in `text-foreground`, the inactive one muted —
+smaller footprint, reads as one on/off control rather than two buttons.
+Tests updated to target `getByRole('switch')` instead of the two named
+buttons. Live-verified the thumb slides and the bold label follows the
+active side; full suite 79/79, typecheck clean.
+
+**Follow-up layout tweak**: the switch moved into the same row as the
+week nav (`← Poprzedni tydzień · {zakres} · Następny tydzień →`),
+grouped right next to the "Następny tydzień" button in a nested flex
+container, instead of getting its own row above the grid — one nav bar
+total, not two. Live-verified; full suite still 79/79.
+
+**Follow-up spacing tweak**: "Poprzedni tydzień"/"Następny tydzień"
+moved adjacent to each other (both on the left, in their own `gap-1.5`
+group) instead of bracketing the week label — reads as one week-nav
+cluster clearly separated from the switch on the right, rather than the
+"Następny tydzień" button looking grouped with the switch next to it.
+Live-verified; full suite still 79/79.
+
+## Stage 5 — CSV export — DONE
+
+- [x] "Pobierz" button on the right of each `PlanyTab` row, per the
+      mockup (`api/dietPlans.ts` already stubbed `exportDietPlan`/
+      `listDietPlanExports` from Etap 0; added `downloadDietPlanExport`).
+      One click both creates a fresh archived export (`POST .../export`
+      → 201, metadata only — a plan can be exported more than once,
+      each call archives a brand new file rather than overwriting) and
+      immediately downloads it (`GET .../exports/{export_id}/download`
+      → streamed CSV) via a single `exportAndDownloadPlan(planId)`
+      helper — no separate export-history browser, since the mockup
+      only shows one download action per row and the backend already
+      keeps every past export reachable through the API regardless of
+      what the UI exposes.
+- [x] `apiFetch.ts` refactored: the auth/401-refresh dance moved into a
+      private `authedFetch`, shared by `apiFetch` (parses JSON) and a
+      new `apiFetchBlob` (returns the raw `Blob`) — avoids duplicating
+      that retry logic for the one endpoint that streams a file instead
+      of JSON.
+- [x] Per-row pending/error state via `useMutation`'s `variables`
+      (`exportMutation.variables === plan.plan_id`), not a single
+      tab-wide flag, since every row's "Pobierz" button is independently
+      clickable; button reads "Pobieranie…" and disables itself only for
+      the row actually in flight.
+- [x] Real browser download via a throwaway `<a download>` +
+      `URL.createObjectURL`/`revokeObjectURL` (`saveBlob`), filename
+      taken straight from the export metadata's `filename` field — no
+      `Content-Disposition` header parsing needed.
+- [x] The row markup changed from one full-width `<button>` per plan to
+      a flex `<div>` holding the (still-clickable) expand toggle plus a
+      sibling "Pobierz" `<Button>` — nesting a button inside a button
+      isn't valid HTML and would also fire both handlers on one click.
+
+Exit criteria met: 2 new `PlanyTab.test.tsx` cases (clicking "Pobierz"
+fires the real `POST .../export` then `GET .../download`, saves via a
+mocked `URL.createObjectURL`/anchor `click()` with the exact filename
+from the response, and revokes the object URL; a 404 from the export
+call shows a friendly retry message) — `URL.createObjectURL` doesn't
+exist in jsdom by default, so it's stubbed per-test via `vi.stubGlobal`.
+All 5 pre-existing `PlanyTab` tests still pass unchanged (the row
+restructure didn't touch the clickable text). Full suite 81/81,
+typecheck clean.
+
+Live-verified against the real backend (Docker `db`/`mongo`/`mailhog`/
+`ollama`/`sftp`/`backend`, not just mocks): clicking "Pobierz" on the
+real 3-day plan fired a real `POST .../export` → 201 followed by a real
+`GET .../exports/{id}/download` → 200, and the CSV genuinely landed in
+the OS Downloads folder (`{plan_id}-{suffix}.csv`) with the plan's real
+current data — including the 08:00/08:00/17:00 meal times from this
+session's earlier live drag-and-drop tests, confirming the SFTP-backed
+archive round-trips real state, not stale/cached data. Clean console.
+The test download was deleted afterward as a testing artifact.
+
+## Stage 6 — Tests & docs sync — DONE
+
+- [x] Closed real coverage gaps left over from Stages 1-5 (each of which
+      tested its happy/error paths but not every loading state):
+      `ChatCanvas.test.tsx` gained a case for the "Generowanie planu…"
+      pending banner + disabled "Generowanie…" button label while a
+      generation request is in flight (via a manually-resolved
+      `Promise<Response>`, the standard pattern for exercising a pending
+      `useMutation`/`useQuery` state without a real timer); `PlanyTab.test.tsx`
+      gained the equivalent for "Ładowanie planów…" (list) and "Ładowanie
+      szczegółów…" (expanded plan detail); `KalendarzTab.test.tsx` gained
+      "Ładowanie planów…", "Ładowanie kalendarza…" (selected-plan detail),
+      and a previously-untested error branch ("Nie udało się wczytać tego
+      planu." when the selected plan's `GET` fails).
+- [x] `docs/api.md`'s Diet Plan API section cross-checked against the
+      actual backend (`diet_plan_router.py`, its schemas/DTOs, and all 7
+      use cases) via a dedicated research pass. Three real discrepancies
+      found and fixed in the docs (backend behavior was correct; the
+      prose had drifted):
+      1. The blanket "a nutrition profile must already exist for the
+         caller" claim only actually holds for `POST /generate` — the
+         other six endpoints (list, get, reschedule, and all three
+         export endpoints) never check for a profile, only plan/export
+         ownership. Narrowed the claim accordingly.
+      2. Every `created_at`/`updated_at` example showed a `Z`-suffixed,
+         microsecond-free timestamp (`"2026-01-01T10:00:00Z"`), copying
+         the convention used by the shared error envelope's
+         `utc_now_z()`-normalized `timestamp` field — but diet-plan
+         DTOs use plain `datetime.isoformat()`, so the real shape is
+         `"2026-01-01T10:00:00.482391+00:00"` (microseconds, `+00:00`
+         offset, no `Z`). Fixed the three examples and added a note
+         calling out the difference explicitly, so it isn't assumed to
+         match the error envelope again.
+      3. Two undocumented `422 VALIDATION_ERROR` paths added: `GET
+         /diet-plans` when `from`/`to` isn't a valid ISO date (FastAPI's
+         automatic query-param validation, distinct from the already-
+         documented 400 for "from is after to"), and `PATCH .../meals`
+         when `day_number < 1` or `meal_name` is empty (Pydantic field
+         validation, which runs before the domain-level 400 for an
+         unknown day/meal).
+- [x] Roadmap status updated (this section, plus the Etap 4 header).
+
+Exit criteria met: full suite 87/87 (up from 81 — 6 new cases, 0
+regressions), `npm run build` and `npm run lint` both clean (lint's two
+warnings are pre-existing shadcn-generated `only-export-components`
+notices in `button.tsx`/`tabs.tsx`, unrelated to this Etap). No live
+browser re-verification needed for this stage — every underlying
+feature was already thoroughly live-verified against the real backend
+in Stages 1-5; this stage only added test coverage and fixed
+documentation prose, neither of which changes runtime behavior.
 
 ---
 
