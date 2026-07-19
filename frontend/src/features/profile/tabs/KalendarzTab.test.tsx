@@ -180,6 +180,70 @@ describe('KalendarzTab', () => {
     expect(screen.getByText('20:30')).toBeInTheDocument()
   })
 
+  it("shows the plan's full date span in the picker, not just its start date", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(200, threeDayPlan()))
+      }
+      return Promise.resolve(jsonResponse(200, [PLAN_SUMMARY]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+
+    // threeDayPlan starts 2026-01-15 (Thu) and runs 3 days — the picker
+    // should read "15-17 stycznia 2026", not just the creation date.
+    expect(await screen.findByText(/15–17 stycznia 2026/)).toBeInTheDocument()
+  })
+
+  it('shows a compact overview without an hour grid in "Ogólny" view, and back again in "Szczegółowy"', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(200, twoMealPlan()))
+      }
+      return Promise.resolve(jsonResponse(200, [{ ...PLAN_SUMMARY, duration_days: 2 }]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+    await screen.findByTestId('meal-day1-Owsianka')
+    expect(screen.getByText('07:00')).toBeInTheDocument()
+
+    const viewSwitch = screen.getByRole('switch')
+    await user.click(viewSwitch)
+
+    expect(screen.getByTestId('meal-day1-Owsianka')).toBeInTheDocument()
+    expect(screen.getByTestId('meal-day2-Obiad')).toBeInTheDocument()
+    expect(screen.queryByText('07:00')).not.toBeInTheDocument()
+    expect(screen.queryByText('Bez pory')).not.toBeInTheDocument()
+
+    await user.click(viewSwitch)
+    expect(screen.getByText('07:00')).toBeInTheDocument()
+  })
+
+  it('does not allow dragging meals in the "Ogólny" overview', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(200, twoMealPlan()))
+      }
+      return Promise.resolve(jsonResponse(200, [{ ...PLAN_SUMMARY, duration_days: 2 }]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+    await screen.findByTestId('meal-day1-Owsianka')
+    await user.click(screen.getByRole('switch'))
+
+    fireEvent.pointerDown(screen.getByTestId('meal-day1-Owsianka'))
+    fireEvent.pointerEnter(screen.getByTestId('overview-day2'))
+    fireEvent.pointerUp(window)
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')
+    expect(patchCall).toBeUndefined()
+  })
+
   it('shows an error state when the plan list fails to load', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(500, { code: 'INTERNAL_ERROR', message: 'boom' }))
     vi.stubGlobal('fetch', fetchMock)

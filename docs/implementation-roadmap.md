@@ -3252,6 +3252,69 @@ confirmed via a second real `PATCH .../meals` → 200 and the grid
 re-rendering accordingly. Clean console throughout. Full suite 76/76
 after the fix.
 
+### Post-hoc enhancement 2 — date range in the picker + "Ogólny"/"Szczegółowy" toggle
+
+A second follow-up request: (1) the plan picker only ever showed a
+plan's *creation* date, not the span it covers, which read ambiguously
+for anything longer than one day; (2) an "Ogólny" (general/overview)
+view was wanted alongside the existing detailed grid — a less precise
+calendar that fits the modal without scrolling, for a quick glance.
+
+- `planOptionLabel` now reads the plan's full span (`planDateRangeLabel`,
+  reusing the existing `formatWeekRange` date-range formatter against
+  `created_at` → `created_at + (duration_days − 1)`), e.g. "19–21 lipca
+  2026 · Budowa masy mięśniowej · 3 dni" instead of just "19 lipca
+  2026 · …". Falls back to a single date for `duration_days <= 1`
+  (a range would misleadingly repeat the same day).
+- New `viewMode` state (`'szczegolowy' | 'ogolny'`) with a small
+  segmented-button toggle above the grid. "Ogólny" replaces the
+  hour-row grid with one column per visible day holding that day's
+  meals stacked and sorted by time (`sortMealsForOverview`, untimed
+  meals sorted last) — no hour axis, no "Bez pory" row, so total height
+  is bounded by meal count rather than the clock, which is what lets it
+  fit the modal without scrolling. Verified live via
+  `scrollHeight === clientHeight` on the tab panel in this mode.
+- **Deliberately read-only**: meal chips in "Ogólny" aren't draggable
+  (`MealChip` gained a `draggable` prop, default `true`; overview chips
+  pass `draggable={false}`, dropping the grab cursor and the
+  `onPointerDown` handler entirely) since there's no discrete time slot
+  to drop onto without the hour axis. A footer hint points back to
+  "Szczegółowy" for rescheduling — a scope call made without asking,
+  flagged to the user for correction if they actually wanted drag to
+  work here too.
+- 3 new `KalendarzTab.test.tsx` cases (date range in the picker, the
+  overview rendering without an hour grid and round-tripping back to
+  detailed, no PATCH fires from a pointer drag inside the overview).
+  Full suite 79/79, typecheck clean.
+- Live-verified: picker showed "19–21 lipca 2026 · …" for the real
+  3-day plan; "Ogólny" showed all 5 of Sunday's meals (including the
+  17:00 lunch from the prior enhancement's live test) stacked and
+  sorted by time, every other day showing "—"; toggling back to
+  "Szczegółowy" restored the scrollable hour grid. Clean console.
+
+**Follow-up styling tweak**: the two-`Button` toggle was replaced with
+shadcn's `Switch` (`npx shadcn add switch`, backed by
+`@base-ui/react/switch` — same primitive family as the existing
+`Select`/`ScrollArea`) plus a "Szczegółowy"/"Ogólny" label on either
+side, the active side in `text-foreground`, the inactive one muted —
+smaller footprint, reads as one on/off control rather than two buttons.
+Tests updated to target `getByRole('switch')` instead of the two named
+buttons. Live-verified the thumb slides and the bold label follows the
+active side; full suite 79/79, typecheck clean.
+
+**Follow-up layout tweak**: the switch moved into the same row as the
+week nav (`← Poprzedni tydzień · {zakres} · Następny tydzień →`),
+grouped right next to the "Następny tydzień" button in a nested flex
+container, instead of getting its own row above the grid — one nav bar
+total, not two. Live-verified; full suite still 79/79.
+
+**Follow-up spacing tweak**: "Poprzedni tydzień"/"Następny tydzień"
+moved adjacent to each other (both on the left, in their own `gap-1.5`
+group) instead of bracketing the week label — reads as one week-nav
+cluster clearly separated from the switch on the right, rather than the
+"Następny tydzień" button looking grouped with the switch next to it.
+Live-verified; full suite still 79/79.
+
 ## Stage 5 — CSV export
 
 - [ ] `POST .../export`, `GET .../exports`, `GET .../exports/{id}/download`

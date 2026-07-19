@@ -9,6 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { ApiError } from '@/lib/apiFetch'
 import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
 import { cn } from '@/lib/utils'
@@ -47,9 +48,17 @@ function formatDate(iso: string): string {
 }
 
 function planOptionLabel(plan: DietPlanSummary): string {
-  return `${formatDate(plan.created_at)} · ${goalLabel(plan.goal)} · ${plan.duration_days} ${
+  return `${planDateRangeLabel(plan)} · ${goalLabel(plan.goal)} · ${plan.duration_days} ${
     plan.duration_days === 1 ? 'dzień' : 'dni'
   }`
+}
+
+/** Full span the plan covers ("19–21 lipca 2026"), not just its creation
+ * date — a single date reads as ambiguous once a plan covers several days. */
+function planDateRangeLabel(plan: DietPlanSummary): string {
+  const start = startOfDay(new Date(plan.created_at))
+  if (plan.duration_days <= 1) return formatDate(plan.created_at)
+  return formatWeekRange(start, addDays(start, plan.duration_days - 1))
 }
 
 function startOfDay(date: Date): Date {
@@ -128,15 +137,17 @@ interface MealChipProps {
   time: string
   isDragging: boolean
   onDragStart: () => void
+  draggable?: boolean
 }
 
-function MealChip({ meal, dayNumber, time, isDragging, onDragStart }: MealChipProps) {
+function MealChip({ meal, dayNumber, time, isDragging, onDragStart, draggable = true }: MealChipProps) {
   return (
     <div
       data-testid={`meal-day${dayNumber}-${meal.name}`}
-      onPointerDown={onDragStart}
+      onPointerDown={draggable ? onDragStart : undefined}
       className={cn(
-        'cursor-grab touch-none rounded-lg bg-card p-1.5 text-[11px] shadow-sm select-none active:cursor-grabbing',
+        'rounded-lg bg-card p-1.5 text-[11px] shadow-sm select-none',
+        draggable && 'cursor-grab touch-none active:cursor-grabbing',
         isDragging && 'opacity-40',
       )}
     >
@@ -147,6 +158,17 @@ function MealChip({ meal, dayNumber, time, isDragging, onDragStart }: MealChipPr
       </p>
     </div>
   )
+}
+
+/** Time-of-day order for the "Ogólny" overview column — meals without a
+ * time (still "Bez pory") sort after every timed meal, not intermixed. */
+function sortMealsForOverview(meals: Meal[]): Meal[] {
+  return [...meals].sort((a, b) => {
+    if (a.time && b.time) return a.time.localeCompare(b.time)
+    if (a.time) return -1
+    if (b.time) return 1
+    return 0
+  })
 }
 
 export function KalendarzTab() {
@@ -162,6 +184,7 @@ export function KalendarzTab() {
   // flips from uncontrolled (undefined) to controlled once data arrives.
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null)
   const [weekIndex, setWeekIndex] = useState(0)
+  const [viewMode, setViewMode] = useState<'szczegolowy' | 'ogolny'>('szczegolowy')
   const effectivePlanId = selectedPlanId ?? plansQuery.data?.[0]?.plan_id ?? null
 
   const planQuery = useQuery({
@@ -313,30 +336,88 @@ export function KalendarzTab() {
         <p className="text-sm text-destructive">Nie udało się wczytać tego planu.</p>
       ) : plan ? (
         <>
-          <div className="flex items-center justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setWeekIndex((w) => Math.max(0, w - 1))}
-              disabled={weekIndex === 0}
-            >
-              ← Poprzedni tydzień
-            </Button>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setWeekIndex((w) => Math.max(0, w - 1))}
+                disabled={weekIndex === 0}
+              >
+                ← Poprzedni tydzień
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setWeekIndex((w) => Math.min(totalWeeks - 1, w + 1))}
+                disabled={weekIndex >= totalWeeks - 1}
+              >
+                Następny tydzień →
+              </Button>
+            </div>
             <span className="text-[12.5px] font-bold text-muted-foreground">
               {formatWeekRange(visibleDates[0], visibleDates[6])} · {dietTypeLabel(plan.diet_type)}
             </span>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => setWeekIndex((w) => Math.min(totalWeeks - 1, w + 1))}
-              disabled={weekIndex >= totalWeeks - 1}
-            >
-              Następny tydzień →
-            </Button>
+            <label className="flex items-center gap-2 text-[11px] font-bold">
+              <span className={cn(viewMode === 'szczegolowy' ? 'text-foreground' : 'text-muted-foreground')}>
+                Szczegółowy
+              </span>
+              <Switch
+                size="sm"
+                checked={viewMode === 'ogolny'}
+                onCheckedChange={(checked) => setViewMode(checked ? 'ogolny' : 'szczegolowy')}
+              />
+              <span className={cn(viewMode === 'ogolny' ? 'text-foreground' : 'text-muted-foreground')}>Ogólny</span>
+            </label>
           </div>
 
+          {viewMode === 'ogolny' ? (
+            <div className="grid overflow-hidden rounded-xl border border-border" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}>
+              {visibleDates.map((date, i) => (
+                <div
+                  key={i}
+                  className={cn(
+                    'border-b border-border bg-muted p-2 text-center text-[12px] font-bold',
+                    i > 0 && 'border-l',
+                  )}
+                >
+                  <div>{DAY_LABELS[i]}</div>
+                  <div className="text-[10px] font-normal text-muted-foreground">
+                    {date.getDate()}.{String(date.getMonth() + 1).padStart(2, '0')}
+                  </div>
+                </div>
+              ))}
+              {visibleDates.map((date, i) => {
+                const day = dayByDateKey.get(dateKey(date))
+                const mealsHere = day ? sortMealsForOverview(day.meals) : []
+                return (
+                  <div
+                    key={i}
+                    data-testid={day ? `overview-day${day.day_number}` : `overview-empty${i}`}
+                    className={cn('flex flex-col gap-1 p-1.5', i > 0 && 'border-l border-border')}
+                  >
+                    {mealsHere.length === 0 ? (
+                      <span className="text-[10px] text-muted-foreground">—</span>
+                    ) : (
+                      mealsHere.map((meal) => (
+                        <MealChip
+                          key={meal.name}
+                          meal={meal}
+                          dayNumber={day!.day_number}
+                          time={meal.time ?? NO_TIME}
+                          isDragging={false}
+                          onDragStart={() => {}}
+                          draggable={false}
+                        />
+                      ))
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
           <div className="overflow-x-auto rounded-xl border border-border">
             <div className="grid min-w-[700px]" style={{ gridTemplateColumns: '88px repeat(7, 1fr)' }}>
               <div className="border-b border-border bg-muted p-2" />
@@ -426,6 +507,7 @@ export function KalendarzTab() {
               ))}
             </div>
           </div>
+          )}
 
           {rescheduleMutation.isError && (
             <p className="text-[12.5px] font-bold text-destructive">
@@ -434,7 +516,9 @@ export function KalendarzTab() {
           )}
           {confirmation && <p className="text-[12.5px] font-bold text-secondary-foreground">{confirmation} ✓</p>}
           <p className="text-[11px] text-muted-foreground">
-            Przeciągnij posiłek, by zmienić godzinę — dnia nie można zmienić przez przeciąganie.
+            {viewMode === 'ogolny'
+              ? 'To podgląd bez godzin — przełącz na widok szczegółowy, żeby przeciągnięciem zmienić godzinę posiłku.'
+              : 'Przeciągnij posiłek, by zmienić godzinę — dnia nie można zmienić przez przeciąganie.'}
           </p>
 
           {plan.requirements.length > 0 && (
