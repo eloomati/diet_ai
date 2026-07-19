@@ -68,11 +68,19 @@ Phase 9  - Meal Scheduling &         DONE (Stages 1-6/6) — pre-frontend
                                      and date-range filtering of plan
                                      history. See the 6-stage breakdown
                                      below.
-Phase 10  - Frontend                 NOT STARTED — full Etap 0-6 breakdown
-                                      below (7 etaps, each split into
-                                      stages), designed against a
-                                      user-approved interactive mockup
-                                      before any code was written.
+Phase 10  - Frontend                 IN PROGRESS (Etap 0-5/6 DONE) — real
+                                      React app (not the mockup) covering
+                                      auth, nutrition profile, chat,
+                                      diet-plan generation/calendar/
+                                      export, and a cross-cutting
+                                      Etap 5 polish pass (toasts,
+                                      responsive rails, a design-system
+                                      consistency pass), all verified
+                                      end-to-end against the real Docker
+                                      stack. Etap 6 (tests + docs sync
+                                      for the frontend as a whole) is the
+                                      one remaining etap — see the full
+                                      stage-by-stage breakdown below.
 Phase 11+ - Testing/Future           NOT STARTED
 ```
 
@@ -81,9 +89,11 @@ recovery), Nutrition Profile, Conversation + AI chat (including lifecycle
 management), Diet Plan generation, and Meal Scheduling & Calendar Export
 all work end-to-end against the real Docker stack, with docs
 (`architecture.md`, `domain-model.md`, `api.md`, `docs/https/*.http`) and
-`README.md` synced to match. Phase 10 (Frontend) is next — see that
-section below for the full stage-by-stage plan (Etap 0 "Fundament" is
-about to start).
+`README.md` synced to match. **Phase 10 (Frontend) is in progress** —
+Etap 0-5 are done (see the full stage-by-stage log below); Etap 6 closes
+it out the same way every backend phase closed, with component-test
+coverage review, a manual smoke walkthrough, and the final `README.md`/
+`architecture.md` status flip.
 
 ---
 
@@ -3421,29 +3431,227 @@ documentation prose, neither of which changes runtime behavior.
 
 ---
 
-# Etap 5 — Polish/UX
+# Etap 5 — Polish/UX — DONE (Stages 1-4/4)
 
 Goal: cross-cutting quality pass once every real screen exists.
 
-## Stage 1 — Errors, loading, empty states
+## Stage 1 — Errors, loading, empty states — DONE
 
-- [ ] Global toast/banner for API error codes (`docs/api.md`'s common
-      error format), loading skeletons, empty states for history/plans/
-      calendar.
+Grounded in an audit of the current state (every error/loading/empty
+path across auth, chat, profile, plans, and calendar was ad hoc inline
+text — no toast system, no `Skeleton` component, and two mutations with
+no error UI at all).
 
-## Stage 2 — Responsiveness
+- [x] Added shadcn's `sonner`-backed toast system (`npx shadcn add
+      sonner`), stripped of its default `next-themes` dependency (the
+      app has no dark-mode toggle yet — light tokens only, per Etap 0's
+      decision) — hardcoded `theme="light"` instead and uninstalled
+      `next-themes`. Mounted a single `<Toaster />` in `App.tsx`. A
+      small `src/lib/toast.ts` exposes `notifyError(message: string)` —
+      simpler than the originally-sketched `notifyError(error,
+      fallback)` keyed off `ApiError.code`, since both real call sites
+      (below) only ever have one documented error case each (a 404 on
+      an already-gone conversation), so per-code branching would have
+      been speculative.
+- [x] Fixed the two mutations the audit found completely silent on
+      failure — `ChatCanvas`'s archive and delete conversation
+      mutations had no `onError` handling at all. Both now call
+      `notifyError` with a dedicated message rather than inventing new
+      inline error UI (a toast fits a background action better than a
+      persistent inline message would).
+- [x] Existing per-feature inline errors (login/register, password
+      reset, profile save, message send, plan generate, reschedule,
+      export) left as-is — already contextual, already tested, already
+      correct; this stage closed real gaps, it didn't replace working
+      UI with toasts for its own sake.
+- [x] Added a `Skeleton` component (`npx shadcn add skeleton`) in place
+      of plain "Ładowanie…" text: history (`LeftRail`), plans
+      (`PlanyTab`'s list + expanded detail), calendar (`KalendarzTab`'s
+      plan list + grid), and `ChatCanvas`'s conversation-loading state
+      (message-bubble-shaped placeholders). Each wrapper got
+      `role="status"` (a real a11y improvement, not just a test hook)
+      so both assistive tech and tests can target the loading region by
+      its accessible name instead of matching now-removed plain text.
+- [x] Normalized the three empty-state messages (history/plans/calendar)
+      to one consistent visual treatment via a new shared
+      `src/components/EmptyState.tsx` (centered, a small lucide icon —
+      `MessageSquare`/`ClipboardX`/`CalendarOff` respectively —
+      consistent muted-foreground sizing), without changing any of
+      their existing distinct wording.
 
-- [ ] Mobile/desktop layout (the mockup's rails become overlays on
-      narrow viewports — same breakpoint approach already sketched
-      there).
+Exit criteria met: 6 new tests (2 toast-wiring cases in
+`ChatCanvas.test.tsx` mocking `@/lib/toast` and asserting the exact
+message per mutation; the 4 pre-existing loading-state tests from Etap
+4 Stage 6 updated from `findByText` to `findByRole('status', { name })`
+now that the text moved from visible content to an accessible name).
+Full suite 89/89, `npm run build`/`npm run lint`/typecheck all clean
+(lint's 2 warnings are the same pre-existing shadcn-generated notices
+from before this stage).
 
-## Stage 3 — Design system pass
+Live-verified against the real backend: the empty-state icon confirmed
+visually via `PlanyTab`'s date filter (a range with zero matching
+plans). The toast was verified with a genuine race, not just a mock —
+opened the same archived conversation in two tabs (the second one
+auto-logged in via the shared refresh token, confirming session
+bootstrap works across tabs), deleted it for real from tab 2
+(overriding `window.confirm` to auto-accept rather than fighting a
+blocking native dialog), then clicked "Usuń rozmowę" in tab 1 on the
+now-already-deleted conversation — the real `DELETE` genuinely 404'd
+and the exact expected toast ("Nie udało się usunąć rozmowy. Spróbuj
+ponownie.") rendered in the bottom-right corner. Clean console
+throughout.
 
-- [ ] Once real screens exist (more content/edge cases than the mockup's
-      demo data), a consistency pass on spacing/typography/component
-      reuse.
+## Stage 2 — Responsiveness — DONE
 
-## Stage 4 — Docs sync
+The original mockup Artifact isn't reachable from this repo any more to
+copy exact values from, so this stage designed its own breakpoint
+behavior rather than reverse-engineering the old one — same intent
+("rails become overlays on narrow viewports") the roadmap line already
+committed to.
+
+- [x] New `useIsMobile()` hook (`window.matchMedia('(max-width:
+      767px)')`, matching Tailwind's default `md` breakpoint at 768px) —
+      used only to pick each rail's *initial* collapsed state in
+      `AppShell` (`useState(() => isMobile)`). Live viewport resizes
+      after mount don't force-toggle an already-opened/closed rail —
+      respects whatever the user last chose, same principle as any
+      other manually-controlled UI state. jsdom has no `matchMedia` at
+      all, so `src/test/setup.ts` gained a default "desktop" stub
+      (`matches: false`) so every pre-existing test is unaffected;
+      tests that need mobile behavior override it per-test via
+      `vi.stubGlobal('matchMedia', ...)`.
+- [x] `LeftRail`/`RightRail` gained `fixed inset-y-0 ... z-40 md:static
+      md:z-auto`-style classes so they render as a slide-in overlay
+      below `md` and as today's static flex column at `md` and above —
+      pure Tailwind responsive classes, no JS needed for the
+      positioning itself.
+- [x] A backdrop (`fixed inset-0 bg-black/40 md:hidden`,
+      `data-testid="rail-backdrop"`, click-to-close) renders alongside
+      an open rail — `md:hidden` alone keeps it invisible on desktop
+      regardless of collapse state, no JS viewport check needed for the
+      backdrop either.
+- [x] Spot-checked `ChatCanvas`, `ProfileModal`, and `KalendarzTab` at a
+      390px viewport. `ChatCanvas`/`ProfileModal` already held up fine
+      (fluid widths, `overflow-x-auto` grid). **Found a real break**:
+      `KalendarzTab`'s week-nav row (prev/next buttons + week label +
+      the Szczegółowy/Ogólny switch, all in one `justify-between` row)
+      had no wrap handling — at 390px the switch's "Ogólny" label was
+      clipped off-screen and genuinely unreachable, not just cramped.
+      Fixed by stacking the row vertically below `sm` (640px) and
+      restoring the single-row layout at `sm` and above
+      (`flex-col items-start gap-2 sm:flex-row sm:items-center
+      sm:justify-between sm:gap-3`) — each of the three groups gets its
+      own line on narrow viewports instead of three groups fighting for
+      one line.
+- [x] Tests: first coverage at all for the rail collapse/expand buttons
+      (previously untested regardless of viewport) — new "AppShell
+      responsiveness" describe block in `AppShell.test.tsx`: desktop
+      defaults both rails open with independent collapse/re-expand,
+      mobile defaults both collapsed with no backdrop rendered, and
+      opening a rail on mobile renders the backdrop which closes it on
+      click.
+
+Exit criteria met: 3 new `AppShell.test.tsx` cases, full suite 92/92,
+`npm run build`/`npm run lint`/typecheck all clean.
+
+Live-verified against the real backend at a 390×844 viewport (an
+iPhone-sized window): hamburger/sparkles icons open the left/right
+rails as slide-in overlays with a dark backdrop, backdrop click closes
+them, `ProfileModal` renders correctly with fields stacking, and — after
+the fix above — every part of `KalendarzTab`'s nav row (including the
+"Ogólny" switch) is visible and reachable, with the day grid itself
+scrolling horizontally inside its own container rather than the page
+overflowing (`document.documentElement.scrollWidth <=
+document.documentElement.clientWidth` confirmed `true`). Resized back to
+1400px and confirmed the desktop layout — both rails as static columns,
+single-row nav — is unaffected. Clean console throughout.
+
+## Stage 3 — Design system pass — DONE
+
+Grounded in a dedicated audit (no formal type/spacing scale was ever
+defined beyond Tailwind's defaults + the `--radius-*` tokens, so every
+`text-[Npx]` value below is an ad-hoc invention, not a deviation from a
+documented scale). Scoped to the clearest, highest-value drift rather
+than forcing every minor value in the app into one number — most
+spacing/gap variation across genuinely different content densities is
+normal, not inconsistency, and was left alone.
+
+- [x] **Inline error text**: 5 different size/weight combos existed for
+      the same "inline action/form error" role across 8+ files
+      (`text-[12.5px] font-bold`, `text-[12px] font-bold`, `text-[11.5px]
+      font-bold`, plain `text-xs`, plus the page-level `text-sm` variant
+      used for full content-replacing errors, which was *already*
+      consistent and stayed untouched). New `src/components/FieldError.tsx`
+      standardizes on `text-[12.5px] font-bold text-destructive` (the
+      most common existing variant) and replaced every inline-error `<p>`
+      across `AuthPopup`, `ForgotPasswordFlow`, `ChatCanvas` (send +
+      generate errors), `KalendarzTab` (reschedule error), `PlanyTab`
+      (export error), `NutritionProfileForm`, `ProfilTab`,
+      `WeeklyObligationsEditor`, and `LeftRail` (create-conversation
+      error) — 10 call sites total.
+- [x] **Badge/pill component**: 3 duplicated pill patterns (category
+      tags, status/archived pills, the "wkrótce" badge) with drifting
+      padding/size. shadcn's own `badge.tsx` was compatible with this
+      project's Base UI stack (`@base-ui/react/merge-props` +
+      `use-render`, same primitive family as `Select`/`ScrollArea`/
+      `Switch`) — added via `npx shadcn add badge` and used (with
+      per-site `className` overrides where a pill's colors don't match
+      any of Badge's built-in variants, e.g. the accent-colored
+      "Wygenerowany plan" badge) in `ChatCanvas` (category tags +
+      "Zarchiwizowana"), `RightRail` ("wkrótce"), `DietPlanCard`
+      ("Wygenerowany plan"), and `LeftRail` (conversation row tags, "+N",
+      "Archiwum"). Existing distinct sizes were preserved per call site
+      — this is about one shared structural component, not forcing
+      visually-identical pills where content density genuinely differs.
+- [x] **Icon-button reuse**: `ChatCanvas`'s archive/delete icon buttons
+      hand-rolled what `@/components/ui/button`'s `variant="ghost"
+      size="icon-xs"` already provides (confirmed `ghost`'s hover style
+      matches exactly) — switched to `<Button>`, with the delete
+      button's hover-only red tint preserved via an extra `className`
+      override rather than the always-red `destructive` variant (which
+      would have changed its resting-state look).
+- [x] **One same-file drift**: `KalendarzTab`'s own hint text used both
+      `text-[11px]` and `text-[11.5px]` for the same caption role a few
+      lines apart — normalized to `text-[11px]`.
+- [x] Everything else the audit surfaced (card radius `lg`/`xl`/`2xl`,
+      row padding `p-2.5`/`p-3`, stack `gap-2`/`gap-2.5`/`gap-3`) was
+      left alone — real variation across genuinely different content
+      densities, not a defect, and forcing it to one number without a
+      documented scale to justify the choice would have been guessing.
+
+Exit criteria met: no new tests needed (pure markup/class swaps with
+identical message strings and rendered text — every existing test still
+passes unchanged, confirming the refactor didn't alter behavior). Full
+suite 92/92, `npm run build`/`npm run lint`/typecheck all clean (lint's
+3 warnings are the same pre-existing shadcn-generated
+`only-export-components` notices, now including `badge.tsx` alongside
+`button.tsx`/`tabs.tsx` — an inherent shadcn CLI pattern, not something
+to fix).
+
+Live-verified against the real backend: category badges, the
+archived pill, the "wkrótce" badge, conversation-row tags, and the
+"Wygenerowany plan" badge all render identically to before (same
+colors/sizes, now via `Badge`). The archive icon button shows the
+`ghost` hover background; the delete icon button still turns
+red-tinted only on hover, exactly matching its pre-refactor behavior.
+Clean console throughout.
+
+## Stage 4 — Docs sync — DONE
+
+Etap 5 was pure frontend polish (toasts, responsive layout, a design-
+system consistency pass) — no new backend API surface, so there's no
+`docs/api.md` contract to cross-check the way Etap 4 Stage 6 did.
+`README.md` and `docs/architecture.md`'s frontend mentions stay
+untouched here — Etap 6 Stage 3 already explicitly owns that final
+flip once the whole of Phase 10 (Etap 0-6) is done, and doing it now
+would just be redone later against a still-moving target.
+
+- [x] Updated this roadmap's own top-level status table/summary
+      paragraph (previously still said Phase 10 was "NOT STARTED", stale
+      since Etap 0 shipped) to reflect Etap 0-5 completion.
+- [x] One final full-suite gate before moving on to Etap 6: full suite
+      92/92, `npm run build`/`npm run lint`/typecheck all clean.
+- [x] Marked Etap 5 done (this section + the Etap 5 header).
 
 ---
 

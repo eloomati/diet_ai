@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { CalendarOff } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -9,7 +10,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { EmptyState } from '@/components/EmptyState'
+import { FieldError } from '@/components/FieldError'
 import { ApiError } from '@/lib/apiFetch'
 import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
 import { cn } from '@/lib/utils'
@@ -273,16 +277,22 @@ export function KalendarzTab() {
   }
 
   if (plansQuery.isPending) {
-    return <p className="text-sm text-muted-foreground">Ładowanie planów…</p>
+    return (
+      <div className="flex flex-col gap-2" role="status" aria-label="Ładowanie planów…">
+        <Skeleton className="h-9 w-full rounded-lg" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
+    )
   }
   if (plansQuery.isError) {
     return <p className="text-sm text-destructive">Nie udało się wczytać planów. Spróbuj ponownie.</p>
   }
   if (plansQuery.data.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Brak wygenerowanych planów — wygeneruj plan w czacie, żeby zobaczyć go w kalendarzu.
-      </p>
+      <EmptyState
+        icon={CalendarOff}
+        message="Brak wygenerowanych planów — wygeneruj plan w czacie, żeby zobaczyć go w kalendarzu."
+      />
     )
   }
 
@@ -331,12 +341,15 @@ export function KalendarzTab() {
       </Select>
 
       {planQuery.isPending ? (
-        <p className="text-sm text-muted-foreground">Ładowanie kalendarza…</p>
+        <div className="flex flex-col gap-3" role="status" aria-label="Ładowanie kalendarza…">
+          <Skeleton className="h-9 w-full rounded-lg" />
+          <Skeleton className="h-72 w-full rounded-xl" />
+        </div>
       ) : planQuery.isError ? (
         <p className="text-sm text-destructive">Nie udało się wczytać tego planu.</p>
       ) : plan ? (
         <>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <div className="flex items-center gap-1.5">
               <Button
                 type="button"
@@ -509,11 +522,7 @@ export function KalendarzTab() {
           </div>
           )}
 
-          {rescheduleMutation.isError && (
-            <p className="text-[12.5px] font-bold text-destructive">
-              {rescheduleErrorMessage(rescheduleMutation.error)}
-            </p>
-          )}
+          {rescheduleMutation.isError && <FieldError message={rescheduleErrorMessage(rescheduleMutation.error)} />}
           {confirmation && <p className="text-[12.5px] font-bold text-secondary-foreground">{confirmation} ✓</p>}
           <p className="text-[11px] text-muted-foreground">
             {viewMode === 'ogolny'
@@ -522,7 +531,7 @@ export function KalendarzTab() {
           </p>
 
           {plan.requirements.length > 0 && (
-            <p className="text-[11.5px] text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               Uwzględnione wskazówki: {plan.requirements.join(', ')}
             </p>
           )}

@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 
 import { Captcha } from '@/components/Captcha'
+import { FieldError } from '@/components/FieldError'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
@@ -144,7 +145,7 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
 
               {tab === 'register' && <Captcha onToken={setCaptchaToken} />}
 
-              {error && <p className="text-[12.5px] font-bold text-destructive">{error}</p>}
+              {error && <FieldError message={error} />}
 
               <Button
                 type="submit"

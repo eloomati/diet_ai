@@ -1,9 +1,13 @@
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, Info } from 'lucide-react'
+import { ChevronLeft, Info, MessageSquare } from 'lucide-react'
 import { useState } from 'react'
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/EmptyState'
+import { FieldError } from '@/components/FieldError'
 import { useAuth } from '@/lib/auth'
 import { categoryEmoji, categoryLabel } from '@/lib/categoryOptions'
 import { listConversations } from '@/api/conversations'
@@ -22,22 +26,22 @@ function ConversationRowTags({ conversation }: { conversation: ConversationSumma
   return (
     <span className="mt-1 flex flex-wrap items-center gap-1">
       {shown.map((category) => (
-        <span
+        <Badge
           key={category}
-          className="inline-flex items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground"
+          className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground"
         >
           {categoryEmoji(category)} {categoryLabel(category)}
-        </span>
+        </Badge>
       ))}
       {extra > 0 && (
-        <span className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+        <Badge className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
           +{extra}
-        </span>
+        </Badge>
       )}
       {conversation.status === 'ARCHIVED' && (
-        <span className="inline-flex items-center rounded-full border border-border px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+        <Badge variant="outline" className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
           Archiwum
-        </span>
+        </Badge>
       )}
     </span>
   )
@@ -71,7 +75,12 @@ export function LeftRail({
   })
 
   return (
-    <aside className="flex h-full w-62 flex-col border-r border-border bg-card">
+    <>
+      {/* Below `md` the rail is an overlay, not a column — the backdrop
+          closes it on click. `md:hidden` alone keeps it invisible on
+          desktop, no viewport check needed here. */}
+      <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={onCollapse} aria-hidden="true" data-testid="rail-backdrop" />
+      <aside className="fixed inset-y-0 left-0 z-40 flex h-full w-62 flex-col border-r border-border bg-card md:static md:z-auto">
       <div className="flex items-center justify-between p-3.5 pb-2.5">
         <button onClick={onProfileClick} aria-label="Profil">
           <Avatar className="size-9 border border-border">
@@ -88,22 +97,24 @@ export function LeftRail({
       <div className="px-3.5 pb-3">
         <CategoryMenu onStartChat={onStartChat} />
         {createError && (
-          <p className="mt-1.5 text-[11.5px] font-bold text-destructive">
-            Nie udało się utworzyć rozmowy. Spróbuj ponownie.
-          </p>
+          <FieldError message="Nie udało się utworzyć rozmowy. Spróbuj ponownie." className="mt-1.5" />
         )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-2.5">
         {isAuthenticated ? (
           conversationsQuery.isPending ? (
-            <p className="px-2.5 py-4 text-xs text-muted-foreground">Ładowanie…</p>
+            <div className="flex flex-col gap-1.5 px-2.5 py-1.5" role="status" aria-label="Ładowanie historii rozmów…">
+              <Skeleton className="h-11 w-full rounded-lg" />
+              <Skeleton className="h-11 w-full rounded-lg" />
+              <Skeleton className="h-11 w-full rounded-lg" />
+            </div>
           ) : conversationsQuery.isError ? (
             <p className="px-2.5 py-4 text-xs text-destructive">
               Nie udało się wczytać historii rozmów.
             </p>
           ) : conversationsQuery.data.length === 0 ? (
-            <p className="px-2.5 py-4 text-xs text-muted-foreground">Brak jeszcze żadnych rozmów.</p>
+            <EmptyState icon={MessageSquare} message="Brak jeszcze żadnych rozmów." />
           ) : (
             <ul className="flex flex-col gap-0.5 py-1.5">
               {[...conversationsQuery.data]
@@ -155,6 +166,7 @@ export function LeftRail({
       </div>
 
       <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
-    </aside>
+      </aside>
+    </>
   )
 }

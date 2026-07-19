@@ -71,7 +71,7 @@ describe('PlanyTab', () => {
 
     renderPlanyTab()
 
-    expect(await screen.findByText('Ładowanie planów…')).toBeInTheDocument()
+    expect(await screen.findByRole('status', { name: 'Ładowanie planów…' })).toBeInTheDocument()
 
     resolveList(jsonResponse(200, [PLAN_SUMMARY]))
 
@@ -152,7 +152,7 @@ describe('PlanyTab', () => {
     renderPlanyTab()
     await user.click(await screen.findByText('Budowa masy mięśniowej · Wegetariańska · 3 dni'))
 
-    expect(await screen.findByText('Ładowanie szczegółów…')).toBeInTheDocument()
+    expect(await screen.findByRole('status', { name: 'Ładowanie szczegółów…' })).toBeInTheDocument()
 
     resolveDetail(jsonResponse(200, PLAN_DETAIL))
 

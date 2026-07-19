@@ -83,7 +83,7 @@ describe('KalendarzTab', () => {
 
     renderKalendarzTab()
 
-    expect(await screen.findByText('Ładowanie planów…')).toBeInTheDocument()
+    expect(await screen.findByRole('status', { name: 'Ładowanie planów…' })).toBeInTheDocument()
 
     resolveList(jsonResponse(200, []))
 
@@ -106,7 +106,7 @@ describe('KalendarzTab', () => {
 
     renderKalendarzTab()
 
-    expect(await screen.findByText('Ładowanie kalendarza…')).toBeInTheDocument()
+    expect(await screen.findByRole('status', { name: 'Ładowanie kalendarza…' })).toBeInTheDocument()
 
     resolveDetail(jsonResponse(200, threeDayPlan()))
 

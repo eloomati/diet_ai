@@ -238,3 +238,101 @@ describe('AppShell conversations (Etap 3 Stage 3 — archive & delete)', () => {
     expect(deleteCall).toBeDefined()
   })
 })
+
+describe('AppShell responsiveness (Etap 5 Stage 2)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearTokens()
+  })
+
+  function stubMatchMedia(matches: boolean) {
+    vi.stubGlobal(
+      'matchMedia',
+      vi.fn().mockImplementation((query: string) => ({
+        matches,
+        media: query,
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      })),
+    )
+  }
+
+  function stubLoggedInFetch() {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/me')) {
+        return Promise.resolve(
+          jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true }),
+        )
+      }
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      if (url.endsWith('/conversations')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+  }
+
+  it('shows both rails open by default on desktop, and each collapses/re-expands independently', async () => {
+    const user = userEvent.setup()
+    stubMatchMedia(false)
+    stubLoggedInFetch()
+
+    renderApp()
+    await loginViaPopup(user)
+
+    expect(await screen.findByLabelText('Profil')).toBeInTheDocument()
+    expect(screen.getByText('Co nowego')).toBeInTheDocument()
+
+    const [collapseLeft] = screen.getAllByRole('button', { name: 'Zwiń panel' })
+    await user.click(collapseLeft)
+    expect(screen.queryByLabelText('Profil')).not.toBeInTheDocument()
+    expect(screen.getByText('Co nowego')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Rozwiń panel' }))
+    expect(await screen.findByLabelText('Profil')).toBeInTheDocument()
+
+    const [, collapseRight] = screen.getAllByRole('button', { name: 'Zwiń panel' })
+    await user.click(collapseRight)
+    expect(screen.queryByText('Co nowego')).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Profil')).toBeInTheDocument()
+  })
+
+  it('collapses both rails by default on mobile, with no backdrop rendered', async () => {
+    const user = userEvent.setup()
+    stubMatchMedia(true)
+    stubLoggedInFetch()
+
+    renderApp()
+    await loginViaPopup(user)
+
+    expect(screen.queryByLabelText('Profil')).not.toBeInTheDocument()
+    expect(screen.queryByText('Co nowego')).not.toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Rozwiń panel' })).toHaveLength(2)
+    expect(screen.queryByTestId('rail-backdrop')).not.toBeInTheDocument()
+  })
+
+  it('opens the left rail as an overlay on mobile, and the backdrop closes it', async () => {
+    const user = userEvent.setup()
+    stubMatchMedia(true)
+    stubLoggedInFetch()
+
+    renderApp()
+    await loginViaPopup(user)
+
+    const [expandLeft] = screen.getAllByRole('button', { name: 'Rozwiń panel' })
+    await user.click(expandLeft)
+
+    expect(await screen.findByLabelText('Profil')).toBeInTheDocument()
+    expect(screen.getByTestId('rail-backdrop')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('rail-backdrop'))
+    expect(screen.queryByLabelText('Profil')).not.toBeInTheDocument()
+  })
+})

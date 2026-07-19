@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { AuthPopup } from '@/features/auth/AuthPopup'
 import { ChatCanvas } from '@/features/chat/ChatCanvas'
 import { ProfileModal } from '@/features/profile/ProfileModal'
+import { useIsMobile } from '@/hooks/useIsMobile'
 import { CATEGORY_OPTIONS, formatCategories } from '@/lib/categoryOptions'
 import { useAuth } from '@/lib/auth'
 import { createConversation } from '@/api/conversations'
@@ -18,9 +19,14 @@ export function AppShell() {
   const { conversationId } = useParams<{ conversationId?: string }>()
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const isMobile = useIsMobile()
 
-  const [leftCollapsed, setLeftCollapsed] = useState(false)
-  const [rightCollapsed, setRightCollapsed] = useState(false)
+  // Rails default open on desktop (today's behavior) and collapsed on
+  // mobile, where they become overlays rather than a permanent column —
+  // only the *initial* value depends on viewport; toggling afterward is
+  // unaffected by resizes.
+  const [leftCollapsed, setLeftCollapsed] = useState(() => isMobile)
+  const [rightCollapsed, setRightCollapsed] = useState(() => isMobile)
   const [authPopupOpen, setAuthPopupOpen] = useState(false)
   const [profileModalOpen, setProfileModalOpen] = useState(false)
 
