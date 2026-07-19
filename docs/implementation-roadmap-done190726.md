@@ -1,4 +1,4 @@
-# Diet AI - Implementation Roadmap
+      # Diet AI - Implementation Roadmap
 
 ## Purpose
 
@@ -68,32 +68,47 @@ Phase 9  - Meal Scheduling &         DONE (Stages 1-6/6) — pre-frontend
                                      and date-range filtering of plan
                                      history. See the 6-stage breakdown
                                      below.
-Phase 10  - Frontend                 IN PROGRESS (Etap 0-5/6 DONE) — real
-                                      React app (not the mockup) covering
-                                      auth, nutrition profile, chat,
-                                      diet-plan generation/calendar/
-                                      export, and a cross-cutting
-                                      Etap 5 polish pass (toasts,
-                                      responsive rails, a design-system
-                                      consistency pass), all verified
-                                      end-to-end against the real Docker
-                                      stack. Etap 6 (tests + docs sync
-                                      for the frontend as a whole) is the
-                                      one remaining etap — see the full
-                                      stage-by-stage breakdown below.
-Phase 11+ - Testing/Future           NOT STARTED
+Phase 10  - Frontend                 DONE (Etap 0-6/6) — real React app
+                                      (not the mockup) covering auth,
+                                      nutrition profile, chat, diet-plan
+                                      generation/calendar/export, a
+                                      cross-cutting Etap 5 polish pass
+                                      (toasts, responsive rails, a
+                                      design-system consistency pass),
+                                      and Etap 6's close-out (component-
+                                      test coverage audit, a manual
+                                      smoke walkthrough run against a
+                                      brand-new account, and this
+                                      README/architecture status flip) —
+                                      all verified end-to-end against
+                                      the real Docker stack.
+Phase 11  - Testing                  DONE — satisfied incrementally,
+                                      not as a separate phase: every
+                                      phase from 3 through 10 wrote its
+                                      own unit + integration tests as it
+                                      went (353 backend tests passing
+                                      against real ephemeral Postgres/
+                                      Mongo, plus the frontend's own
+                                      suite). End-to-end coverage is
+                                      manual, not one automated test —
+                                      `docs/https/*.http` +
+                                      `docs/frontend-smoke-walkthrough.md`
+                                      — matching how this project
+                                      verifies full flows everywhere
+                                      else.
+Phase 12+ - Future Improvements      NOT STARTED
 ```
 
-**Phases 3 through 9 are complete** — Identity (including account
+**Phases 3 through 11 are complete** — Identity (including account
 recovery), Nutrition Profile, Conversation + AI chat (including lifecycle
-management), Diet Plan generation, and Meal Scheduling & Calendar Export
-all work end-to-end against the real Docker stack, with docs
-(`architecture.md`, `domain-model.md`, `api.md`, `docs/https/*.http`) and
-`README.md` synced to match. **Phase 10 (Frontend) is in progress** —
-Etap 0-5 are done (see the full stage-by-stage log below); Etap 6 closes
-it out the same way every backend phase closed, with component-test
-coverage review, a manual smoke walkthrough, and the final `README.md`/
-`architecture.md` status flip.
+management), Diet Plan generation, Meal Scheduling & Calendar Export, the
+Frontend, and Testing (satisfied incrementally by every phase along the
+way, verified retroactively rather than built as its own phase) all work
+end-to-end against the real Docker stack, with docs (`architecture.md`,
+`domain-model.md`, `api.md`, `docs/https/*.http`,
+`docs/frontend-smoke-walkthrough.md`) and `README.md` synced to match.
+Phase 12+ (speculative future improvements — background processing,
+caching, etc.) is next, whenever that's picked up.
 
 ---
 
@@ -2297,7 +2312,7 @@ each endpoint's behavior).
 
 ---
 
-# Phase 10 - Frontend
+# Phase 10 - Frontend — DONE (Etap 0-6/6)
 
 Goal:
 
@@ -3655,58 +3670,172 @@ would just be redone later against a still-moving target.
 
 ---
 
-# Etap 6 — Testy i dokumentacja
+# Etap 6 — Testy i dokumentacja — DONE (Stages 1-3/3)
 
 Goal: close out Phase 10 the same way every backend phase closed —
 tests + docs synced to what actually shipped.
 
-## Stage 1 — Component tests
+## Stage 1 — Component tests — DONE
 
-- [ ] Vitest + Testing Library coverage for the key screens (auth, chat,
-      profile, plans, calendar) built up across Etap 1-5.
+Every Etap already added its own tests as it went (auth in Etap 1,
+profile in Etap 2, chat in Etap 3, diet plans/calendar in Etap 4, the
+Etap 5 polish pass), so this stage was a coverage *audit* — close real
+gaps left over, not rewrite what's already well tested.
+
+- [x] Audited every non-UI-primitive source file against its test file
+      (or lack of one), and judged indirect coverage where a file had
+      no dedicated test of its own.
+- [x] **Real gap found**: `ProfileModal.tsx` (the shared Dialog + Tabs
+      wrapper around Profil/Plany/Kalendarz) had no dedicated test at
+      all — nothing exercised opening it, switching tabs, or the
+      documented "logs out from inside → auto-closes" `useEffect`
+      (previously only ever checked live in the browser, in Etap 4's
+      `ScrollArea` bug-hunt). New `ProfileModal.test.tsx`: default tab
+      is Profil, clicking Plany/Kalendarz switches content, and logging
+      out from inside calls `onOpenChange(false)`.
+      **Real problem hit while writing it**: asserting the dialog fully
+      unmounts after logout (`queryByRole('tab', ...)).not.toBeInTheDocument()`)
+      flaked — Base UI's Dialog stays mounted mid-exit-animation
+      (`data-closed`/`data-ending-style`) and jsdom doesn't reliably
+      drive that animation-frame-based unmount to completion. Fixed by
+      asserting the *documented behavior* directly instead — an
+      `onClose` spy passed through the test wrapper's `onOpenChange`,
+      confirming `onOpenChange(false)` was called — rather than fighting
+      Base UI's animated-close DOM lifecycle in jsdom.
+- [x] Reviewed and judged sufficient without a dedicated test:
+      `src/api/*.ts` (thin one-line wrappers around `apiFetch`,
+      thoroughly exercised indirectly through every component test that
+      mocks `fetch`), `useIsMobile.ts` (its actual effect — mobile
+      defaults collapsed, desktop defaults open — is already exercised
+      both ways by `AppShell.test.tsx`'s responsiveness tests; an
+      isolated `renderHook` test would just re-verify the same
+      matchMedia-stub-to-boolean mapping), `CategoryMenu.tsx` (exercised
+      end-to-end via `AppShell.test.tsx`'s "Nowy czat" → category →
+      "Rozpocznij czat" flow), and `AboutDialog.tsx` (static text behind
+      a boolean prop — no logic worth a dedicated test).
+
+Exit criteria met: 4 new `ProfileModal.test.tsx` cases. Full suite
+96/96 (up from 92 — 15 test files, up from 14), `npm run build`/
+`npm run lint`/typecheck all clean (lint's 3 warnings are the same
+pre-existing shadcn-generated notices from Etap 5 Stage 3).
 
 ## Stage 2 — Manual smoke walkthrough
 
-- [ ] A `docs/https`-style walkthrough for the frontend (register → login
-      → complete profile → chat → generate plan → reschedule → export),
-      run manually against the real Docker stack.
+- [ ] New `docs/frontend-smoke-walkthrough.md` — same spirit as
+      `docs/https/*.http` (a numbered, repeatable manual script with
+      expected outcomes per step) but UI-driven rather than raw HTTP,
+      since there's no REST-client equivalent for browser interactions.
+      Covers a brand-new account end to end: register → explicit
+      logout/login round-trip (register's own auto-login doesn't
+      exercise the login *form* itself) → complete the nutrition
+      profile → start a chat conversation and send a message → generate
+      a diet plan → reschedule a meal via the Kalendarz tab → export a
+      plan as CSV.
+- [ ] Actually run it, live, against the real Docker stack (not just
+      write it) — a fresh account, not the long-lived "ST" test user
+      every other stage's live-verification reused, so this genuinely
+      exercises registration from zero rather than assuming it still
+      works.
 
-## Stage 3 — Docs & status sync
+## Stage 3 — Docs & status sync — DONE
 
-- [ ] `README.md` Frontend status flips to ✅; this roadmap's status table
-      (top of file) updated; `docs/architecture.md`'s "Frontend (future)"
-      diagram label updated to reflect the real stack.
+The final stage of Phase 10 as a whole, not just Etap 6 — flips every
+doc that's been correctly saying "not done yet" since Etap 0.
+
+- [x] `README.md`: `| Frontend | ⏳ |` → `✅` in the status table; the
+      docker services table (was missing a `frontend` row and
+      undercounted "six containers") gained a `frontend` row and the
+      count fixed to seven; the `## Frontend` section rewritten from
+      "in progress, Etap 0 underway" to describe what actually shipped
+      (auth, nutrition profile, chat, diet plans/calendar/export,
+      responsive layout, toasts, the Etap 5 design-system pass); the
+      project-structure file tree's `frontend/` comment now says
+      "done". Also added, while in there: a direct
+      `http://localhost:5173` link next to the Swagger UI link in
+      "Verify it's running", and a row for the new
+      `docs/frontend-smoke-walkthrough.md` alongside the `.http` files
+      in "Try the full flow" — small additions, but ones a reader
+      landing on this README right after Etap 6 Stage 2 would
+      otherwise miss entirely.
+- [x] `docs/architecture.md`'s Docker services list (section 12) said
+      "frontend doesn't exist yet" (written back when that was true) —
+      added the real `frontend` service entry, dropped the stale
+      caveat.
+- [x] This roadmap's own top-of-file status table: `Phase 10 - Frontend`
+      flipped from "IN PROGRESS (Etap 0-5/6 DONE)" to fully `DONE`, and
+      the "Phases 3 through 9" summary paragraph extended to "3 through
+      10".
+- [x] Marked this section, the Etap 6 header, and the `# Phase 10 -
+      Frontend` heading itself all done.
+
+Exit criteria met: grepped both `README.md` and `docs/architecture.md`
+afterward for any remaining "frontend...progress/underway/doesn't
+exist/future" phrasing — none left. Full suite 96/96, typecheck clean
+(no code changed this stage, but re-verified as the final gate before
+closing out Phase 10 entirely).
+
+This closes out **Phase 10 (Frontend) in full** — Etap 0 through 6, all
+done. Phase 11 (Testing) turned out to already be satisfied
+incrementally by every phase along the way — see its retrospective
+below. Phase 12+ (speculative future improvements) is next, whenever
+that's picked up.
 
 ---
 
-# Phase 11 - Testing
+# Phase 11 - Testing — DONE (satisfied incrementally, not as a separate phase)
 
 Goal:
 
 Ensure application quality.
 
+This was written as a Phase 0-era placeholder assuming testing would
+happen as a distinct phase after everything else. In practice every
+phase (3 through 10) wrote its own unit/integration tests as it went —
+this section was never revisited, so it just sat here looking
+unstarted. Verified retroactively, not implemented now:
+
 ---
 
-## Unit Tests
+## Unit Tests — DONE
 
 Test:
 
-- Domain entities
-- Value objects
-- Use cases
+- [x] Domain entities — `test_conversation_entity.py`,
+      `test_message_entity.py`, `test_user_entity.py`,
+      `test_diet_plan_entity.py`, `test_nutrition_profile_entity.py`,
+      among others across all four modules.
+- [x] Value objects — `test_value_objects.py`, `test_ai_value_objects.py`,
+      `test_weekly_obligation.py`, `test_email_verification_token.py`,
+      `test_password_reset_token.py`, `test_refresh_token.py`, etc.
+- [x] Use cases — a dedicated `test_*_use_case.py` file per use case
+      across identity/conversation/nutrition (register, login, logout,
+      archive/delete/send-message, generate/reschedule/export a diet
+      plan, create/update a nutrition profile, and more).
 
 ---
 
-## Integration Tests
+## Integration Tests — DONE
 
 Test:
 
-- Database repositories
-- API endpoints
+- [x] Database repositories — `test_mongo_conversation_repository.py`,
+      `test_mongo_diet_plan_repository.py`,
+      `test_mongo_nutrition_profile_repository.py`,
+      `test_user_repository_contract.py` — real ephemeral Postgres/Mongo
+      (`docker-compose.test.yml`, auto-managed by `conftest.py`), not
+      fakes.
+- [x] API endpoints — `test_auth_api.py`, `test_conversation_api.py`,
+      `test_nutrition_api.py`, `test_diet_plan_api.py`,
+      `test_diet_plan_export_api.py`, and more — real FastAPI
+      `TestClient` calls against the real app.
+
+Verified retroactively by actually running the suite, not just counting
+files: `pytest` → **353 passed**, 0 failed, against the real ephemeral
+test databases.
 
 ---
 
-## End-to-End Tests
+## End-to-End Tests — DONE (manual, not a dedicated automated test)
 
 Test:
 
@@ -3729,6 +3858,16 @@ Send Chat
 
 Receive AI Response
 ```
+
+No single automated test chains all five steps together — but this
+exact flow (and considerably more: diet-plan generation, reschedule,
+CSV export) is repeatedly exercised manually against the real Docker
+stack: `docs/https/*.http` at the API level, and (since Etap 6 of
+Phase 10) `docs/frontend-smoke-walkthrough.md` through the actual UI —
+both passed on a fresh account, not reused test data. This matches how
+this project verifies end-to-end behavior everywhere else (real Docker
+stack + a repeatable manual script), rather than a separate browser-
+automation E2E framework that was never otherwise called for.
 
 ---
 

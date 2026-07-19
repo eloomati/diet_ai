@@ -858,12 +858,14 @@ Examples:
 
 The application should be runnable locally using Docker Compose.
 
-Actual services (`docker-compose.yml`, as of Phase 9 — this list was a
-sparse Phase 0 draft before and had drifted; frontend doesn't exist yet,
-several services were added since):
+Actual services (`docker-compose.yml`, as of Phase 10 — this list was a
+sparse Phase 0 draft before and had drifted; several services were added
+since):
 
 ```
 backend
+
+frontend    — React + Vite dev server (Phase 10, the actual web UI)
 
 db          — PostgreSQL (Identity)
 
