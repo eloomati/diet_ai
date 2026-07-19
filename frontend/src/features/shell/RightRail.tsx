@@ -1,5 +1,6 @@
 import { ChevronRight } from 'lucide-react'
 
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 
 interface RightRailProps {
@@ -23,9 +24,9 @@ export function RightRail({ onCollapse }: RightRailProps) {
           <p className="text-[12.5px] leading-relaxed text-muted-foreground">
             Tu będą pojawiać się nowości i zapowiedzi rozwoju aplikacji.
           </p>
-          <span className="mt-2.5 inline-block rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold text-secondary-foreground">
+          <Badge variant="secondary" className="mt-2.5 rounded-full px-2.5 py-1 text-[11px] font-bold">
             wkrótce
-          </span>
+          </Badge>
         </div>
       </aside>
     </>

@@ -13,6 +13,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { EmptyState } from '@/components/EmptyState'
+import { FieldError } from '@/components/FieldError'
 import { ApiError } from '@/lib/apiFetch'
 import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
 import { cn } from '@/lib/utils'
@@ -521,11 +522,7 @@ export function KalendarzTab() {
           </div>
           )}
 
-          {rescheduleMutation.isError && (
-            <p className="text-[12.5px] font-bold text-destructive">
-              {rescheduleErrorMessage(rescheduleMutation.error)}
-            </p>
-          )}
+          {rescheduleMutation.isError && <FieldError message={rescheduleErrorMessage(rescheduleMutation.error)} />}
           {confirmation && <p className="text-[12.5px] font-bold text-secondary-foreground">{confirmation} ✓</p>}
           <p className="text-[11px] text-muted-foreground">
             {viewMode === 'ogolny'
@@ -534,7 +531,7 @@ export function KalendarzTab() {
           </p>
 
           {plan.requirements.length > 0 && (
-            <p className="text-[11.5px] text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               Uwzględnione wskazówki: {plan.requirements.join(', ')}
             </p>
           )}

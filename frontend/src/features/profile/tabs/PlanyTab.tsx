@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/EmptyState'
+import { FieldError } from '@/components/FieldError'
 import { DietPlanCard } from '@/features/dietPlans/DietPlanCard'
 import { ApiError } from '@/lib/apiFetch'
 import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
@@ -132,9 +133,7 @@ export function PlanyTab() {
                 </Button>
               </div>
               {exportFailedThis && (
-                <p className="px-3 pb-2 text-[12px] font-bold text-destructive">
-                  Nie udało się wyeksportować planu. Spróbuj ponownie.
-                </p>
+                <FieldError message="Nie udało się wyeksportować planu. Spróbuj ponownie." className="px-3 pb-2" />
               )}
               {expandedPlanId === plan.plan_id && (
                 <div className="border-t border-border p-3">

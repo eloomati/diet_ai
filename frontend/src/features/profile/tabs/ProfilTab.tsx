@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 
 import { confirmEmailVerification } from '@/api/auth'
+import { FieldError } from '@/components/FieldError'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/apiFetch'
@@ -75,7 +76,7 @@ export function ProfilTab() {
             </Button>
           </form>
         )}
-        {error && <p className="mt-2 text-[12.5px] font-bold text-destructive">{error}</p>}
+        {error && <FieldError message={error} className="mt-2" />}
       </div>
 
       <Button variant="outline" className="w-fit" onClick={() => void logout()}>

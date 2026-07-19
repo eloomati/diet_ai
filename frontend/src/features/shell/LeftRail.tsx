@@ -3,9 +3,11 @@ import { ChevronLeft, Info, MessageSquare } from 'lucide-react'
 import { useState } from 'react'
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/EmptyState'
+import { FieldError } from '@/components/FieldError'
 import { useAuth } from '@/lib/auth'
 import { categoryEmoji, categoryLabel } from '@/lib/categoryOptions'
 import { listConversations } from '@/api/conversations'
@@ -24,22 +26,22 @@ function ConversationRowTags({ conversation }: { conversation: ConversationSumma
   return (
     <span className="mt-1 flex flex-wrap items-center gap-1">
       {shown.map((category) => (
-        <span
+        <Badge
           key={category}
-          className="inline-flex items-center gap-0.5 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground"
+          className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground"
         >
           {categoryEmoji(category)} {categoryLabel(category)}
-        </span>
+        </Badge>
       ))}
       {extra > 0 && (
-        <span className="inline-flex items-center rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+        <Badge className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
           +{extra}
-        </span>
+        </Badge>
       )}
       {conversation.status === 'ARCHIVED' && (
-        <span className="inline-flex items-center rounded-full border border-border px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
+        <Badge variant="outline" className="rounded-full px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
           Archiwum
-        </span>
+        </Badge>
       )}
     </span>
   )
@@ -95,9 +97,7 @@ export function LeftRail({
       <div className="px-3.5 pb-3">
         <CategoryMenu onStartChat={onStartChat} />
         {createError && (
-          <p className="mt-1.5 text-[11.5px] font-bold text-destructive">
-            Nie udało się utworzyć rozmowy. Spróbuj ponownie.
-          </p>
+          <FieldError message="Nie udało się utworzyć rozmowy. Spróbuj ponownie." className="mt-1.5" />
         )}
       </div>
 

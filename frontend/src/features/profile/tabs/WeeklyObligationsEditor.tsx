@@ -2,6 +2,7 @@ import { X } from 'lucide-react'
 import { useState } from 'react'
 
 import type { DayOfWeek, WeeklyObligation } from '@/api/profile'
+import { FieldError } from '@/components/FieldError'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -112,7 +113,7 @@ export function WeeklyObligationsEditor({ value, onChange }: WeeklyObligationsEd
         </Button>
       </div>
       {startTime && endTime && endTime <= startTime && (
-        <p className="text-[12px] font-bold text-destructive">Godzina końca musi być późniejsza niż początku.</p>
+        <FieldError message="Godzina końca musi być późniejsza niż początku." />
       )}
     </div>
   )

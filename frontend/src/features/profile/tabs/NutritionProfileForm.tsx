@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { createProfile, getProfile, updateProfile } from '@/api/profile'
 import type { ActivityLevel, DietType, Goal, NutritionProfile, WeeklyObligation } from '@/api/profile'
+import { FieldError } from '@/components/FieldError'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -262,9 +263,7 @@ export function NutritionProfileForm() {
         />
       </div>
 
-      {saveMutation.isError && (
-        <p className="text-[12.5px] font-bold text-destructive">{errorMessage(saveMutation.error)}</p>
-      )}
+      {saveMutation.isError && <FieldError message={errorMessage(saveMutation.error)} />}
       {saveMutation.isSuccess && !saveMutation.isPending && (
         <p className="text-[12.5px] font-bold text-secondary-foreground">Zapisano ✓</p>
       )}

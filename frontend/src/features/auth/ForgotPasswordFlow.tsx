@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react'
 
 import { confirmPasswordReset, requestPasswordReset } from '@/api/auth'
 import { Captcha } from '@/components/Captcha'
+import { FieldError } from '@/components/FieldError'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/apiFetch'
@@ -110,7 +111,7 @@ export function ForgotPasswordFlow({ onBackToLogin }: ForgotPasswordFlowProps) {
               required
             />
           </div>
-          {error && <p className="text-[12.5px] font-bold text-destructive">{error}</p>}
+          {error && <FieldError message={error} />}
           <Button type="submit" disabled={submitting}>
             {submitting ? 'Chwileczkę…' : 'Ustaw nowe hasło'}
           </Button>

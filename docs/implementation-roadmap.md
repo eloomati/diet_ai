@@ -3556,11 +3556,75 @@ document.documentElement.clientWidth` confirmed `true`). Resized back to
 1400px and confirmed the desktop layout — both rails as static columns,
 single-row nav — is unaffected. Clean console throughout.
 
-## Stage 3 — Design system pass
+## Stage 3 — Design system pass — DONE
 
-- [ ] Once real screens exist (more content/edge cases than the mockup's
-      demo data), a consistency pass on spacing/typography/component
-      reuse.
+Grounded in a dedicated audit (no formal type/spacing scale was ever
+defined beyond Tailwind's defaults + the `--radius-*` tokens, so every
+`text-[Npx]` value below is an ad-hoc invention, not a deviation from a
+documented scale). Scoped to the clearest, highest-value drift rather
+than forcing every minor value in the app into one number — most
+spacing/gap variation across genuinely different content densities is
+normal, not inconsistency, and was left alone.
+
+- [x] **Inline error text**: 5 different size/weight combos existed for
+      the same "inline action/form error" role across 8+ files
+      (`text-[12.5px] font-bold`, `text-[12px] font-bold`, `text-[11.5px]
+      font-bold`, plain `text-xs`, plus the page-level `text-sm` variant
+      used for full content-replacing errors, which was *already*
+      consistent and stayed untouched). New `src/components/FieldError.tsx`
+      standardizes on `text-[12.5px] font-bold text-destructive` (the
+      most common existing variant) and replaced every inline-error `<p>`
+      across `AuthPopup`, `ForgotPasswordFlow`, `ChatCanvas` (send +
+      generate errors), `KalendarzTab` (reschedule error), `PlanyTab`
+      (export error), `NutritionProfileForm`, `ProfilTab`,
+      `WeeklyObligationsEditor`, and `LeftRail` (create-conversation
+      error) — 10 call sites total.
+- [x] **Badge/pill component**: 3 duplicated pill patterns (category
+      tags, status/archived pills, the "wkrótce" badge) with drifting
+      padding/size. shadcn's own `badge.tsx` was compatible with this
+      project's Base UI stack (`@base-ui/react/merge-props` +
+      `use-render`, same primitive family as `Select`/`ScrollArea`/
+      `Switch`) — added via `npx shadcn add badge` and used (with
+      per-site `className` overrides where a pill's colors don't match
+      any of Badge's built-in variants, e.g. the accent-colored
+      "Wygenerowany plan" badge) in `ChatCanvas` (category tags +
+      "Zarchiwizowana"), `RightRail` ("wkrótce"), `DietPlanCard`
+      ("Wygenerowany plan"), and `LeftRail` (conversation row tags, "+N",
+      "Archiwum"). Existing distinct sizes were preserved per call site
+      — this is about one shared structural component, not forcing
+      visually-identical pills where content density genuinely differs.
+- [x] **Icon-button reuse**: `ChatCanvas`'s archive/delete icon buttons
+      hand-rolled what `@/components/ui/button`'s `variant="ghost"
+      size="icon-xs"` already provides (confirmed `ghost`'s hover style
+      matches exactly) — switched to `<Button>`, with the delete
+      button's hover-only red tint preserved via an extra `className`
+      override rather than the always-red `destructive` variant (which
+      would have changed its resting-state look).
+- [x] **One same-file drift**: `KalendarzTab`'s own hint text used both
+      `text-[11px]` and `text-[11.5px]` for the same caption role a few
+      lines apart — normalized to `text-[11px]`.
+- [x] Everything else the audit surfaced (card radius `lg`/`xl`/`2xl`,
+      row padding `p-2.5`/`p-3`, stack `gap-2`/`gap-2.5`/`gap-3`) was
+      left alone — real variation across genuinely different content
+      densities, not a defect, and forcing it to one number without a
+      documented scale to justify the choice would have been guessing.
+
+Exit criteria met: no new tests needed (pure markup/class swaps with
+identical message strings and rendered text — every existing test still
+passes unchanged, confirming the refactor didn't alter behavior). Full
+suite 92/92, `npm run build`/`npm run lint`/typecheck all clean (lint's
+3 warnings are the same pre-existing shadcn-generated
+`only-export-components` notices, now including `badge.tsx` alongside
+`button.tsx`/`tabs.tsx` — an inherent shadcn CLI pattern, not something
+to fix).
+
+Live-verified against the real backend: category badges, the
+archived pill, the "wkrótce" badge, conversation-row tags, and the
+"Wygenerowany plan" badge all render identically to before (same
+colors/sizes, now via `Badge`). The archive icon button shows the
+`ghost` hover background; the delete icon button still turns
+red-tinted only on hover, exactly matching its pre-refactor behavior.
+Clean console throughout.
 
 ## Stage 4 — Docs sync
 

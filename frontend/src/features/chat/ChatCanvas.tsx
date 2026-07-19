@@ -3,6 +3,8 @@ import { Archive, ArrowUp, Menu, Sparkles, Trash2 } from 'lucide-react'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { FieldError } from '@/components/FieldError'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { categoryEmoji } from '@/lib/categoryOptions'
@@ -207,36 +209,37 @@ export function ChatCanvas({
             conversationQuery.data ? (
               <>
                 {conversationQuery.data.categories.map((category) => (
-                  <span
-                    key={category}
-                    className="rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold text-secondary-foreground"
-                  >
+                  <Badge key={category} variant="secondary" className="rounded-full px-2.5 py-1 text-[11px] font-bold">
                     {categoryEmoji(category)} {category}
-                  </span>
+                  </Badge>
                 ))}
                 {isArchived && (
-                  <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-bold text-muted-foreground">
+                  <Badge className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-bold text-muted-foreground">
                     Zarchiwizowana
-                  </span>
+                  </Badge>
                 )}
                 {!isArchived && (
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    className="rounded-full text-muted-foreground"
                     onClick={() => archiveMutation.mutate()}
                     disabled={archiveMutation.isPending}
                     aria-label="Archiwizuj rozmowę"
-                    className="rounded-full p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
                   >
                     <Archive className="size-3.5" />
-                  </button>
+                  </Button>
                 )}
-                <button
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  className="rounded-full text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                   onClick={handleDelete}
                   disabled={deleteMutation.isPending}
                   aria-label="Usuń rozmowę"
-                  className="rounded-full p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-50"
                 >
                   <Trash2 className="size-3.5" />
-                </button>
+                </Button>
               </>
             ) : conversationQuery.isError ? (
               <span className="text-[13.5px] font-bold text-destructive">Nie znaleziono rozmowy</span>
@@ -314,9 +317,10 @@ export function ChatCanvas({
           </p>
         )}
         {generatePlanMutation.isError && (
-          <p className="mx-auto mt-4 max-w-2xl text-center text-[13px] font-bold text-destructive">
-            {generateErrorMessage(generatePlanMutation.error)}
-          </p>
+          <FieldError
+            message={generateErrorMessage(generatePlanMutation.error)}
+            className="mx-auto mt-4 max-w-2xl text-center"
+          />
         )}
         {generatePlanMutation.data && (
           <div className="mx-auto mt-4 max-w-2xl pb-3">
@@ -340,9 +344,7 @@ export function ChatCanvas({
         {isArchived ? (
           <p className="text-[12.5px] font-bold text-muted-foreground">{ARCHIVED_NOTICE}</p>
         ) : (
-          sendMessageMutation.isError && (
-            <p className="text-[12.5px] font-bold text-destructive">{sendErrorMessage(sendMessageMutation.error)}</p>
-          )
+          sendMessageMutation.isError && <FieldError message={sendErrorMessage(sendMessageMutation.error)} />
         )}
         <div className="flex w-full max-w-xl items-center gap-2 rounded-full border border-border bg-card py-1.5 pr-1.5 pl-4.5 shadow-sm focus-within:border-primary">
           <input

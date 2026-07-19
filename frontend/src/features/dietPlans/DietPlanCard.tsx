@@ -1,3 +1,4 @@
+import { Badge } from '@/components/ui/badge'
 import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
 import type { DietPlan } from '@/api/dietPlans'
 
@@ -5,9 +6,9 @@ export function DietPlanCard({ plan }: { plan: DietPlan }) {
   return (
     <div className="mx-auto w-full max-w-2xl rounded-2xl border border-border bg-card p-4 shadow-sm">
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <span className="rounded-full bg-accent px-2.5 py-1 text-xs font-bold text-accent-foreground uppercase">
+        <Badge className="rounded-full bg-accent px-2.5 py-1 text-xs font-bold text-accent-foreground uppercase">
           Wygenerowany plan
-        </span>
+        </Badge>
         <span className="text-[12.5px] font-bold text-muted-foreground">
           {goalLabel(plan.goal)} · {dietTypeLabel(plan.diet_type)} · {plan.duration_days}{' '}
           {plan.duration_days === 1 ? 'dzień' : 'dni'}
