@@ -68,11 +68,19 @@ Phase 9  - Meal Scheduling &         DONE (Stages 1-6/6) — pre-frontend
                                      and date-range filtering of plan
                                      history. See the 6-stage breakdown
                                      below.
-Phase 10  - Frontend                 NOT STARTED — full Etap 0-6 breakdown
-                                      below (7 etaps, each split into
-                                      stages), designed against a
-                                      user-approved interactive mockup
-                                      before any code was written.
+Phase 10  - Frontend                 IN PROGRESS (Etap 0-5/6 DONE) — real
+                                      React app (not the mockup) covering
+                                      auth, nutrition profile, chat,
+                                      diet-plan generation/calendar/
+                                      export, and a cross-cutting
+                                      Etap 5 polish pass (toasts,
+                                      responsive rails, a design-system
+                                      consistency pass), all verified
+                                      end-to-end against the real Docker
+                                      stack. Etap 6 (tests + docs sync
+                                      for the frontend as a whole) is the
+                                      one remaining etap — see the full
+                                      stage-by-stage breakdown below.
 Phase 11+ - Testing/Future           NOT STARTED
 ```
 
@@ -81,9 +89,11 @@ recovery), Nutrition Profile, Conversation + AI chat (including lifecycle
 management), Diet Plan generation, and Meal Scheduling & Calendar Export
 all work end-to-end against the real Docker stack, with docs
 (`architecture.md`, `domain-model.md`, `api.md`, `docs/https/*.http`) and
-`README.md` synced to match. Phase 10 (Frontend) is next — see that
-section below for the full stage-by-stage plan (Etap 0 "Fundament" is
-about to start).
+`README.md` synced to match. **Phase 10 (Frontend) is in progress** —
+Etap 0-5 are done (see the full stage-by-stage log below); Etap 6 closes
+it out the same way every backend phase closed, with component-test
+coverage review, a manual smoke walkthrough, and the final `README.md`/
+`architecture.md` status flip.
 
 ---
 
@@ -3421,7 +3431,7 @@ documentation prose, neither of which changes runtime behavior.
 
 ---
 
-# Etap 5 — Polish/UX
+# Etap 5 — Polish/UX — DONE (Stages 1-4/4)
 
 Goal: cross-cutting quality pass once every real screen exists.
 
@@ -3626,7 +3636,22 @@ colors/sizes, now via `Badge`). The archive icon button shows the
 red-tinted only on hover, exactly matching its pre-refactor behavior.
 Clean console throughout.
 
-## Stage 4 — Docs sync
+## Stage 4 — Docs sync — DONE
+
+Etap 5 was pure frontend polish (toasts, responsive layout, a design-
+system consistency pass) — no new backend API surface, so there's no
+`docs/api.md` contract to cross-check the way Etap 4 Stage 6 did.
+`README.md` and `docs/architecture.md`'s frontend mentions stay
+untouched here — Etap 6 Stage 3 already explicitly owns that final
+flip once the whole of Phase 10 (Etap 0-6) is done, and doing it now
+would just be redone later against a still-moving target.
+
+- [x] Updated this roadmap's own top-level status table/summary
+      paragraph (previously still said Phase 10 was "NOT STARTED", stale
+      since Etap 0 shipped) to reflect Etap 0-5 completion.
+- [x] One final full-suite gate before moving on to Etap 6: full suite
+      92/92, `npm run build`/`npm run lint`/typecheck all clean.
+- [x] Marked Etap 5 done (this section + the Etap 5 header).
 
 ---
 
