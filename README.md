@@ -80,7 +80,7 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
 | `docs/https/conversation.http` | create a conversation → chat with the AI → view history → archive → delete |
 | `docs/https/nutrition.http` | create/get/update a nutrition profile, including a weekly obligations schedule (work/training hours) |
 | `docs/https/diet-plan.http` | generate a plan → reschedule a meal's time → export to CSV → list/download previous exports → filter plan history by date |
-| `docs/frontend-smoke-walkthrough.md` | the same end-to-end journey, but through the actual web UI: register → login → complete profile → chat → generate plan → reschedule → export |
+| `docs/implementation/frontend-smoke-walkthrough.md` | the same end-to-end journey, but through the actual web UI: register → login → complete profile → chat → generate plan → reschedule → export |
 
 The email-related steps in `user.http` need `EMAIL_PROVIDER=smtp` (the
 `docker-compose.yml` default) so mail actually lands in Mailhog — see the
@@ -221,7 +221,7 @@ Allow users to:
 | Frontend | ✅ |
 | Reporting | ⏳ |
 
-See `docs/implementation-roadmap.md` for the full stage-by-stage history of every phase.
+See `docs/implementation/implementation-roadmap-done190726.md` for the full stage-by-stage history of Phases 0-11; `docs/implementation-roadmap.md` holds the current phase's prospective plan.
 
 ---
 
@@ -620,7 +620,8 @@ Project documentation lives in `docs/`:
 | `docs/api.md` | Full REST API contract (all modules), narrative/prose |
 | `docs/openapi.json` | Machine-generated OpenAPI 3.1 schema (`scripts/export_openapi.py`) — same schema served live at `/openapi.json`/`/docs` |
 | `docs/auth-runbook.md` | Auth error format + manual verification runbook |
-| `docs/implementation-roadmap.md` | Stage-by-stage build history for every phase, including verification notes |
+| `docs/implementation-roadmap.md` | The current phase's prospective plan, implemented stage by stage |
+| `docs/implementation/implementation-roadmap-done190726.md` | Full stage-by-stage build history for every completed phase (0-11), including verification notes |
 | `docs/https/*.http` | Runnable end-to-end request walkthroughs per module (see [Getting Started](#4-try-the-full-flow)) |
 
 ---
