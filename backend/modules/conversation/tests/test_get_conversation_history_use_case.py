@@ -22,7 +22,7 @@ async def test_get_conversation_history_returns_messages() -> None:
     user_id = uuid4()
 
     created = await CreateConversationUseCase(repo).execute(
-        CreateConversationCommand(user_id=user_id, title="Breakfast ideas", category="BREAKFAST")
+        CreateConversationCommand(user_id=user_id, title="Breakfast ideas", categories=["BREAKFAST"])
     )
     conversation_id = UUID(created.conversation_id)
 
@@ -37,7 +37,7 @@ async def test_get_conversation_history_returns_messages() -> None:
     )
 
     assert result.title == "Breakfast ideas"
-    assert result.category == "BREAKFAST"
+    assert result.categories == ["BREAKFAST"]
     assert len(result.messages) == 2
     assert result.messages[0].role == "USER"
     assert result.messages[1].role == "ASSISTANT"
@@ -49,7 +49,7 @@ async def test_get_conversation_history_for_non_owner_raises() -> None:
     owner_id = uuid4()
 
     created = await CreateConversationUseCase(repo).execute(
-        CreateConversationCommand(user_id=owner_id, title="Leg day", category="GYM")
+        CreateConversationCommand(user_id=owner_id, title="Leg day", categories=["GYM"])
     )
     conversation_id = UUID(created.conversation_id)
 

@@ -16,7 +16,8 @@ Content-Type: application/json
 
 {
   "email": "{{email}}",
-  "password": "{{password}}"
+  "password": "{{password}}",
+  "captcha_token": "test-captcha-token"
 }
 
 ### =========================
@@ -37,6 +38,7 @@ Content-Type: application/json
 
 ### =========================
 ### 3) Create conversation (zapis conversation_id)
+### categories: lista, min. 1 wartość — tu dwie naraz, żeby pokazać multi-select
 ### =========================
 # @name createConversation
 POST {{baseUrl}}{{conversationsPrefix}}
@@ -45,7 +47,7 @@ Content-Type: application/json
 
 {
   "title": "High protein breakfasts",
-  "category": "BREAKFAST"
+  "categories": ["BREAKFAST", "DIET"]
 }
 
 > {%
@@ -91,7 +93,20 @@ Content-Type: application/json
 
 {
   "title": "Bad category",
-  "category": "NOT_A_REAL_CATEGORY"
+  "categories": ["NOT_A_REAL_CATEGORY"]
+}
+
+### =========================
+### 8b) Negatywny test: pusta lista kategorii
+### Oczekiwane: 422 + code VALIDATION_ERROR
+### =========================
+POST {{baseUrl}}{{conversationsPrefix}}
+Authorization: Bearer {{access_token}}
+Content-Type: application/json
+
+{
+  "title": "No categories",
+  "categories": []
 }
 
 ### =========================
@@ -110,7 +125,8 @@ Content-Type: application/json
 
 {
   "email": "convo.other@example.com",
-  "password": "StrongPass123"
+  "password": "StrongPass123",
+  "captcha_token": "test-captcha-token"
 }
 
 ###

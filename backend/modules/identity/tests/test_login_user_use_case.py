@@ -9,6 +9,7 @@ from backend.modules.identity.application import (
     UserNotFoundError,
 )
 from backend.modules.identity.tests.fakes import (
+    FakeCaptchaVerifier,
     FakeEmailSender,
     FakePasswordHasher,
     FakeTokenService,
@@ -26,7 +27,7 @@ async def test_login_success() -> None:
     tokens = FakeTokenService()
 
     register_uc = RegisterUserUseCase(
-        repo, hasher, InMemoryEmailVerificationTokenRepository(), FakeEmailSender()
+        repo, hasher, InMemoryEmailVerificationTokenRepository(), FakeEmailSender(), FakeCaptchaVerifier()
     )
     login_uc = LoginUserUseCase(repo, refresh_repo, hasher, tokens)
 
@@ -34,6 +35,7 @@ async def test_login_success() -> None:
         RegisterUserCommand(
             email="john@example.com",
             password="StrongPass123",
+            captcha_token="test-captcha-token",
         )
     )
 
@@ -74,7 +76,7 @@ async def test_login_invalid_credentials() -> None:
     tokens = FakeTokenService()
 
     register_uc = RegisterUserUseCase(
-        repo, hasher, InMemoryEmailVerificationTokenRepository(), FakeEmailSender()
+        repo, hasher, InMemoryEmailVerificationTokenRepository(), FakeEmailSender(), FakeCaptchaVerifier()
     )
     login_uc = LoginUserUseCase(repo, refresh_repo, hasher, tokens)
 
@@ -82,6 +84,7 @@ async def test_login_invalid_credentials() -> None:
         RegisterUserCommand(
             email="john@example.com",
             password="StrongPass123",
+            captcha_token="test-captcha-token",
         )
     )
 

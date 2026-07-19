@@ -10,6 +10,6 @@ class PromptTurn:
 @dataclass(frozen=True, slots=True)
 class Prompt:
     question: str
-    category: str
+    categories: tuple[str, ...]
     system_prompt: str = ""
     conversation_history: tuple[PromptTurn, ...] = field(default_factory=tuple)

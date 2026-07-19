@@ -18,13 +18,13 @@ async def test_list_conversations_returns_only_own_conversations() -> None:
     other_user_id = uuid4()
 
     await CreateConversationUseCase(repo).execute(
-        CreateConversationCommand(user_id=user_id, title="Breakfast ideas", category="BREAKFAST")
+        CreateConversationCommand(user_id=user_id, title="Breakfast ideas", categories=["BREAKFAST"])
     )
     await CreateConversationUseCase(repo).execute(
-        CreateConversationCommand(user_id=user_id, title="Leg day", category="GYM")
+        CreateConversationCommand(user_id=user_id, title="Leg day", categories=["GYM"])
     )
     await CreateConversationUseCase(repo).execute(
-        CreateConversationCommand(user_id=other_user_id, title="Someone else's chat", category="GENERAL")
+        CreateConversationCommand(user_id=other_user_id, title="Someone else's chat", categories=["GENERAL"])
     )
 
     result = await ListConversationsUseCase(repo).execute(ListConversationsQuery(user_id=user_id))

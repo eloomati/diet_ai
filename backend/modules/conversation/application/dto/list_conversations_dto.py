@@ -11,6 +11,6 @@ class ListConversationsQuery:
 class ConversationSummary:
     conversation_id: str
     title: str
-    category: str
+    categories: list[str]
     status: str
     updated_at: str

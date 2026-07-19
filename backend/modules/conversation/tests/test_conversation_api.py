@@ -9,7 +9,10 @@ def unique_email(prefix: str) -> str:
 
 def _register_and_login(client: TestClient, prefix: str) -> str:
     email = unique_email(prefix)
-    client.post("/api/v1/auth/register", json={"email": email, "password": "StrongPass123"})
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
+    )
     login = client.post("/api/v1/auth/login", json={"email": email, "password": "StrongPass123"})
     return login.json()["access_token"]
 
@@ -23,19 +26,32 @@ def test_create_conversation_returns_201(client: TestClient) -> None:
 
     response = client.post(
         "/api/v1/conversations",
-        json={"title": "Breakfast ideas", "category": "BREAKFAST"},
+        json={"title": "Breakfast ideas", "categories": ["BREAKFAST"]},
         headers=_auth_headers(token),
     )
 
     assert response.status_code == 201
     body = response.json()
     assert body["title"] == "Breakfast ideas"
-    assert body["category"] == "BREAKFAST"
+    assert body["categories"] == ["BREAKFAST"]
     assert body["status"] == "ACTIVE"
 
 
+def test_create_conversation_with_multiple_categories_returns_all_of_them(client: TestClient) -> None:
+    token = _register_and_login(client, "convo.multicat")
+
+    response = client.post(
+        "/api/v1/conversations",
+        json={"title": "Cutting + race prep", "categories": ["DIET", "RUNNING"]},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 201
+    assert response.json()["categories"] == ["DIET", "RUNNING"]
+
+
 def test_create_conversation_requires_authentication(client: TestClient) -> None:
-    response = client.post("/api/v1/conversations", json={"title": "No auth", "category": "GENERAL"})
+    response = client.post("/api/v1/conversations", json={"title": "No auth", "categories": ["GENERAL"]})
 
     assert response.status_code == 401
 
@@ -45,7 +61,20 @@ def test_create_conversation_rejects_invalid_category(client: TestClient) -> Non
 
     response = client.post(
         "/api/v1/conversations",
-        json={"title": "Bad category", "category": "NOT_A_CATEGORY"},
+        json={"title": "Bad category", "categories": ["NOT_A_CATEGORY"]},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "VALIDATION_ERROR"
+
+
+def test_create_conversation_rejects_empty_category_list(client: TestClient) -> None:
+    token = _register_and_login(client, "convo.emptycat")
+
+    response = client.post(
+        "/api/v1/conversations",
+        json={"title": "No categories", "categories": []},
         headers=_auth_headers(token),
     )
 
@@ -59,12 +88,12 @@ def test_list_conversations_returns_only_own(client: TestClient) -> None:
 
     client.post(
         "/api/v1/conversations",
-        json={"title": "Mine", "category": "GENERAL"},
+        json={"title": "Mine", "categories": ["GENERAL"]},
         headers=_auth_headers(token_a),
     )
     client.post(
         "/api/v1/conversations",
-        json={"title": "Theirs", "category": "GENERAL"},
+        json={"title": "Theirs", "categories": ["GENERAL"]},
         headers=_auth_headers(token_b),
     )
 
@@ -78,7 +107,7 @@ def test_send_message_and_get_history(client: TestClient) -> None:
     token = _register_and_login(client, "convo.chat")
     created = client.post(
         "/api/v1/conversations",
-        json={"title": "Breakfast ideas", "category": "BREAKFAST"},
+        json={"title": "Breakfast ideas", "categories": ["BREAKFAST"]},
         headers=_auth_headers(token),
     ).json()
     conversation_id = created["conversation_id"]
@@ -119,7 +148,7 @@ def test_cannot_access_other_users_conversation(client: TestClient) -> None:
 
     created = client.post(
         "/api/v1/conversations",
-        json={"title": "Private", "category": "GENERAL"},
+        json={"title": "Private", "categories": ["GENERAL"]},
         headers=_auth_headers(token_owner),
     ).json()
 
@@ -137,7 +166,7 @@ def test_cannot_send_message_to_other_users_conversation(client: TestClient) -> 
 
     created = client.post(
         "/api/v1/conversations",
-        json={"title": "Private", "category": "GENERAL"},
+        json={"title": "Private", "categories": ["GENERAL"]},
         headers=_auth_headers(token_owner),
     ).json()
 
@@ -154,7 +183,7 @@ def test_archive_conversation_returns_200_and_updates_status(client: TestClient)
     token = _register_and_login(client, "convo.archive")
     created = client.post(
         "/api/v1/conversations",
-        json={"title": "To archive", "category": "GENERAL"},
+        json={"title": "To archive", "categories": ["GENERAL"]},
         headers=_auth_headers(token),
     ).json()
 
@@ -171,7 +200,7 @@ def test_archived_conversation_rejects_new_messages_via_api(client: TestClient) 
     token = _register_and_login(client, "convo.archivedmsg")
     created = client.post(
         "/api/v1/conversations",
-        json={"title": "To archive", "category": "GENERAL"},
+        json={"title": "To archive", "categories": ["GENERAL"]},
         headers=_auth_headers(token),
     ).json()
     client.post(f"/api/v1/conversations/{created['conversation_id']}/archive", headers=_auth_headers(token))
@@ -191,7 +220,7 @@ def test_cannot_archive_other_users_conversation(client: TestClient) -> None:
     token_other = _register_and_login(client, "convo.archother")
     created = client.post(
         "/api/v1/conversations",
-        json={"title": "Private", "category": "GENERAL"},
+        json={"title": "Private", "categories": ["GENERAL"]},
         headers=_auth_headers(token_owner),
     ).json()
 
@@ -207,7 +236,7 @@ def test_delete_conversation_returns_204_and_removes_it(client: TestClient) -> N
     token = _register_and_login(client, "convo.delete")
     created = client.post(
         "/api/v1/conversations",
-        json={"title": "To delete", "category": "GENERAL"},
+        json={"title": "To delete", "categories": ["GENERAL"]},
         headers=_auth_headers(token),
     ).json()
 
@@ -227,7 +256,7 @@ def test_cannot_delete_other_users_conversation(client: TestClient) -> None:
     token_other = _register_and_login(client, "convo.delother")
     created = client.post(
         "/api/v1/conversations",
-        json={"title": "Private", "category": "GENERAL"},
+        json={"title": "Private", "categories": ["GENERAL"]},
         headers=_auth_headers(token_owner),
     ).json()
 

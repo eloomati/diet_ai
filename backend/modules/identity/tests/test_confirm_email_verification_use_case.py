@@ -15,6 +15,7 @@ from backend.modules.identity.domain.entities.email_verification_token import (
     EmailVerificationToken,
 )
 from backend.modules.identity.tests.fakes import (
+    FakeCaptchaVerifier,
     FakeEmailSender,
     FakePasswordHasher,
     InMemoryEmailVerificationTokenRepository,
@@ -24,8 +25,10 @@ from backend.modules.identity.tests.fakes import (
 
 async def _register(user_repo: InMemoryUserRepository, token_repo, email: str) -> UUID:
     result = await RegisterUserUseCase(
-        user_repo, FakePasswordHasher(), token_repo, FakeEmailSender()
-    ).execute(RegisterUserCommand(email=email, password="StrongPass123"))
+        user_repo, FakePasswordHasher(), token_repo, FakeEmailSender(), FakeCaptchaVerifier()
+    ).execute(
+        RegisterUserCommand(email=email, password="StrongPass123", captcha_token="test-captcha-token")
+    )
     return UUID(result.user_id)
 
 

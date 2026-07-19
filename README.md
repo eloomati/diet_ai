@@ -37,16 +37,17 @@ cd diet_ai
 docker compose up -d --build
 ```
 
-This builds the backend image and starts six containers:
+This builds the backend and frontend images and starts seven containers:
 
-| Service   | Container         | Port        | Purpose                                             |
-|-----------|--------------------|-------------|------------------------------------------------------|
-| `backend` | `diet_ai_backend`  | 8000        | FastAPI application                                  |
-| `db`      | `diet_ai_db`       | 5432        | PostgreSQL — Identity module                         |
-| `mongo`   | `diet_ai_mongo`    | 27017       | MongoDB — Conversation + Nutrition modules           |
-| `ollama`  | `diet_ai_ollama`   | 11434       | Local LLM — powers chat + diet-plan generation by default |
-| `mailhog` | `diet_ai_mailhog`  | 1025 / 8025 | Local SMTP catcher — password-reset/verification emails land here, not a real inbox. Web UI at http://localhost:8025 |
-| `sftp`    | `diet_ai_sftp`     | 2222        | Local SFTP server — diet-plan CSV exports are archived here so a user can re-download one later. User `dietai`/`dietai` |
+| Service    | Container          | Port        | Purpose                                             |
+|------------|--------------------|-------------|------------------------------------------------------|
+| `backend`  | `diet_ai_backend`  | 8000        | FastAPI application                                  |
+| `frontend` | `diet_ai_frontend` | 5173        | React + Vite dev server — the web UI                 |
+| `db`       | `diet_ai_db`       | 5432        | PostgreSQL — Identity module                         |
+| `mongo`    | `diet_ai_mongo`    | 27017       | MongoDB — Conversation + Nutrition modules           |
+| `ollama`   | `diet_ai_ollama`   | 11434       | Local LLM — powers chat + diet-plan generation by default |
+| `mailhog`  | `diet_ai_mailhog`  | 1025 / 8025 | Local SMTP catcher — password-reset/verification emails land here, not a real inbox. Web UI at http://localhost:8025 |
+| `sftp`     | `diet_ai_sftp`     | 2222        | Local SFTP server — diet-plan CSV exports are archived here so a user can re-download one later. User `dietai`/`dietai` |
 
 **First start takes a few minutes** — two things happen automatically, no action needed:
 
@@ -61,7 +62,7 @@ docker compose ps
 
 ## 3. Verify it's running
 
-Open **http://localhost:8000/docs** for the interactive Swagger UI, or:
+Open **http://localhost:5173** for the actual web app, **http://localhost:8000/docs** for the interactive Swagger UI, or:
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/auth/register \
@@ -79,6 +80,7 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
 | `docs/https/conversation.http` | create a conversation → chat with the AI → view history → archive → delete |
 | `docs/https/nutrition.http` | create/get/update a nutrition profile, including a weekly obligations schedule (work/training hours) |
 | `docs/https/diet-plan.http` | generate a plan → reschedule a meal's time → export to CSV → list/download previous exports → filter plan history by date |
+| `docs/frontend-smoke-walkthrough.md` | the same end-to-end journey, but through the actual web UI: register → login → complete profile → chat → generate plan → reschedule → export |
 
 The email-related steps in `user.http` need `EMAIL_PROVIDER=smtp` (the
 `docker-compose.yml` default) so mail actually lands in Mailhog — see the
@@ -216,7 +218,7 @@ Allow users to:
 | Diet Plan Generation | ✅ |
 | Conversation Lifecycle & Account Recovery (archive/delete, logout, password reset, email verification) | ✅ |
 | Meal Scheduling & Calendar Export (weekly obligations, AI meal times, reschedule, CSV export/archive, date-range filtering) | ✅ |
-| Frontend | ⏳ |
+| Frontend | ✅ |
 | Reporting | ⏳ |
 
 See `docs/implementation-roadmap.md` for the full stage-by-stage history of every phase.
@@ -226,7 +228,7 @@ See `docs/implementation-roadmap.md` for the full stage-by-stage history of ever
 # High Level Architecture
 
 ```text
-                    React Frontend (future)
+                    React Frontend
                            │
                            │
                      FastAPI Backend
@@ -336,11 +338,37 @@ Provider selection is a single `AI_PROVIDER` environment variable — see [Confi
 
 ## Frontend
 
-Not started yet. Planned:
+Done (Phase 10 — see `docs/implementation-roadmap.md` for the full
+Etap 0-6 breakdown) — a real React app, not the mockup it was designed
+against, covering the whole product end to end:
 
-- React
-- Vite
-- Tailwind CSS
+- React 19 + Vite + TypeScript
+- Tailwind CSS v4 + shadcn/ui (Base UI primitives) + `sonner` toasts
+- React Router + TanStack Query
+- Design: a single chat-first view (styled after Claude/ChatGPT) with
+  collapsible side rails — overlays with a backdrop below the `md`
+  breakpoint, static columns above it — and a profile modal
+  (Profil/Plany/Kalendarz tabs), built against a user-approved
+  interactive mockup before any code was written
+- Auth (register/login/refresh/logout/password reset/email
+  verification), a nutrition profile form with a weekly-obligations
+  editor, AI chat with conversation history/archive/delete, diet-plan
+  generation, a real weekly calendar with drag-to-reschedule, and CSV
+  export/download — all wired to the real backend, not mocked
+- A component-level design system pass (shared `Badge`/`FieldError`/
+  `EmptyState`/`Skeleton` components) once every real screen existed
+
+Run it locally:
+
+```bash
+cd frontend
+cp .env.example .env   # VITE_API_BASE_URL — defaults to the local backend
+npm install
+npm run dev            # http://localhost:5173
+```
+
+Or via Docker — `docker compose up -d --build frontend` (depends on the
+`backend` service being up too, for CORS/API calls to succeed).
 
 ---
 
@@ -364,14 +392,14 @@ diet_ai/
 │
 ├── backend/              # FastAPI application (see below)
 │
-├── frontend/              # not started yet
+├── frontend/              # React + Vite + TS + Tailwind v4 + shadcn/ui (Phase 10, done)
 │
 ├── docs/                  # architecture, domain model, API contract, roadmap, .http smoke tests
 │
 ├── docker/                # entrypoint.sh (waits for Postgres, runs migrations, then execs uvicorn)
 │
 ├── Dockerfile
-├── docker-compose.yml       # dev stack: db, mongo, ollama, mailhog, sftp, backend
+├── docker-compose.yml       # dev stack: db, mongo, ollama, mailhog, sftp, backend, frontend
 ├── docker-compose.test.yml  # ephemeral test stack, auto-managed by conftest.py
 ├── conftest.py
 ├── pytest.ini
@@ -607,7 +635,6 @@ Project documentation lives in `docs/`:
 - Background Workers
 - Mobile Application
 - Vector Database
-- Frontend (React/Vite/Tailwind)
 - Reporting module
 
 ---

@@ -52,13 +52,13 @@ async def create_conversation(
         CreateConversationCommand(
             user_id=current_user.id,
             title=request.title,
-            category=request.category.value,
+            categories=[c.value for c in request.categories],
         )
     )
     return CreateConversationResponse(
         conversation_id=result.conversation_id,
         title=result.title,
-        category=result.category,
+        categories=result.categories,
         status=result.status,
     )
 
@@ -73,7 +73,7 @@ async def list_conversations(
         ConversationSummaryResponse(
             conversation_id=summary.conversation_id,
             title=summary.title,
-            category=summary.category,
+            categories=summary.categories,
             status=summary.status,
             updated_at=summary.updated_at,
         )
@@ -103,7 +103,7 @@ async def get_conversation(
     return ConversationHistoryResponse(
         conversation_id=result.conversation_id,
         title=result.title,
-        category=result.category,
+        categories=result.categories,
         status=result.status,
         messages=[
             MessageResponse(
@@ -181,7 +181,7 @@ async def archive_conversation(
     return ConversationHistoryResponse(
         conversation_id=result.conversation_id,
         title=result.title,
-        category=result.category,
+        categories=result.categories,
         status=result.status,
         messages=[
             MessageResponse(

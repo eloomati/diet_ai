@@ -15,3 +15,7 @@ class UserNotFoundError(IdentityApplicationError):
 
 class InvalidRefreshTokenError(IdentityApplicationError):
     pass
+
+
+class InvalidCaptchaError(IdentityApplicationError):
+    pass

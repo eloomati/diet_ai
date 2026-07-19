@@ -9,7 +9,7 @@ async def test_mock_llm_provider_returns_deterministic_response() -> None:
     provider = MockLLMProvider()
 
     response = await provider.generate_response(
-        Prompt(question="What should I eat for breakfast?", category="BREAKFAST")
+        Prompt(question="What should I eat for breakfast?", categories=("BREAKFAST",))
     )
 
     assert response.model == "mock"
@@ -22,7 +22,7 @@ async def test_mock_llm_provider_generates_matching_day_count() -> None:
     provider = MockLLMProvider()
 
     result = await provider.generate_structured_response(
-        Prompt(question="Generate a 3-day diet plan for this user.", category="DIET"), schema={}
+        Prompt(question="Generate a 3-day diet plan for this user.", categories=("DIET",)), schema={}
     )
 
     assert len(result["days"]) == 3

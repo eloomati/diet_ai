@@ -10,13 +10,14 @@ from .dto import (
     RefreshTokenResult,
     RequestPasswordResetCommand,
 )
-from .ports import EmailSender, PasswordHasher, RefreshTokenRepository, TokenService
+from .ports import CaptchaVerifier, EmailSender, PasswordHasher, RefreshTokenRepository, TokenService
 from .use_cases import (
     ConfirmEmailVerificationUseCase,
     ConfirmPasswordResetUseCase,
     EmailRetryStrategy,
     EmailVerificationRetryStrategy,
     IdentityApplicationError,
+    InvalidCaptchaError,
     InvalidCredentialsError,
     LoginUserUseCase,
     LogoutUseCase,
@@ -45,12 +46,14 @@ __all__ = [
     "TokenService",
     "RefreshTokenRepository",
     "EmailSender",
+    "CaptchaVerifier",
     "RegisterUserUseCase",
     "LoginUserUseCase",
     "LogoutUseCase",
     "IdentityApplicationError",
     "UserAlreadyExistsError",
     "InvalidCredentialsError",
+    "InvalidCaptchaError",
     "UserNotFoundError",
     "InvalidRefreshTokenError",
     "RefreshAccessTokenUseCase",

@@ -1,4 +1,4 @@
-# Diet AI - Implementation Roadmap
+      # Diet AI - Implementation Roadmap
 
 ## Purpose
 
@@ -68,17 +68,47 @@ Phase 9  - Meal Scheduling &         DONE (Stages 1-6/6) — pre-frontend
                                      and date-range filtering of plan
                                      history. See the 6-stage breakdown
                                      below.
-Phase 10+ - Frontend/Testing/Future  NOT STARTED
+Phase 10  - Frontend                 DONE (Etap 0-6/6) — real React app
+                                      (not the mockup) covering auth,
+                                      nutrition profile, chat, diet-plan
+                                      generation/calendar/export, a
+                                      cross-cutting Etap 5 polish pass
+                                      (toasts, responsive rails, a
+                                      design-system consistency pass),
+                                      and Etap 6's close-out (component-
+                                      test coverage audit, a manual
+                                      smoke walkthrough run against a
+                                      brand-new account, and this
+                                      README/architecture status flip) —
+                                      all verified end-to-end against
+                                      the real Docker stack.
+Phase 11  - Testing                  DONE — satisfied incrementally,
+                                      not as a separate phase: every
+                                      phase from 3 through 10 wrote its
+                                      own unit + integration tests as it
+                                      went (353 backend tests passing
+                                      against real ephemeral Postgres/
+                                      Mongo, plus the frontend's own
+                                      suite). End-to-end coverage is
+                                      manual, not one automated test —
+                                      `docs/https/*.http` +
+                                      `docs/frontend-smoke-walkthrough.md`
+                                      — matching how this project
+                                      verifies full flows everywhere
+                                      else.
+Phase 12+ - Future Improvements      NOT STARTED
 ```
 
-**Phases 3 through 9 are complete** — Identity (including account
+**Phases 3 through 11 are complete** — Identity (including account
 recovery), Nutrition Profile, Conversation + AI chat (including lifecycle
-management), Diet Plan generation, and Meal Scheduling & Calendar Export
-all work end-to-end against the real Docker stack, with docs
-(`architecture.md`, `domain-model.md`, `api.md`, `docs/https/*.http`) and
-`README.md` synced to match. Phase 10+ (Frontend, broader Reporting) is
-next — see that section below for the sparse original draft, not yet
-split into stages.
+management), Diet Plan generation, Meal Scheduling & Calendar Export, the
+Frontend, and Testing (satisfied incrementally by every phase along the
+way, verified retroactively rather than built as its own phase) all work
+end-to-end against the real Docker stack, with docs (`architecture.md`,
+`domain-model.md`, `api.md`, `docs/https/*.http`,
+`docs/frontend-smoke-walkthrough.md`) and `README.md` synced to match.
+Phase 12+ (speculative future improvements — background processing,
+caching, etc.) is next, whenever that's picked up.
 
 ---
 
@@ -2282,80 +2312,1530 @@ each endpoint's behavior).
 
 ---
 
-# Phase 10 - Frontend
+# Phase 10 - Frontend — DONE (Etap 0-6/6)
 
 Goal:
 
-Create user interface.
+Build the React frontend against the completed backend (Phases 3-9),
+matching an already-designed and user-approved interactive mockup
+(chat-first layout modeled on Claude/ChatGPT: collapsible left rail with
+history, collapsible right rail reserved for future roadmap items, a
+profile modal opened from an avatar icon with Profil/Plany/Kalendarz
+tabs, a dismissible login/register popup). Palette: beige + gold accent +
+sage green (a color-theory pick to complement the requested beige/yellow).
+Typography: Nunito (headings) / Nunito Sans (body).
 
 Technology:
 
-React
+React + Vite + TypeScript, Tailwind CSS v4, shadcn/ui, React Router,
+TanStack Query.
+
+Split into 7 stages of work (Etap 0-6), each further split into small
+stages — same rule as every backend phase: each stage is independently
+committable/reviewable. Etap 0 is the foundation every later etap builds
+on; Etap 1-4 each wire one backend module's endpoints to a real screen;
+Etap 5-6 are cross-cutting polish and test/docs sync.
 
 ---
 
-## Authentication
+# Etap 0 — Fundament — DONE (Stages 1-6/6)
 
-Implement:
+Goal: project scaffold + the static app shell (visually 1:1 with the
+approved mockup, fully interactive at the UI level — collapsing rails,
+opening the auth popup and profile modal, switching tabs) wired up to a
+real (but not-yet-exercised) API client and auth mechanism. No real
+login/data yet — that starts in Etap 1. Built against a user-approved
+interactive HTML/CSS/JS mockup (published as an Artifact) before any React
+code was written.
 
-- [ ] Login page
-- [ ] Registration page
-- [ ] JWT handling
+## Stage 1 — Tooling & scaffold — DONE
+
+- [x] `frontend/` — Vite + React + TypeScript (strict) project, replacing
+      the stray `frontend/__init__.py`. **Deviation**: `create-vite`'s
+      current template scaffolds **React 19** (not 18) and **oxlint**
+      instead of ESLint (its new default, Rust-based, faster) — kept both
+      rather than downgrading to match an outdated assumption; Prettier
+      added alongside oxlint for formatting (oxlint is lint-only).
+- [x] Tailwind CSS v4 (CSS-first `@theme` config, no `tailwind.config.ts`).
+- [x] shadcn/ui initialized (`style: base-nova`, built on **Base UI**
+      rather than Radix — the current shadcn default); base primitives
+      added: `button`, `dialog`, `input`, `tabs`, `avatar`, `scroll-area`.
+- [x] npm as the package manager (only one available in this environment).
+- [x] Vitest + React Testing Library configured (jsdom environment,
+      `src/test/setup.ts`), one smoke test.
+
+**Real problems hit and fixed**: (1) a corrupted `node_modules` left
+`tslib` missing despite the lockfile claiming otherwise, breaking the
+shadcn CLI (`recast` failed to resolve it) — fixed with a clean
+`rm -rf node_modules package-lock.json && npm install`. (2) shadcn's alias
+resolution didn't pick up the path alias from `tsconfig.app.json` alone
+and wrote generated files into a literal `frontend/@/...` directory
+instead of `src/` — fixed by adding matching `compilerOptions.paths` to
+the root `tsconfig.json` too, then moving the files. (3) TypeScript flagged
+`baseUrl` as deprecated (TS6100/5101) once paths were added — resolved by
+dropping `baseUrl` and keeping `paths` alone (resolves relative to the
+tsconfig file in current TS).
+
+Exit criteria met: `npm run build`, `npm run test`, `npm run lint` all
+green.
 
 ---
 
-## Chat
+## Stage 2 — Design tokens & fonts — DONE
 
-Implement:
+- [x] Palette ported 1:1 from the approved mockup directly into
+      `src/index.css`'s `:root`/`.dark` blocks (shadcn's generated
+      oklch neutral theme replaced with real hex values): beige
+      `#F6EFE2`/`#FFFCF6`, gold accent `#C98A1F`/`#E8AE3D`/`#FBEBC9`, sage
+      `#748C69`/`#DCE6D3`, warm-black text `#332B21`, mapped onto shadcn's
+      semantic slots (`--primary`, `--secondary`, `--accent`,
+      `--sidebar-*`, etc.) rather than a separate `tokens.css` file.
+      `.dark` variant written (not a naive invert — contrast re-checked)
+      but not switched on by any UI yet, per the mockup's own plan.
+- [x] `@fontsource/nunito` (800, headings) and `@fontsource/nunito-sans`
+      (400/700, body) — self-hosted, no Google Fonts CDN.
+- [x] `@theme` block maps `--font-heading`/`--font-sans` to the two
+      families; verified present in the compiled build CSS/font assets.
 
-- [ ] Chat window
-- [ ] Message history
-- [ ] Category tiles
-
-Categories:
-
-```
-Diet
-
-Fitness
-
-Health
-
-Running
-
-Supplements
-```
+Exit criteria met (adapted): rather than a throwaway swatch page, verified
+directly against the compiled build output (`--background:#f6efe2`/
+`#221d16`, 15 `@font-face` rules, both family names present) — full visual
+side-by-side happened naturally once Stage 4 built real screens.
 
 ---
 
-# Phase 11 - Testing
+## Stage 3 — API client & auth context (no UI yet) — DONE
+
+- [x] `src/lib/apiFetch.ts` — fetch wrapper with bearer-token injection,
+      refresh-once-on-401 (concurrent 401s coalesce into a single
+      `POST /auth/refresh` call), falls back to cleared tokens ("guest")
+      if refresh also fails. `ApiError` carries `status`/`code` from the
+      backend's common error shape.
+- [x] `src/lib/auth/tokenStore.ts` + `AuthContext`/`AuthProvider`/
+      `useAuth()` — access token in memory (`useSyncExternalStore`),
+      refresh token in `localStorage`.
+- [x] `src/lib/queryClient.ts` — TanStack Query client, wired into
+      `main.tsx` alongside `AuthProvider`.
+- [x] `src/api/{auth,profile,conversations,dietPlans}.ts` — typed 1:1
+      against `docs/api.md`.
+
+Exit criteria met: 9 Vitest unit tests (mocked `fetch`) — success path,
+refresh-then-retry, refresh-fails-clears-tokens, no-refresh-token-guest,
+and concurrent-401-coalescing; plus `AuthContext` login/logout tests.
+
+---
+
+## Stage 4 — Static app shell UI (matches the approved mockup) — DONE
+
+- [x] `features/shell/` — `AppShell`, `LeftRail` (avatar button,
+      collapse, `CategoryMenu`, history placeholder gated on
+      `useAuth().isAuthenticated`, "O nas" → `AboutDialog`), `RightRail`
+      ("Co nowego" placeholder).
+- [x] `features/shell/CategoryMenu.tsx` — full multi-select port of the
+      mockup's category picker (checkboxes, "Rozpocznij czat" disabled
+      until ≥1 selected) — kept as real local-state interaction since it
+      doesn't touch the API yet.
+- [x] `features/chat/ChatCanvas.tsx` — hero + composer; hero chips fill
+      the composer text; submit is a no-op (`preventDefault`) — real send
+      wiring is Etap 3.
+- [x] `features/auth/AuthPopup.tsx` — login/register tabs, guest-skip;
+      submit is intentionally a no-op here too (Etap 1 Stage 1 wires it
+      to the already-working `useAuth().login`/`register`, keeping this
+      stage's commit boundary clean).
+- [x] `features/profile/ProfileModal.tsx` — Dialog + Tabs
+      (Profil/Plany/Kalendarz), each tab a placeholder note pointing at
+      the etap that fills it in.
+- [x] Profile-icon gating ported: logged out → reopens `AuthPopup`;
+      logged in → opens `ProfileModal`.
+
+Exit criteria met — **verified live in a real browser** (Chrome via
+`claude-in-chrome`, not just visual inspection): popup dismiss/guest,
+avatar re-opening the popup while logged out, the full category
+multi-select flow (checkboxes → header pills), left-rail collapse/expand,
+and a clean console (no React warnings/errors) all confirmed against the
+running `npm run dev` server.
+
+---
+
+## Stage 5 — Routing — DONE
+
+- [x] React Router v6 (`BrowserRouter` in `main.tsx`); `App.tsx` routes:
+      `/` and `/:conversationId`, both rendering `AppShell`.
+- [x] `AppShell` reads `conversationId` via `useParams()` and passes it to
+      `ChatCanvas`, which shows it as a placeholder title
+      (`Rozmowa #12345678`) when no categories are active yet — read, not
+      fetched (Etap 3 does the real fetch).
+- [x] Starting a new chat (`CategoryMenu` confirm) calls `useNavigate()`
+      back to `/`, so a fresh chat drops any conversation id in the URL.
+
+Exit criteria met: confirmed live in-browser — navigating to
+`/11111111-2222-3333-4444-555555555555` renders the same shell with
+"Rozmowa #11111111" in the header (verified via page-text extraction, not
+just a screenshot). 10/10 Vitest tests green (added a `/:conversationId`
+case to `App.test.tsx` via `MemoryRouter`).
+
+---
+
+## Stage 6 — CORS, Docker, docs sync — DONE
+
+- [x] Backend: `Settings.cors_origins` (comma-separated string + derived
+      `cors_origins_list` property — simpler than a literal `list[str]`
+      env field, which pydantic-settings would otherwise expect as JSON
+      in a `.env` value) + `CORSMiddleware` added last in
+      `create_app()` (so it wraps every other middleware, per Starlette's
+      reverse-registration-order stacking) — confirmed missing entirely
+      beforehand (`grep` for `CORSMiddleware` found nothing).
+- [x] `docker-compose.yml` — new `frontend` service (`npm run dev --
+      --host`, port `5173:5173`, bind-mounted with an anonymous
+      `/app/node_modules` volume so the container's own install isn't
+      shadowed by the host mount); new `frontend/Dockerfile`
+      (`node:20-alpine`, `npm ci`) + `.dockerignore`.
+- [x] `frontend/.env.example` (`VITE_API_BASE_URL`, added back in Stage 3)
+      and root `.env.example`/`docker-compose.yml` gained `CORS_ORIGINS`.
+- [x] `README.md` — Frontend section, architecture diagram, project
+      structure tree, and the stale "Frontend (React/Vite/Tailwind)"
+      future-improvements line all updated to match reality.
+
+Exit criteria met: 2 new backend tests (`test_cors_allows_configured_
+frontend_origin`, `test_cors_does_not_reflect_an_unconfigured_origin`) —
+full backend suite 347/347. `docker build` + standalone `docker run` of
+the frontend image verified the dev server actually starts and responds
+(200 OK) inside the container, not just that the Dockerfile parses.
+
+---
+
+# Etap 1 — Autentykacja — DONE (Stages 1-6/6)
+
+Goal: replace Etap 0's non-functional `AuthPopup`/profile-gating with real
+auth against `docs/api.md`'s Authentication API.
+
+## Stage 1 — Register + login — DONE
+
+- [x] `AuthPopup`'s login/register tabs call real `POST /auth/register` /
+      `POST /auth/login`; success stores tokens via `AuthContext` and
+      closes the popup (mirrors the mockup's mock-login behavior).
+      **Deviation**: `POST /auth/register` doesn't return tokens (only
+      `user_id`/`email`), so a successful register immediately chains a
+      `login()` call with the same credentials — registering also starts a
+      session in one step, matching the mockup's expectation, without the
+      backend needing to change its response shape.
+- [x] Error states surfaced inline via an `ERROR_MESSAGES` code→Polish-text
+      map (409 `USER_ALREADY_EXISTS`, 401 `INVALID_CREDENTIALS`, 403
+      `INACTIVE_USER`, 422 `VALIDATION_ERROR`, 400 `INVALID_PASSWORD`).
+
+**Real problems hit and fixed**: live-browser testing surfaced that
+`ProfileModal` didn't close itself when a "Wyloguj się" click flipped
+`isAuthenticated` to `false` while the modal was open — a logged-out user
+would keep seeing their own profile tabs. Fixed with a `useEffect` in
+`ProfileModal.tsx` that closes the modal whenever `!isAuthenticated` while
+`open`.
+
+Exit criteria met: verified live in Chrome (`claude-in-chrome`) against the
+real Dockerized backend — register→auto-login, login, and each inline
+error path (wrong password, duplicate email) all confirmed, console clean.
+
+---
+
+## Stage 2 — Session bootstrap, refresh, logout — DONE
+
+- [x] On app load, `AuthProvider` silently redeems a stored refresh token
+      (`POST /auth/refresh` via `attemptTokenRefresh()`, exported from
+      `apiFetch.ts` and shared with the reactive 401-retry path) to restore
+      a session without forcing re-login; `isBootstrapping` gates the UI
+      until this resolves.
+- [x] Real logout (`POST /auth/logout`) wired to the profile modal's
+      "Wyloguj się" button — clears tokens/user state locally first (so the
+      UI reacts instantly), then best-effort revokes the refresh token
+      server-side (idempotent either way).
+- [x] `isAuthenticated` upgraded from "a token is present" to "a confirmed
+      `GET /auth/me` succeeded" — closes a gap where a stale/soon-to-expire
+      token would optimistically render a logged-in UI.
+
+Exit criteria met: confirmed live — refreshing the page mid-session
+silently restores it (no popup flash), and an expired/invalid refresh
+token correctly falls back to guest mode.
+
+---
+
+## Stage 3 — Password reset & email verification — DONE
+
+- [x] `POST /auth/password-reset/request` + `/confirm` via a dedicated
+      `ForgotPasswordFlow` (`request` → `confirm` → `done` steps).
+      **Deviation from the plan's "simple linked screens"**: the backend
+      only ever emails a *raw token* (see `EmailSender` in
+      `docs/architecture.md`), not a clickable link, so this had to be a
+      two-step in-popup form (paste the emailed code + new password)
+      rather than a separate reset-confirmation route/page.
+- [x] `POST /auth/verify-email/confirm` — a small form in the profile
+      modal's Profil tab; on success, re-fetches `GET /auth/me`
+      (`refreshUser()`) rather than flipping a local flag, so the
+      "✓ zweryfikowany" badge reflects real backend state if the tab is
+      reopened later.
+
+Exit criteria met: verified end-to-end against the real Mailhog inbox
+(`GET http://localhost:8025/api/v2/messages`) — extracted a real
+password-reset token and a real welcome/verification token from actual
+sent emails and completed both flows live, not just with mocked responses.
+
+---
+
+## Stage 4 — Session-aware gating — DONE
+
+- [x] `GET /auth/me` (via the Stage 2 `isAuthenticated`) backs the profile
+      icon's gating (logged out → re-opens `AuthPopup`; logged in → opens
+      `ProfileModal`) and left-rail history visibility.
+- [x] Avatar initials in `LeftRail` now derived from the real
+      `user?.email` (first two characters, uppercased) instead of a
+      placeholder.
+
+Exit criteria met: confirmed live in-browser across logged-out/logged-in
+states — profile icon behavior, avatar initials, and history-panel gating
+all matched the mockup's intended behavior with no regressions to Stage
+1-3 flows.
+
+---
+
+## Stage 5 — CAPTCHA on registration & password-reset request — DONE
+
+Goal: stop bot signups and reset-email flooding, following the exact
+"swappable external-verification port" pattern already established for
+`EmailSender`/`SftpClient` (see `docs/architecture.md`) — not a bespoke
+mechanism.
+
+- [x] Backend: new `application/ports/captcha_verifier.py` — `CaptchaVerifier`
+      port with `verify(token: str) -> bool`. Two implementations:
+      `MockCaptchaVerifier` (always `True` — default in dev/tests, no
+      external dependency) and `TurnstileCaptchaVerifier` (Cloudflare
+      Turnstile's `siteverify` endpoint via an injectable `httpx.AsyncClient`,
+      chosen over reCAPTCHA for the simpler API and no Google account
+      requirement). Selected via `CAPTCHA_PROVIDER=mock|turnstile`, matching
+      `EMAIL_PROVIDER`/`SFTP_PROVIDER`'s existing convention. New settings:
+      `captcha_provider`, `captcha_secret_key`.
+- [x] `RegisterUserUseCase` and `RequestPasswordResetUseCase` both require a
+      valid captcha token before doing anything else — a failed/missing
+      token is rejected before touching the domain layer (same "fail
+      before real work" shape as the diet-plan profile-required check;
+      for the reset-request flow specifically, the captcha check happens
+      *before* the existing don't-leak-existence logic, so a failed
+      captcha still reveals nothing about the email). **Not** added to
+      login, per the original plan — no bot-specific benefit gained there,
+      and CAPTCHA-on-every-login is a real UX cost for legitimate users.
+- [x] `RegisterRequest`/`RequestPasswordResetRequest` schemas gain a
+      required `captcha_token: str` field; a missing token is 422
+      `VALIDATION_ERROR`, a failed one is 400 `BAD_REQUEST` (reusing the
+      existing error code — this isn't a new failure *kind*).
+- [x] Frontend: a new `Captcha` component wraps Cloudflare Turnstile's
+      script/widget, rendered in `AuthPopup`'s register form and
+      `ForgotPasswordFlow`'s request step; the widget's token is sent
+      alongside the existing fields, and submit is disabled until a token
+      is present. Site key via `VITE_TURNSTILE_SITE_KEY`. **Deviation**:
+      when the site key is unset (local dev without a Cloudflare account,
+      and the test environment), `Captcha` renders nothing and
+      auto-resolves with a fixed placeholder token instead of blocking the
+      form — mirrors the existing `EMAIL_PROVIDER=mock` philosophy, and
+      the backend's default `CAPTCHA_PROVIDER=mock` accepts it.
+
+**Real problems hit and fixed**: propagating the new required
+`captcha_token` field touched ~15 backend test files (every place
+constructing `RegisterUserCommand`/`RequestPasswordResetCommand` or calling
+the two endpoints) — handled with the same "implement production code
+first, run the full suite for the definitive failure list, fix
+systematically file by file" technique already proven on the earlier
+multi-category migration.
+
+Exit criteria met: with `CAPTCHA_PROVIDER=mock` (default), registration and
+password-reset-request work exactly as before — no regression to Stage
+1/3's already-verified flows. Backend suite green at 353/353. Frontend
+`Captcha` behavior (auto-resolve with the dev placeholder token) covered by
+a dedicated component test in Stage 6.
+
+---
+
+## Stage 6 — Tests & docs sync — DONE
+
+- [x] Component tests added for the auth flows (mocked `fetch`, real
+      `AuthProvider`): `AuthPopup.test.tsx` (login success/error,
+      register success chaining into login, duplicate-email error,
+      guest-skip, forgot-password navigation), `ForgotPasswordFlow.test.tsx`
+      (full request→confirm→done flow, invalid-token error, "Mam już kod"
+      shortcut), `ProfilTab.test.tsx` (unverified→verify→badge transition,
+      already-verified badge, invalid-token error, logout), and
+      `Captcha.test.tsx` (dev-placeholder-token auto-resolve when no site
+      key is configured).
+- [x] `docs/api.md` cross-checked against `auth_router.py`'s actual
+      request/response/error handling for all 8 auth endpoints — no
+      discrepancies found (the `captcha_token` docs added in Stage 5 were
+      already accurate).
+- [x] Roadmap status updated (this section).
+
+**Real problems hit and fixed**: writing `ForgotPasswordFlow.test.tsx`
+with `getByLabelText` surfaced a genuine accessibility defect — `<label>`
+elements in `ForgotPasswordFlow.tsx`, `AuthPopup.tsx`, and `ProfilTab.tsx`
+had no `htmlFor`/`id` association with their `<Input>` fields. Fixed all
+three (6 field pairs total), not just worked around in the tests.
+
+Exit criteria met: `npm run build`, `npm run test` (30/30), and
+`npm run lint` all green.
+
+---
+
+# Etap 2 — Profil żywieniowy — DONE (Stages 1-4/4)
+
+Goal: wire the profile modal's "Profil" tab to
+`docs/api.md`'s Nutrition Profile API.
+
+## Stage 1 — Profile form — DONE
+
+- [x] `GET/POST/PUT /profile` — form fields: age, height_cm, weight_kg,
+      activity_level, goal, diet_type (matches the mockup's form layout).
+      `NutritionProfileForm` (new, rendered inside `ProfilTab`) uses
+      TanStack Query: `useQuery(['profile'], getProfile)` with `retry:
+      false` (a 404 here is "no profile yet" — an expected first state,
+      not a transient failure) drives create-vs-edit mode; `useMutation`
+      calls `createProfile`/`updateProfile` depending on whether a profile
+      already exists, and writes the result straight into the query cache
+      on success (`queryClient.setQueryData`) instead of refetching.
+- [x] Enum dropdowns (`activity_level`, `goal`, `diet_type`) via a new
+      shadcn `select` component; Polish labels sourced from a new
+      `src/lib/profileOptions.ts` (same `{value, label}` +
+      `LABEL_BY_VALUE`-map shape as the existing `categoryOptions.ts`, for
+      consistency).
+- [x] `weekly_obligations` intentionally omitted from this stage's
+      create/update payloads — per `docs/api.md`, omitting the field
+      entirely leaves the existing schedule untouched, so this stage's
+      payload shape doesn't collide with Stage 2's editor.
+
+**Real problems hit and fixed**: Base UI's `<Select>` only echoes the raw
+enum value in its trigger by default (`<SelectValue />` shows the string
+itself, not the matching `<SelectItem>`'s label) — first live check showed
+literal `"MODERATE"`/`"MAINTENANCE"`/`"STANDARD"` in the closed dropdowns
+instead of Polish text. Fixed by giving `<SelectValue>` a render-function
+child (`{(value) => activityLevelLabel(value)}`, etc.) that looks the
+label up from `profileOptions.ts`.
+
+Exit criteria met: 3 new Vitest component tests (`NutritionProfileForm.test.tsx`
+— create-when-missing, pre-fill-and-PUT-when-existing, inline error on an
+unexpected failure); full suite 33/33, `npm run build`/`npm run lint`
+green. Verified live against the real Dockerized backend: created a
+profile, confirmed it survives a full page reload (`GET /profile`), then
+edited the weight and confirmed the `PUT /profile` request body and the
+"Zapisano ✓" confirmation, with a clean browser console throughout.
+
+## Stage 2 — Weekly obligations editor — DONE
+
+- [x] Editable list of `weekly_obligations` (day_of_week, start_time,
+      end_time, label) — the mockup shows these as read-only tag rows;
+      this stage makes them add/edit/remove. New `WeeklyObligationsEditor`
+      (controlled `value`/`onChange`, lifted into `NutritionProfileForm`'s
+      form state) renders existing entries as removable rows and a small
+      add-row (day `<Select>`, two `<input type="time">`, a label input,
+      "Dodaj" button disabled until day/start/end/label are all filled
+      and `end_time > start_time`).
+- [x] `weekly_obligations` now included in both the create (`POST`) and
+      update (`PUT`) payloads — Stage 1 deliberately omitted it; this
+      stage closes that gap.
+- [x] Day-of-week Polish labels added to `profileOptions.ts`
+      (`DAY_OF_WEEK_OPTIONS` + `dayOfWeekLabel`), same shape as the
+      Stage 1 enum options. Time fields round-trip as plain `"HH:MM"`
+      strings — matches the backend's `time.fromisoformat`/
+      `isoformat(timespec="minutes")` on both ends, no seconds needed.
+
+Exit criteria met: 3 new `WeeklyObligationsEditor.test.tsx` tests (add
+clears the mini-form, disabled+hint when `end <= start`, remove) plus the
+existing `NutritionProfileForm` tests updated for the new field; full
+suite 36/36, `npm run build`/`npm run lint` green. Verified live against
+the real backend: added a Monday 09:00–17:00 "Praca" obligation, saved,
+reloaded the page and confirmed it survived (`GET /profile`), then removed
+it and saved an empty list back successfully — clean console throughout.
+
+## Stage 3 — Validation & error states — DONE
+
+- [x] 422 range validation (age 1-120, height_cm 50-250, weight_kg
+      20-400) — prevention-first: native HTML5 `min`/`max`/`required`
+      on the number inputs blocks an out-of-range submit before any
+      request fires (confirmed live — typing `999` into "Waga" and
+      clicking "Zapisz zmiany" sent zero network requests), plus a new
+      range hint (`"1-120 lat"`, `"50-250 cm"`, `"20-400 kg"`) under each
+      field. A backend `VALIDATION_ERROR` that gets through anyway (e.g.
+      a stale form bypassing client checks) now maps to a friendly Polish
+      message instead of the raw pydantic error text.
+- [x] 409 on duplicate `POST`, 404 on `PUT` with no profile yet — both
+      now resync instead of just displaying an error: `saveMutation`'s
+      `onError` calls `queryClient.invalidateQueries(['profile'])`
+      whenever the code is `CONFLICT` or `NOT_FOUND`, since either one
+      means the cached create-vs-edit assumption is stale (a profile was
+      created/deleted concurrently). The refetch flips the form between
+      create/edit mode to match server reality instead of leaving it
+      retrying the wrong request type.
+- [x] 400 on an obligation's `end_time <= start_time` — already prevented
+      client-side by `WeeklyObligationsEditor`'s "Dodaj" (Stage 2); the
+      matching backend `BAD_REQUEST` (if it ever reaches the server, e.g.
+      a race) now maps to the same friendly message rather than the raw
+      domain-exception text.
+- [x] A shared `ERROR_MESSAGES` code→Polish-text map added to
+      `NutritionProfileForm` (`VALIDATION_ERROR`, `CONFLICT`, `NOT_FOUND`,
+      `BAD_REQUEST`), mirroring the existing pattern in `AuthPopup`/
+      `ForgotPasswordFlow`.
+
+Exit criteria met: real backend hit directly (`curl`) to confirm the exact
+`code`/`message` shape for all three error paths (409 `CONFLICT`, 422
+`VALIDATION_ERROR`, 400 `BAD_REQUEST`) before wiring the map — no
+guessing. 3 new Vitest cases (422 friendly message, 409 resync-to-edit,
+404-during-PUT resync-to-create); full suite 39/39, `npm run build`/
+`npm run lint` green. Verified live: native validation blocking an
+out-of-range save (zero requests sent, confirmed via network-request
+inspection), then a valid save succeeding normally right after.
+
+## Stage 4 — Tests & docs sync — DONE
+
+- [x] Component test coverage assembled across Stages 1-3 reviewed as a
+      whole: `NutritionProfileForm.test.tsx` (6 cases — create-when-missing,
+      pre-fill-and-PUT, unexpected-fetch-error, 422 friendly message, 409
+      resync-to-edit, 404-during-PUT resync-to-create) and
+      `WeeklyObligationsEditor.test.tsx` (3 cases — add-and-clear,
+      disabled+hint on `end <= start`, remove). No gaps found; no new
+      tests needed beyond what each stage already added.
+- [x] `docs/api.md`'s Nutrition Profile API section cross-checked against
+      `profile_router.py`'s actual request/response/error handling for
+      `GET`/`POST`/`PUT /profile` — status codes, error codes
+      (`CONFLICT`, `NOT_FOUND`, `BAD_REQUEST`), and all four enums
+      (`ActivityLevel`, `DietGoal`, `DietType`, `DayOfWeek`) diffed
+      directly against the domain value objects — no discrepancies found.
+- [x] Roadmap status updated (this section) — Etap 2 marked DONE.
+
+**Real problems hit and fixed**: none new in this stage — the accessibility
+and Select-label bugs were caught and fixed in Stages 1-2 as they were
+introduced, not deferred here.
+
+**Noted but out of scope**: a full backend suite run surfaced 2 pre-existing
+failures in `test_diet_plan_api.py`
+(`test_list_diet_plans_from_today_includes_todays_plan`,
+`test_list_diet_plans_to_in_the_past_excludes_todays_plan`), unrelated to
+this Etap — no backend files were touched (`git status backend/` empty
+throughout). Root cause appears to be a UTC-vs-local-timezone boundary
+mismatch between the test's `date.today()` (local time) and however diet
+plans are timestamped/queried, only visible when the local clock has
+crossed midnight but UTC hasn't yet. Left unfixed as out of scope for a
+frontend nutrition-profile stage; worth a dedicated look when Etap 4
+(Plany dietetyczne) is underway.
+
+Exit criteria met: frontend suite 39/39, `npm run build`/`npm run lint`
+green. Backend nutrition module 137/139 (2 pre-existing, unrelated
+failures noted above, not introduced by this Etap).
+
+---
+
+# Etap 3 — Konwersacje/Chat — DONE (Stages 1-5/5)
+
+Goal: wire the chat canvas and left-rail history to
+`docs/api.md`'s Conversation API (`categories` is a list — see the
+multi-category backend change already shipped).
+
+## Stage 1 — List + create — DONE
+
+- [x] "Nowy czat" category picker (already built in Etap 0) now wired to
+      real `POST /conversations` — `AppShell` gained a `useMutation` that
+      posts `{ title, categories }` and, on success, sets `activeCategories`
+      from the response, navigates to `/{conversation_id}`, and invalidates
+      the `['conversations']` query so the new chat shows up in the sidebar
+      immediately.
+- [x] `title` auto-derived from the selected categories
+      (`formatCategories(categories, CATEGORY_OPTIONS.length)`, e.g.
+      "Dieta, Fitness") — the mockup's category picker never designed a
+      separate title field, and `POST /conversations` requires a non-empty
+      `title`, so deriving it from the (always non-empty) category
+      selection avoids inventing UI the mockup didn't call for.
+- [x] `GET /conversations` backs the left-rail history list —
+      `LeftRail` gained a `useQuery(['conversations'], listConversations,
+      { enabled: isAuthenticated })` with loading/error/empty states,
+      replacing Etap 0's static "Brak jeszcze żadnych rozmów." placeholder
+      with the real (possibly still-empty) list. Rows show title +
+      `formatCategories(...)` + an "· zarchiwizowana" suffix for archived
+      conversations, and highlight the currently open conversation.
+      **Deferred to Stage 4 on purpose**: the richer per-category tag
+      chips + "+N" overflow badge styling from the mockup — this stage's
+      rows are a plain (but fully real-data-backed) list.
+- [x] Clicking a sidebar row (`onSelectConversation`) sets
+      `activeCategories` from the already-fetched `ConversationSummary`
+      and navigates to `/{conversation_id}` — no extra fetch needed since
+      the list summary already carries `categories`.
+- [x] A minimal inline error banner ("Nie udało się utworzyć rozmowy.
+      Spróbuj ponownie.") under the category picker on a failed create —
+      not deferred entirely to Etap 5's global toast system, since a
+      silent failure here would look like a dead button.
+
+**Real problems hit and fixed**: the first `AppShell.test.tsx` draft
+logged in by calling `useAuth().login()` directly from a mounted-once
+helper component (the same trick used in `ProfilTab.test.tsx`). That
+collided with `AppShell`'s own "open the auth popup while logged out"
+effect — the popup opened during the brief window between bootstrap
+finishing and `login()` resolving, and Base UI's dialog marked the rest of
+the page `inert`, hiding every other role-query target and failing the
+test. Fixed by logging in through the real `AuthPopup` UI (typing
+credentials and clicking its submit button, which already closes itself
+on success) instead of bypassing it — also a more faithful test of the
+actual user flow.
+
+Exit criteria met: 4 new `AppShell.test.tsx` cases (list renders, empty
+state, create-and-navigate with a verified `POST` body, error banner on a
+failed create); full suite 43/43, `npm run build`/`npm run lint` green.
+Verified live against the real backend: created two conversations with
+different categories from the category picker, confirmed each appeared
+immediately in the sidebar with correct highlighting, confirmed the list
+and the selected conversation's URL both survive a full page reload, and
+switching between sidebar rows correctly re-navigates and re-highlights —
+clean console throughout.
+
+## Stage 2 — Chat window — DONE
+
+- [x] `GET /conversations/{id}` — `ChatCanvas` gained
+      `useQuery(['conversation', conversationId], ..., { retry: false,
+      enabled: !!conversationId })`; a 404/deleted conversation is a
+      permanent state, not worth retrying. This also closes the gap Stage 1
+      left on purpose: the header now shows the conversation's *real*
+      categories (fetched, not just locally-remembered) on every entry
+      point — fresh creation, a sidebar click, a direct URL visit, or a
+      full page reload — instead of the `Rozmowa #12345678` placeholder.
+- [x] `POST .../messages` — a `useMutation` that sends the composer's text,
+      then appends both the user message and the AI's reply straight into
+      the `['conversation', id]` query cache from the response (no refetch
+      needed): `SendMessageResponse` only returns ids + the assistant's
+      text, so the two `Message` objects are constructed client-side with
+      `new Date().toISOString()` for `created_at` — good enough for
+      immediate display; the next real fetch (e.g. a reload) gets the
+      server's authoritative timestamps anyway.
+- [x] `AppShell`'s local `activeCategories` state (and the
+      `onSuccess`/`onSelectConversation` code that maintained it) removed
+      entirely — now that `ChatCanvas` fetches its own conversation detail,
+      duplicating categories in two places was unnecessary. The one
+      remaining optimization: `AppShell`'s create-mutation still
+      pre-seeds `['conversation', id]` with `{ ...conversation, messages:
+      [] }` right after creation (a brand-new conversation always starts
+      with zero messages), so navigating to it never shows a loading flash.
+- [x] Message bubbles (`MessageBubble`): user messages right-aligned on
+      `bg-primary`, assistant left-aligned on `bg-card`, a `SYSTEM` role
+      rendered as small centered text (unused today, but the schema
+      allows it). A "Diet AI pisze odpowiedź…" line shows while the
+      mutation is in flight.
+- [x] 409 `CONFLICT` (archived conversation — full handling is Stage 3,
+      but the error needs *some* message now that sending is real) maps to
+      "Ta rozmowa jest zarchiwizowana — nie można już do niej pisać.";
+      anything else falls back to a generic retry message.
+
+**Real problems hit and fixed**: (1) jsdom has no `Element.scrollTo`, so
+the auto-scroll-to-latest-message effect crashed every test that reached
+the message list — guarded with `scrollRef.current?.scrollTo?.(...)`.
+(2) The first cut of `showHero` (`messages.length === 0`) hid the
+"pisze odpowiedź…" indicator for a brand-new conversation's first message,
+since `messages` only grows *after* the mutation succeeds — the hero
+would stay on screen through the entire wait with no feedback. Fixed by
+also gating on `sendMessageMutation.isIdle`, so hero disappears the
+instant a send starts. (3) That same condition then hid the *error* state
+for a conversation that failed to load (0 messages + never sent = looked
+identical to "genuinely empty") — fixed by also requiring
+`conversationQuery.isSuccess`, so hero only shows once the fetch is
+confirmed successful.
+
+Exit criteria met: 6 new `ChatCanvas.test.tsx` cases (hero with no
+conversation, hero for an empty freshly-created one, history render +
+send, archived-conversation error, failed-load error state, composer
+disabled while pending) plus updated `AppShell.test.tsx` cases; full suite
+49/49, `npm run build`/`npm run lint` green. Verified live against the
+real backend with `AI_PROVIDER=ollama` (not mocked) — sent a real message
+in an existing conversation, watched the "pisze odpowiedź…" indicator,
+got a genuine Ollama-generated reply rendered in a bubble, confirmed both
+messages survive a full page reload via `GET /conversations/{id}`, and
+confirmed the header now shows real fetched categories instead of the
+Stage 1 placeholder — clean console throughout.
+
+## Stage 3 — Archive & delete — DONE
+
+- [x] Two small icon buttons added to `ChatCanvas`'s header, next to the
+      category chips (only rendered once a conversation is loaded):
+      `Archive` (hidden once already archived — a "Zarchiwizowana" badge
+      takes its place) and `Trash2` (always available). Both are
+      `useMutation`s; archive writes the returned `ConversationDetail`
+      straight into the `['conversation', id]` cache and delete removes
+      that cache entry, invalidates `['conversations']`, and navigates
+      back to `/` — the sidebar and the canvas both update from the same
+      cache invalidation, no extra prop wiring needed between them.
+- [x] Deleting requires a native `window.confirm` ("Czy na pewno chcesz
+      usunąć tę rozmowę? Tej operacji nie można cofnąć.") — per
+      `docs/api.md`, deletion has no undo/restore endpoint, so an
+      accidental click needs a real speed bump. Archiving doesn't prompt —
+      it's non-destructive (history stays readable per the API docs), just
+      one-directional (no unarchive endpoint exists).
+- [x] Archived conversations proactively disable the composer and show
+      "Ta rozmowa jest zarchiwizowana — nie można już do niej pisać." as
+      soon as the fetched conversation's `status` is `ARCHIVED` — not just
+      reactively after a rejected `POST .../messages` (that 409 → the same
+      message path from Stage 2 still exists as a fallback for the race
+      where a conversation gets archived from another tab mid-type).
+
+Exit criteria met: 4 new `ChatCanvas.test.tsx` cases (archive disables the
+composer, an already-archived conversation shows the disabled state
+immediately on load, delete-after-confirm fires the request, delete
+dismissed does not) plus a new `AppShell.test.tsx` integration case
+(deleting the currently-open conversation navigates back to the "Nowa
+rozmowa" hero); full suite 54/54, `npm run build`/`npm run lint` green.
+Verified live against the real backend: archived a real conversation,
+confirmed the badge/disabled-composer/notice appeared instantly and
+survived a page reload, and confirmed the delete button is present and
+correctly wired — the actual delete click was **not** performed live,
+since it opens a native `window.confirm()` dialog that would block all
+further browser-automation commands; the confirm/cancel paths were
+already exercised thoroughly (and safely) via the automated tests instead.
+
+## Stage 4 — Real history in the left rail — DONE
+
+- [x] Replaced Stage 1's plain-text category subtitle with real per-category
+      tag chips (`ConversationRowTags`, new in `LeftRail.tsx`) — emoji +
+      Polish label per category (`categoryLabel`, new export in
+      `categoryOptions.ts`, mirroring the existing `categoryEmoji`), and a
+      "+N" overflow badge once a conversation has more than
+      `MAX_VISIBLE_TAGS` (2) categories — matches the mockup's overflow
+      treatment for 3+ categories.
+- [x] Conversations sorted by `updated_at` descending (most recently
+      active first) — client-side, since ISO 8601 timestamps sort
+      correctly as plain strings; the list wasn't ordered at all before
+      this stage.
+- [x] Archived conversations get a visibly muted row (`opacity-60`) plus
+      an outlined "Archiwum" chip, replacing Stage 1's plain
+      "· zarchiwizowana" text suffix.
+
+**Deferred, noted for Etap 5's design-system pass**: `ChatCanvas`'s header
+chips (Stage 1/2) still show the raw category enum (`"🥗 DIET"`) rather
+than the Polish label now used in the sidebar — left as-is since fixing it
+was outside this stage's explicit scope (left rail only), but the
+inconsistency is real and worth a pass once Etap 5 reviews the whole
+design system.
+
+Exit criteria met: 3 new `LeftRail.test.tsx` cases (tag chips + "+N"
+overflow, sort-by-`updated_at`, archived styling/badge); full suite
+57/57, `npm run build`/`npm run lint` green. Verified live against the
+real backend: existing conversations picked up the new chip styling
+immediately, the more-recently-archived "Zdrowie" conversation correctly
+sorted above the older "Dieta, Fitness" one, and a fresh 4-category
+conversation showed exactly 2 tag chips + a "+2" badge — clean console
+throughout.
+
+## Stage 5 — Tests & docs sync — DONE
+
+- [x] Test coverage assembled across Stages 1-4 reviewed as a whole:
+      `AppShell.test.tsx` (9 cases — list/empty/create/error from Stage 1,
+      delete-navigates-to-hero from Stage 3), `ChatCanvas.test.tsx` (10
+      cases — hero/history/send/errors from Stage 2, archive/delete from
+      Stage 3), `LeftRail.test.tsx` (3 cases — tag chips, sorting, archived
+      styling, from Stage 4). No gaps found; no new tests added in this
+      stage beyond what each stage already covered as it was built.
+- [x] `docs/api.md`'s Conversation API section cross-checked against
+      `conversation_router.py`'s actual request/response/error handling
+      for all 6 endpoints (`POST/GET /conversations`, `GET/POST
+      .../messages`, `POST .../archive`, `DELETE /conversations/{id}`) —
+      status codes, error codes (`NOT_FOUND`, `CONFLICT`), and both enums
+      (`ConversationCategory`'s 8 values, `MessageRole`'s 3 values) diffed
+      directly against the domain value objects — no discrepancies found.
+- [x] Roadmap status updated (this section) — Etap 3 marked DONE.
+
+Exit criteria met: frontend suite 57/57, `npm run build`/`npm run lint`
+green; backend `conversation` module 54/54 (untouched this Etap — pure
+frontend work, confirmed via `git status backend/` staying empty
+throughout). Final live pass against the real backend (`AI_PROVIDER=ollama`,
+not mocked): fresh dev-server start with all three conversations from
+prior stages (`Zdrowie` archived, `Dieta, Fitness`, and the 4-category one
+with its "+2" badge) all rendering correctly together — clean console.
+
+---
+
+# Etap 4 — Plany dietetyczne — DONE (Stages 1-6/6)
+
+Goal: wire the profile modal's "Plany" and "Kalendarz" tabs, plus the
+chat's "Generuj plan" button, to `docs/api.md`'s Diet Plan API.
+
+## Stage 1 — Generate — DONE
+
+- [x] "Generuj plan" button in the chat composer (Etap 0's placeholder)
+      wired to `POST /diet-plans/generate` via a `useMutation`. Works from
+      any state — the bare hero screen with no conversation at all, or
+      inside an existing one — since plan generation is purely
+      profile-based and doesn't need a `conversation_id`.
+      **Deviation**: 404 (no profile yet) maps to a friendly prompt
+      ("Uzupełnij najpierw profil żywieniowy (zakładka Profil), żeby
+      wygenerować plan.") per the roadmap's plan; graying out the button
+      proactively is confirmed out of scope (needs a backend heuristic for
+      "enough info", not built yet).
+- [x] `duration_days`: no UI control exists yet (the mockup never designed
+      one) — hardcoded to **3**, not the originally-planned 7. Found live:
+      the small local Ollama model (`AI_PROVIDER=ollama`, this repo's dev
+      default) reliably failed to produce valid structured output for a
+      7-day plan (two consecutive real `500`s), while `duration_days: 1`
+      succeeded immediately — confirmed via direct `curl` against the real
+      backend, isolating the failure to generation size, not a frontend
+      bug. Switched the default to 3, matching `docs/api.md`'s own request
+      example; a real 3-day generation succeeded live afterward. Exit
+      criteria for later stages should keep this in mind if a duration
+      picker is ever added — day-count directly trades off against local
+      model reliability (Claude in production doesn't have this problem
+      per the docs' own error note).
+- [x] `requirements`: derived from the composer's current text (trimmed,
+      single-element array) if non-empty, otherwise omitted — lets a user
+      type free-text hints and either send it as a chat message or use it
+      to steer plan generation instead, with no separate requirements
+      input needed.
+- [x] Successful generations render inline as a new `DietPlanCard` (goal +
+      diet type + duration header, then each day's meals with time/
+      calories/macros) directly in the chat canvas — Stages 2/3 (plan
+      list, calendar) don't exist yet, so this is the only place to see a
+      freshly generated plan right now.
+
+Exit criteria met: 4 new `ChatCanvas.test.tsx` cases (renders a generated
+plan with no active conversation, includes typed composer text as a
+requirement, 404 → profile-completion prompt, 500 → generic retry
+message); full suite 61/61, `npm run build`/`npm run lint` green.
+Verified live against the real backend (`AI_PROVIDER=ollama`): the
+duration_days-7-fails/1-succeeds isolation above, then a real 3-day plan
+generated successfully end-to-end and rendered correctly (3 days × 5
+meals each with real macros) — confirmed via `get_page_text` after the
+browser's screenshot capture started timing out under the host's Ollama
+CPU load (a tooling/resource hiccup, not an app issue — network-request
+inspection independently confirmed the `POST` returned `201`). Clean
+console throughout.
+
+## Stage 2 — Plan list with date filter — DONE
+
+- [x] `PlanyTab` (Etap 0's placeholder) wired to `GET /diet-plans?from&to`
+      via `useQuery` keyed on the applied range; two native
+      `<input type="date">` fields + a "Filtruj" button — filter state is
+      only applied on submit, not on every keystroke, so typing a partial
+      date doesn't refetch mid-edit.
+- [x] Each row shows goal + diet type + duration (`goalLabel`/
+      `dietTypeLabel`, reused from Etap 2) and the plan's `created_at`
+      formatted via `Intl`/`toLocaleDateString('pl-PL', ...)` (e.g.
+      "19 lipca 2026").
+- [x] Clicking a row expands it in place and lazily fetches
+      `GET /diet-plans/{id}` (full `days`/`meals`), rendering the same
+      shared `DietPlanCard` component used by Stage 1's inline
+      just-generated view — extracted out of `ChatCanvas.tsx` into a new
+      `features/dietPlans/DietPlanCard.tsx` so both call sites (chat and
+      the Plany tab) share one implementation instead of duplicating it.
+- [x] 400 `BAD_REQUEST` (`from` after `to`) maps to a friendly message
+      ("Data początkowa musi być wcześniejsza niż data końcowa.");
+      generic fetch failures get a retry message; an empty result set gets
+      its own "Brak wygenerowanych planów w tym zakresie dat." — distinct
+      from the error state.
+
+Exit criteria met: 5 new `PlanyTab.test.tsx` cases (list render, empty
+state, 400 friendly message, filter-submit sends the right query params,
+row-expand fetches and renders detail); full suite 66/66, `npm run build`/
+`npm run lint` green. Verified live against the real backend, reusing the
+two real diet plans persisted from Stage 1's live testing: the list showed
+both ("3 dni" and "1 dzień", both dated "19 lipca 2026" in Polish),
+expanding the 1-day plan correctly fetched and rendered its real meals,
+and filtering to a January 2026 range correctly returned the
+"brak planów" empty state (confirmed via the actual `GET
+.../diet-plans?from=2026-01-01&to=2026-01-31` network request) — clean
+console throughout.
+
+## Stage 3 — Calendar view — DONE
+
+- [x] `KalendarzTab` (Etap 0's placeholder) wired to `GET /diet-plans`
+      (for a plan picker) + `GET /diet-plans/{id}` (for the grid) — a new
+      `<Select>` lets the user pick which generated plan to view, defaulting
+      to the newest one. **Deviation from a literal reading of the plan**:
+      a `DietPlan`'s `days` only carry a relative `day_number` (1..N), never
+      an absolute calendar date, so "weekly grid with prev/next week
+      navigation" is interpreted as paginating through *that one plan's own*
+      days in chunks of 7 — not a real Mon-Sun calendar. Since
+      `duration_days` is capped at 14 (`docs/api.md`), that's at most two
+      "weeks" per plan, which is exactly what "prev/next week" suggests.
+- [x] Grid: day columns (the current 7-day window) × time rows, where rows
+      are derived from the actual distinct meal times present across the
+      visible days (sorted chronologically), plus one "Bez pory" row for
+      meals with no AI-suggested time — not an arbitrary fixed hourly
+      scale, so the grid never has empty rows for times nothing uses.
+      Each populated cell is a small meal chip (name + calories).
+- [x] Prev/next week buttons disable at the plan's own boundaries; a
+      1-3-day plan (this repo's current real data) simply never enables
+      "Następny tydzień" since it only has one window.
+
+**Real problems hit and fixed**: (1) the first draft's `Select` flipped
+from uncontrolled (`value=undefined`, before the plans list loaded) to
+controlled (a real plan id) once a `useEffect` set the auto-selected plan
+— Base UI (like React) warns against this, and a live check confirmed it.
+Fixed by deriving `effectivePlanId` synchronously during render
+(`selectedPlanId ?? plansQuery.data?.[0]?.plan_id ?? null`) instead of an
+effect + separate state, so the Select is never mounted before a real
+value exists. (2) Same `<SelectValue>`-shows-the-raw-id bug as Etap 2
+Stage 1 (Base UI's trigger echoes the literal value unless given a
+render-function child) — the plan picker showed a raw UUID instead of its
+formatted label; fixed the same way, with a render function that looks the
+plan up by id. (3) An initial extra "Pełne szczegóły planu"
+`<details>`-collapsed `DietPlanCard` caused duplicate-text test failures,
+since collapsed `<details>` content is still present in the DOM (and
+duplicated the "Dzień N" headings already in the grid) — removed
+entirely as redundant scope beyond what this stage asked for; the grid
+already shows every meal, and the Plany tab (Stage 2) already offers the
+full macro breakdown.
+
+Exit criteria met: 4 new `KalendarzTab.test.tsx` cases (empty state,
+auto-select-and-render-grid, 10-day plan paginates across two weeks with
+correct boundary-disabling, error state); full suite 70/70, `npm run
+build`/`npm run lint` green — including confirmation the Base UI
+controlled-value console warning is gone. Verified live against the real
+backend, reusing the two real plans from Stage 1/2: the plan picker
+correctly showed formatted labels (not raw ids) for both, the grid
+rendered the real all-null-`time` plan correctly under a single "Bez pory"
+row, and switching plans via the picker correctly re-fetched and
+re-rendered the other one — clean console throughout.
+
+## Stage 4 — Reschedule (drag & drop) — DONE
+
+- [x] `KalendarzTab`'s grid meal chips are draggable via pointer events
+      (`onPointerDown`/`onPointerEnter`/a window-level `pointerup`), not
+      native HTML5 drag/drop — porting the same pointer-events mechanic
+      the mockup already proved, per the plan. Dropping on a new time
+      cell within the plan calls `PATCH /diet-plans/{id}/meals` and
+      replaces the whole cached plan with the response (the endpoint
+      returns the full plan, not just the changed meal).
+      **Deviation confirmed by backend research before writing any UI
+      code**: `PATCH .../meals` has no field to change which *day* a meal
+      belongs to — `day_number` in the request only locates the existing
+      meal, it's never a move target.
+- [x] Visual feedback: the dragged chip dims, and the cell currently
+      under the pointer gets a highlighted ring while a drag is in
+      progress (an amber/destructive ring instead of the normal accent
+      ring when hovering a foreign day, previewing that the day change
+      won't stick).
+- [x] Success shows a transient inline confirmation ("Przeniesiono
+      „{posiłek}” na {godzina}. ✓", auto-clearing after 3s) rather than a
+      real toast — Etap 5 Stage 1 is where a proper global toast system
+      is planned; inventing one early for a single call site would be
+      scope creep. A 400 (meal/day mismatch — e.g. a race with another
+      tab) maps to a friendly retry message.
+
+Exit criteria met (original scope): 4 new `KalendarzTab.test.tsx` cases,
+full suite 74/74, `npm run build`/`npm run lint` green, and live
+verification against the real backend with a real mouse drag.
+
+### Post-hoc enhancement — full-week/full-hour calendar grid
+
+After this stage shipped, a follow-up request asked the calendar to
+always show a genuine Mon–Sun week (even days the plan doesn't cover)
+and a full 07:00–21:00 hour grid (even hours with no meals), matching
+the free-canvas feel of the approved mockup
+(`claude.ai/code/artifact/7c786e26-...`) more closely than the original
+day-number-chunked-in-7s pagination. Two design questions were resolved
+via `AskUserQuestion` rather than guessed:
+
+- **Cross-day drag**: the mockup drags freely across days, but the
+  backend genuinely cannot move a meal to a different day (see above).
+  Chose free/fluid dragging with **snap-back to the meal's own day on
+  drop, keeping the new time** — over a hard horizontal lock — so the
+  UI stays honest about what persists without sacrificing the mockup's
+  feel. A drop that changes the time but lands on a foreign day now
+  fires the reschedule (day forced back to origin) and shows "Zmieniono
+  godzinę na {czas} — dnia nie można zmienić przez przeciąganie."
+- **Mapping `day_number` to real dates**: `day_number` is only ever a
+  relative offset from a plan's own `created_at` — the API has no
+  per-day date field. Chose `date = created_at + (day_number − 1)` so
+  each day lands on its true weekday; weekdays the plan doesn't cover
+  render as empty columns instead of being hidden.
+
+Changes: `buildHourRows` (baseline 07:00–21:00, grows only if a real
+meal falls outside it) replaced the old `buildTimeRows` (discrete times
+only); week pagination now walks real Monday-aligned calendar weeks
+(`startOfWeek`/`addDays`) instead of `day_number` chunks of 7;
+`dayByDateKey` maps each visible date to its `DietDay` via the formula
+above. `KalendarzTab.test.tsx` grew to 10 cases, including two new ones
+asserting the always-full week and always-full hour grid, and the old
+"cross-day drop silently rejected" case was replaced with "cross-day
+drop snaps back to origin day, keeping the new time" (the case it
+replaced was coincidentally passing for the wrong reason — its target
+time matched the origin time, so no request would have fired either
+way — the new version drags to a genuinely different time).
+
+**Bug found during live re-verification** (not present before this
+enhancement): `ProfileModal`'s shared `<ScrollArea className="flex-1">`
+wrapping all three tab panels had no `min-h-0`. A flex child without
+`min-h-0` won't shrink below its content's natural height, so instead of
+scrolling internally the `ScrollArea` grew to fit the now-much-taller
+calendar grid (~1416px) and got clipped by the dialog's own
+`overflow-hidden` (`h-[80vh] max-h-[640px]`) — every hour row past
+~09:30 was in the DOM but permanently unreachable, with no scrollbar.
+Profil/Plany never exposed this because their content already fit
+under 640px. Fixed with one class (`min-h-0` added alongside `flex-1`)
+in `ProfileModal.tsx`; verified live afterward that the grid scrolls
+smoothly through all of 07:00–20:30.
+
+Live verification (real Docker backend + real mouse drags, `computer`
+tool click-and-drag): full Mon–Sun week rendered with correct real
+dates for the two existing plans; full hour grid scrolled correctly
+after the `ScrollArea` fix; a same-day drag (13:00 → 15:00) persisted
+via a real `PATCH .../meals` → 200; a cross-day drag (Sunday 15:00 →
+Monday 17:00) correctly snapped back onto Sunday while adopting 17:00,
+confirmed via a second real `PATCH .../meals` → 200 and the grid
+re-rendering accordingly. Clean console throughout. Full suite 76/76
+after the fix.
+
+### Post-hoc enhancement 2 — date range in the picker + "Ogólny"/"Szczegółowy" toggle
+
+A second follow-up request: (1) the plan picker only ever showed a
+plan's *creation* date, not the span it covers, which read ambiguously
+for anything longer than one day; (2) an "Ogólny" (general/overview)
+view was wanted alongside the existing detailed grid — a less precise
+calendar that fits the modal without scrolling, for a quick glance.
+
+- `planOptionLabel` now reads the plan's full span (`planDateRangeLabel`,
+  reusing the existing `formatWeekRange` date-range formatter against
+  `created_at` → `created_at + (duration_days − 1)`), e.g. "19–21 lipca
+  2026 · Budowa masy mięśniowej · 3 dni" instead of just "19 lipca
+  2026 · …". Falls back to a single date for `duration_days <= 1`
+  (a range would misleadingly repeat the same day).
+- New `viewMode` state (`'szczegolowy' | 'ogolny'`) with a small
+  segmented-button toggle above the grid. "Ogólny" replaces the
+  hour-row grid with one column per visible day holding that day's
+  meals stacked and sorted by time (`sortMealsForOverview`, untimed
+  meals sorted last) — no hour axis, no "Bez pory" row, so total height
+  is bounded by meal count rather than the clock, which is what lets it
+  fit the modal without scrolling. Verified live via
+  `scrollHeight === clientHeight` on the tab panel in this mode.
+- **Deliberately read-only**: meal chips in "Ogólny" aren't draggable
+  (`MealChip` gained a `draggable` prop, default `true`; overview chips
+  pass `draggable={false}`, dropping the grab cursor and the
+  `onPointerDown` handler entirely) since there's no discrete time slot
+  to drop onto without the hour axis. A footer hint points back to
+  "Szczegółowy" for rescheduling — a scope call made without asking,
+  flagged to the user for correction if they actually wanted drag to
+  work here too.
+- 3 new `KalendarzTab.test.tsx` cases (date range in the picker, the
+  overview rendering without an hour grid and round-tripping back to
+  detailed, no PATCH fires from a pointer drag inside the overview).
+  Full suite 79/79, typecheck clean.
+- Live-verified: picker showed "19–21 lipca 2026 · …" for the real
+  3-day plan; "Ogólny" showed all 5 of Sunday's meals (including the
+  17:00 lunch from the prior enhancement's live test) stacked and
+  sorted by time, every other day showing "—"; toggling back to
+  "Szczegółowy" restored the scrollable hour grid. Clean console.
+
+**Follow-up styling tweak**: the two-`Button` toggle was replaced with
+shadcn's `Switch` (`npx shadcn add switch`, backed by
+`@base-ui/react/switch` — same primitive family as the existing
+`Select`/`ScrollArea`) plus a "Szczegółowy"/"Ogólny" label on either
+side, the active side in `text-foreground`, the inactive one muted —
+smaller footprint, reads as one on/off control rather than two buttons.
+Tests updated to target `getByRole('switch')` instead of the two named
+buttons. Live-verified the thumb slides and the bold label follows the
+active side; full suite 79/79, typecheck clean.
+
+**Follow-up layout tweak**: the switch moved into the same row as the
+week nav (`← Poprzedni tydzień · {zakres} · Następny tydzień →`),
+grouped right next to the "Następny tydzień" button in a nested flex
+container, instead of getting its own row above the grid — one nav bar
+total, not two. Live-verified; full suite still 79/79.
+
+**Follow-up spacing tweak**: "Poprzedni tydzień"/"Następny tydzień"
+moved adjacent to each other (both on the left, in their own `gap-1.5`
+group) instead of bracketing the week label — reads as one week-nav
+cluster clearly separated from the switch on the right, rather than the
+"Następny tydzień" button looking grouped with the switch next to it.
+Live-verified; full suite still 79/79.
+
+## Stage 5 — CSV export — DONE
+
+- [x] "Pobierz" button on the right of each `PlanyTab` row, per the
+      mockup (`api/dietPlans.ts` already stubbed `exportDietPlan`/
+      `listDietPlanExports` from Etap 0; added `downloadDietPlanExport`).
+      One click both creates a fresh archived export (`POST .../export`
+      → 201, metadata only — a plan can be exported more than once,
+      each call archives a brand new file rather than overwriting) and
+      immediately downloads it (`GET .../exports/{export_id}/download`
+      → streamed CSV) via a single `exportAndDownloadPlan(planId)`
+      helper — no separate export-history browser, since the mockup
+      only shows one download action per row and the backend already
+      keeps every past export reachable through the API regardless of
+      what the UI exposes.
+- [x] `apiFetch.ts` refactored: the auth/401-refresh dance moved into a
+      private `authedFetch`, shared by `apiFetch` (parses JSON) and a
+      new `apiFetchBlob` (returns the raw `Blob`) — avoids duplicating
+      that retry logic for the one endpoint that streams a file instead
+      of JSON.
+- [x] Per-row pending/error state via `useMutation`'s `variables`
+      (`exportMutation.variables === plan.plan_id`), not a single
+      tab-wide flag, since every row's "Pobierz" button is independently
+      clickable; button reads "Pobieranie…" and disables itself only for
+      the row actually in flight.
+- [x] Real browser download via a throwaway `<a download>` +
+      `URL.createObjectURL`/`revokeObjectURL` (`saveBlob`), filename
+      taken straight from the export metadata's `filename` field — no
+      `Content-Disposition` header parsing needed.
+- [x] The row markup changed from one full-width `<button>` per plan to
+      a flex `<div>` holding the (still-clickable) expand toggle plus a
+      sibling "Pobierz" `<Button>` — nesting a button inside a button
+      isn't valid HTML and would also fire both handlers on one click.
+
+Exit criteria met: 2 new `PlanyTab.test.tsx` cases (clicking "Pobierz"
+fires the real `POST .../export` then `GET .../download`, saves via a
+mocked `URL.createObjectURL`/anchor `click()` with the exact filename
+from the response, and revokes the object URL; a 404 from the export
+call shows a friendly retry message) — `URL.createObjectURL` doesn't
+exist in jsdom by default, so it's stubbed per-test via `vi.stubGlobal`.
+All 5 pre-existing `PlanyTab` tests still pass unchanged (the row
+restructure didn't touch the clickable text). Full suite 81/81,
+typecheck clean.
+
+Live-verified against the real backend (Docker `db`/`mongo`/`mailhog`/
+`ollama`/`sftp`/`backend`, not just mocks): clicking "Pobierz" on the
+real 3-day plan fired a real `POST .../export` → 201 followed by a real
+`GET .../exports/{id}/download` → 200, and the CSV genuinely landed in
+the OS Downloads folder (`{plan_id}-{suffix}.csv`) with the plan's real
+current data — including the 08:00/08:00/17:00 meal times from this
+session's earlier live drag-and-drop tests, confirming the SFTP-backed
+archive round-trips real state, not stale/cached data. Clean console.
+The test download was deleted afterward as a testing artifact.
+
+## Stage 6 — Tests & docs sync — DONE
+
+- [x] Closed real coverage gaps left over from Stages 1-5 (each of which
+      tested its happy/error paths but not every loading state):
+      `ChatCanvas.test.tsx` gained a case for the "Generowanie planu…"
+      pending banner + disabled "Generowanie…" button label while a
+      generation request is in flight (via a manually-resolved
+      `Promise<Response>`, the standard pattern for exercising a pending
+      `useMutation`/`useQuery` state without a real timer); `PlanyTab.test.tsx`
+      gained the equivalent for "Ładowanie planów…" (list) and "Ładowanie
+      szczegółów…" (expanded plan detail); `KalendarzTab.test.tsx` gained
+      "Ładowanie planów…", "Ładowanie kalendarza…" (selected-plan detail),
+      and a previously-untested error branch ("Nie udało się wczytać tego
+      planu." when the selected plan's `GET` fails).
+- [x] `docs/api.md`'s Diet Plan API section cross-checked against the
+      actual backend (`diet_plan_router.py`, its schemas/DTOs, and all 7
+      use cases) via a dedicated research pass. Three real discrepancies
+      found and fixed in the docs (backend behavior was correct; the
+      prose had drifted):
+      1. The blanket "a nutrition profile must already exist for the
+         caller" claim only actually holds for `POST /generate` — the
+         other six endpoints (list, get, reschedule, and all three
+         export endpoints) never check for a profile, only plan/export
+         ownership. Narrowed the claim accordingly.
+      2. Every `created_at`/`updated_at` example showed a `Z`-suffixed,
+         microsecond-free timestamp (`"2026-01-01T10:00:00Z"`), copying
+         the convention used by the shared error envelope's
+         `utc_now_z()`-normalized `timestamp` field — but diet-plan
+         DTOs use plain `datetime.isoformat()`, so the real shape is
+         `"2026-01-01T10:00:00.482391+00:00"` (microseconds, `+00:00`
+         offset, no `Z`). Fixed the three examples and added a note
+         calling out the difference explicitly, so it isn't assumed to
+         match the error envelope again.
+      3. Two undocumented `422 VALIDATION_ERROR` paths added: `GET
+         /diet-plans` when `from`/`to` isn't a valid ISO date (FastAPI's
+         automatic query-param validation, distinct from the already-
+         documented 400 for "from is after to"), and `PATCH .../meals`
+         when `day_number < 1` or `meal_name` is empty (Pydantic field
+         validation, which runs before the domain-level 400 for an
+         unknown day/meal).
+- [x] Roadmap status updated (this section, plus the Etap 4 header).
+
+Exit criteria met: full suite 87/87 (up from 81 — 6 new cases, 0
+regressions), `npm run build` and `npm run lint` both clean (lint's two
+warnings are pre-existing shadcn-generated `only-export-components`
+notices in `button.tsx`/`tabs.tsx`, unrelated to this Etap). No live
+browser re-verification needed for this stage — every underlying
+feature was already thoroughly live-verified against the real backend
+in Stages 1-5; this stage only added test coverage and fixed
+documentation prose, neither of which changes runtime behavior.
+
+---
+
+# Etap 5 — Polish/UX — DONE (Stages 1-4/4)
+
+Goal: cross-cutting quality pass once every real screen exists.
+
+## Stage 1 — Errors, loading, empty states — DONE
+
+Grounded in an audit of the current state (every error/loading/empty
+path across auth, chat, profile, plans, and calendar was ad hoc inline
+text — no toast system, no `Skeleton` component, and two mutations with
+no error UI at all).
+
+- [x] Added shadcn's `sonner`-backed toast system (`npx shadcn add
+      sonner`), stripped of its default `next-themes` dependency (the
+      app has no dark-mode toggle yet — light tokens only, per Etap 0's
+      decision) — hardcoded `theme="light"` instead and uninstalled
+      `next-themes`. Mounted a single `<Toaster />` in `App.tsx`. A
+      small `src/lib/toast.ts` exposes `notifyError(message: string)` —
+      simpler than the originally-sketched `notifyError(error,
+      fallback)` keyed off `ApiError.code`, since both real call sites
+      (below) only ever have one documented error case each (a 404 on
+      an already-gone conversation), so per-code branching would have
+      been speculative.
+- [x] Fixed the two mutations the audit found completely silent on
+      failure — `ChatCanvas`'s archive and delete conversation
+      mutations had no `onError` handling at all. Both now call
+      `notifyError` with a dedicated message rather than inventing new
+      inline error UI (a toast fits a background action better than a
+      persistent inline message would).
+- [x] Existing per-feature inline errors (login/register, password
+      reset, profile save, message send, plan generate, reschedule,
+      export) left as-is — already contextual, already tested, already
+      correct; this stage closed real gaps, it didn't replace working
+      UI with toasts for its own sake.
+- [x] Added a `Skeleton` component (`npx shadcn add skeleton`) in place
+      of plain "Ładowanie…" text: history (`LeftRail`), plans
+      (`PlanyTab`'s list + expanded detail), calendar (`KalendarzTab`'s
+      plan list + grid), and `ChatCanvas`'s conversation-loading state
+      (message-bubble-shaped placeholders). Each wrapper got
+      `role="status"` (a real a11y improvement, not just a test hook)
+      so both assistive tech and tests can target the loading region by
+      its accessible name instead of matching now-removed plain text.
+- [x] Normalized the three empty-state messages (history/plans/calendar)
+      to one consistent visual treatment via a new shared
+      `src/components/EmptyState.tsx` (centered, a small lucide icon —
+      `MessageSquare`/`ClipboardX`/`CalendarOff` respectively —
+      consistent muted-foreground sizing), without changing any of
+      their existing distinct wording.
+
+Exit criteria met: 6 new tests (2 toast-wiring cases in
+`ChatCanvas.test.tsx` mocking `@/lib/toast` and asserting the exact
+message per mutation; the 4 pre-existing loading-state tests from Etap
+4 Stage 6 updated from `findByText` to `findByRole('status', { name })`
+now that the text moved from visible content to an accessible name).
+Full suite 89/89, `npm run build`/`npm run lint`/typecheck all clean
+(lint's 2 warnings are the same pre-existing shadcn-generated notices
+from before this stage).
+
+Live-verified against the real backend: the empty-state icon confirmed
+visually via `PlanyTab`'s date filter (a range with zero matching
+plans). The toast was verified with a genuine race, not just a mock —
+opened the same archived conversation in two tabs (the second one
+auto-logged in via the shared refresh token, confirming session
+bootstrap works across tabs), deleted it for real from tab 2
+(overriding `window.confirm` to auto-accept rather than fighting a
+blocking native dialog), then clicked "Usuń rozmowę" in tab 1 on the
+now-already-deleted conversation — the real `DELETE` genuinely 404'd
+and the exact expected toast ("Nie udało się usunąć rozmowy. Spróbuj
+ponownie.") rendered in the bottom-right corner. Clean console
+throughout.
+
+## Stage 2 — Responsiveness — DONE
+
+The original mockup Artifact isn't reachable from this repo any more to
+copy exact values from, so this stage designed its own breakpoint
+behavior rather than reverse-engineering the old one — same intent
+("rails become overlays on narrow viewports") the roadmap line already
+committed to.
+
+- [x] New `useIsMobile()` hook (`window.matchMedia('(max-width:
+      767px)')`, matching Tailwind's default `md` breakpoint at 768px) —
+      used only to pick each rail's *initial* collapsed state in
+      `AppShell` (`useState(() => isMobile)`). Live viewport resizes
+      after mount don't force-toggle an already-opened/closed rail —
+      respects whatever the user last chose, same principle as any
+      other manually-controlled UI state. jsdom has no `matchMedia` at
+      all, so `src/test/setup.ts` gained a default "desktop" stub
+      (`matches: false`) so every pre-existing test is unaffected;
+      tests that need mobile behavior override it per-test via
+      `vi.stubGlobal('matchMedia', ...)`.
+- [x] `LeftRail`/`RightRail` gained `fixed inset-y-0 ... z-40 md:static
+      md:z-auto`-style classes so they render as a slide-in overlay
+      below `md` and as today's static flex column at `md` and above —
+      pure Tailwind responsive classes, no JS needed for the
+      positioning itself.
+- [x] A backdrop (`fixed inset-0 bg-black/40 md:hidden`,
+      `data-testid="rail-backdrop"`, click-to-close) renders alongside
+      an open rail — `md:hidden` alone keeps it invisible on desktop
+      regardless of collapse state, no JS viewport check needed for the
+      backdrop either.
+- [x] Spot-checked `ChatCanvas`, `ProfileModal`, and `KalendarzTab` at a
+      390px viewport. `ChatCanvas`/`ProfileModal` already held up fine
+      (fluid widths, `overflow-x-auto` grid). **Found a real break**:
+      `KalendarzTab`'s week-nav row (prev/next buttons + week label +
+      the Szczegółowy/Ogólny switch, all in one `justify-between` row)
+      had no wrap handling — at 390px the switch's "Ogólny" label was
+      clipped off-screen and genuinely unreachable, not just cramped.
+      Fixed by stacking the row vertically below `sm` (640px) and
+      restoring the single-row layout at `sm` and above
+      (`flex-col items-start gap-2 sm:flex-row sm:items-center
+      sm:justify-between sm:gap-3`) — each of the three groups gets its
+      own line on narrow viewports instead of three groups fighting for
+      one line.
+- [x] Tests: first coverage at all for the rail collapse/expand buttons
+      (previously untested regardless of viewport) — new "AppShell
+      responsiveness" describe block in `AppShell.test.tsx`: desktop
+      defaults both rails open with independent collapse/re-expand,
+      mobile defaults both collapsed with no backdrop rendered, and
+      opening a rail on mobile renders the backdrop which closes it on
+      click.
+
+Exit criteria met: 3 new `AppShell.test.tsx` cases, full suite 92/92,
+`npm run build`/`npm run lint`/typecheck all clean.
+
+Live-verified against the real backend at a 390×844 viewport (an
+iPhone-sized window): hamburger/sparkles icons open the left/right
+rails as slide-in overlays with a dark backdrop, backdrop click closes
+them, `ProfileModal` renders correctly with fields stacking, and — after
+the fix above — every part of `KalendarzTab`'s nav row (including the
+"Ogólny" switch) is visible and reachable, with the day grid itself
+scrolling horizontally inside its own container rather than the page
+overflowing (`document.documentElement.scrollWidth <=
+document.documentElement.clientWidth` confirmed `true`). Resized back to
+1400px and confirmed the desktop layout — both rails as static columns,
+single-row nav — is unaffected. Clean console throughout.
+
+## Stage 3 — Design system pass — DONE
+
+Grounded in a dedicated audit (no formal type/spacing scale was ever
+defined beyond Tailwind's defaults + the `--radius-*` tokens, so every
+`text-[Npx]` value below is an ad-hoc invention, not a deviation from a
+documented scale). Scoped to the clearest, highest-value drift rather
+than forcing every minor value in the app into one number — most
+spacing/gap variation across genuinely different content densities is
+normal, not inconsistency, and was left alone.
+
+- [x] **Inline error text**: 5 different size/weight combos existed for
+      the same "inline action/form error" role across 8+ files
+      (`text-[12.5px] font-bold`, `text-[12px] font-bold`, `text-[11.5px]
+      font-bold`, plain `text-xs`, plus the page-level `text-sm` variant
+      used for full content-replacing errors, which was *already*
+      consistent and stayed untouched). New `src/components/FieldError.tsx`
+      standardizes on `text-[12.5px] font-bold text-destructive` (the
+      most common existing variant) and replaced every inline-error `<p>`
+      across `AuthPopup`, `ForgotPasswordFlow`, `ChatCanvas` (send +
+      generate errors), `KalendarzTab` (reschedule error), `PlanyTab`
+      (export error), `NutritionProfileForm`, `ProfilTab`,
+      `WeeklyObligationsEditor`, and `LeftRail` (create-conversation
+      error) — 10 call sites total.
+- [x] **Badge/pill component**: 3 duplicated pill patterns (category
+      tags, status/archived pills, the "wkrótce" badge) with drifting
+      padding/size. shadcn's own `badge.tsx` was compatible with this
+      project's Base UI stack (`@base-ui/react/merge-props` +
+      `use-render`, same primitive family as `Select`/`ScrollArea`/
+      `Switch`) — added via `npx shadcn add badge` and used (with
+      per-site `className` overrides where a pill's colors don't match
+      any of Badge's built-in variants, e.g. the accent-colored
+      "Wygenerowany plan" badge) in `ChatCanvas` (category tags +
+      "Zarchiwizowana"), `RightRail` ("wkrótce"), `DietPlanCard`
+      ("Wygenerowany plan"), and `LeftRail` (conversation row tags, "+N",
+      "Archiwum"). Existing distinct sizes were preserved per call site
+      — this is about one shared structural component, not forcing
+      visually-identical pills where content density genuinely differs.
+- [x] **Icon-button reuse**: `ChatCanvas`'s archive/delete icon buttons
+      hand-rolled what `@/components/ui/button`'s `variant="ghost"
+      size="icon-xs"` already provides (confirmed `ghost`'s hover style
+      matches exactly) — switched to `<Button>`, with the delete
+      button's hover-only red tint preserved via an extra `className`
+      override rather than the always-red `destructive` variant (which
+      would have changed its resting-state look).
+- [x] **One same-file drift**: `KalendarzTab`'s own hint text used both
+      `text-[11px]` and `text-[11.5px]` for the same caption role a few
+      lines apart — normalized to `text-[11px]`.
+- [x] Everything else the audit surfaced (card radius `lg`/`xl`/`2xl`,
+      row padding `p-2.5`/`p-3`, stack `gap-2`/`gap-2.5`/`gap-3`) was
+      left alone — real variation across genuinely different content
+      densities, not a defect, and forcing it to one number without a
+      documented scale to justify the choice would have been guessing.
+
+Exit criteria met: no new tests needed (pure markup/class swaps with
+identical message strings and rendered text — every existing test still
+passes unchanged, confirming the refactor didn't alter behavior). Full
+suite 92/92, `npm run build`/`npm run lint`/typecheck all clean (lint's
+3 warnings are the same pre-existing shadcn-generated
+`only-export-components` notices, now including `badge.tsx` alongside
+`button.tsx`/`tabs.tsx` — an inherent shadcn CLI pattern, not something
+to fix).
+
+Live-verified against the real backend: category badges, the
+archived pill, the "wkrótce" badge, conversation-row tags, and the
+"Wygenerowany plan" badge all render identically to before (same
+colors/sizes, now via `Badge`). The archive icon button shows the
+`ghost` hover background; the delete icon button still turns
+red-tinted only on hover, exactly matching its pre-refactor behavior.
+Clean console throughout.
+
+## Stage 4 — Docs sync — DONE
+
+Etap 5 was pure frontend polish (toasts, responsive layout, a design-
+system consistency pass) — no new backend API surface, so there's no
+`docs/api.md` contract to cross-check the way Etap 4 Stage 6 did.
+`README.md` and `docs/architecture.md`'s frontend mentions stay
+untouched here — Etap 6 Stage 3 already explicitly owns that final
+flip once the whole of Phase 10 (Etap 0-6) is done, and doing it now
+would just be redone later against a still-moving target.
+
+- [x] Updated this roadmap's own top-level status table/summary
+      paragraph (previously still said Phase 10 was "NOT STARTED", stale
+      since Etap 0 shipped) to reflect Etap 0-5 completion.
+- [x] One final full-suite gate before moving on to Etap 6: full suite
+      92/92, `npm run build`/`npm run lint`/typecheck all clean.
+- [x] Marked Etap 5 done (this section + the Etap 5 header).
+
+---
+
+# Etap 6 — Testy i dokumentacja — DONE (Stages 1-3/3)
+
+Goal: close out Phase 10 the same way every backend phase closed —
+tests + docs synced to what actually shipped.
+
+## Stage 1 — Component tests — DONE
+
+Every Etap already added its own tests as it went (auth in Etap 1,
+profile in Etap 2, chat in Etap 3, diet plans/calendar in Etap 4, the
+Etap 5 polish pass), so this stage was a coverage *audit* — close real
+gaps left over, not rewrite what's already well tested.
+
+- [x] Audited every non-UI-primitive source file against its test file
+      (or lack of one), and judged indirect coverage where a file had
+      no dedicated test of its own.
+- [x] **Real gap found**: `ProfileModal.tsx` (the shared Dialog + Tabs
+      wrapper around Profil/Plany/Kalendarz) had no dedicated test at
+      all — nothing exercised opening it, switching tabs, or the
+      documented "logs out from inside → auto-closes" `useEffect`
+      (previously only ever checked live in the browser, in Etap 4's
+      `ScrollArea` bug-hunt). New `ProfileModal.test.tsx`: default tab
+      is Profil, clicking Plany/Kalendarz switches content, and logging
+      out from inside calls `onOpenChange(false)`.
+      **Real problem hit while writing it**: asserting the dialog fully
+      unmounts after logout (`queryByRole('tab', ...)).not.toBeInTheDocument()`)
+      flaked — Base UI's Dialog stays mounted mid-exit-animation
+      (`data-closed`/`data-ending-style`) and jsdom doesn't reliably
+      drive that animation-frame-based unmount to completion. Fixed by
+      asserting the *documented behavior* directly instead — an
+      `onClose` spy passed through the test wrapper's `onOpenChange`,
+      confirming `onOpenChange(false)` was called — rather than fighting
+      Base UI's animated-close DOM lifecycle in jsdom.
+- [x] Reviewed and judged sufficient without a dedicated test:
+      `src/api/*.ts` (thin one-line wrappers around `apiFetch`,
+      thoroughly exercised indirectly through every component test that
+      mocks `fetch`), `useIsMobile.ts` (its actual effect — mobile
+      defaults collapsed, desktop defaults open — is already exercised
+      both ways by `AppShell.test.tsx`'s responsiveness tests; an
+      isolated `renderHook` test would just re-verify the same
+      matchMedia-stub-to-boolean mapping), `CategoryMenu.tsx` (exercised
+      end-to-end via `AppShell.test.tsx`'s "Nowy czat" → category →
+      "Rozpocznij czat" flow), and `AboutDialog.tsx` (static text behind
+      a boolean prop — no logic worth a dedicated test).
+
+Exit criteria met: 4 new `ProfileModal.test.tsx` cases. Full suite
+96/96 (up from 92 — 15 test files, up from 14), `npm run build`/
+`npm run lint`/typecheck all clean (lint's 3 warnings are the same
+pre-existing shadcn-generated notices from Etap 5 Stage 3).
+
+## Stage 2 — Manual smoke walkthrough
+
+- [ ] New `docs/frontend-smoke-walkthrough.md` — same spirit as
+      `docs/https/*.http` (a numbered, repeatable manual script with
+      expected outcomes per step) but UI-driven rather than raw HTTP,
+      since there's no REST-client equivalent for browser interactions.
+      Covers a brand-new account end to end: register → explicit
+      logout/login round-trip (register's own auto-login doesn't
+      exercise the login *form* itself) → complete the nutrition
+      profile → start a chat conversation and send a message → generate
+      a diet plan → reschedule a meal via the Kalendarz tab → export a
+      plan as CSV.
+- [ ] Actually run it, live, against the real Docker stack (not just
+      write it) — a fresh account, not the long-lived "ST" test user
+      every other stage's live-verification reused, so this genuinely
+      exercises registration from zero rather than assuming it still
+      works.
+
+## Stage 3 — Docs & status sync — DONE
+
+The final stage of Phase 10 as a whole, not just Etap 6 — flips every
+doc that's been correctly saying "not done yet" since Etap 0.
+
+- [x] `README.md`: `| Frontend | ⏳ |` → `✅` in the status table; the
+      docker services table (was missing a `frontend` row and
+      undercounted "six containers") gained a `frontend` row and the
+      count fixed to seven; the `## Frontend` section rewritten from
+      "in progress, Etap 0 underway" to describe what actually shipped
+      (auth, nutrition profile, chat, diet plans/calendar/export,
+      responsive layout, toasts, the Etap 5 design-system pass); the
+      project-structure file tree's `frontend/` comment now says
+      "done". Also added, while in there: a direct
+      `http://localhost:5173` link next to the Swagger UI link in
+      "Verify it's running", and a row for the new
+      `docs/frontend-smoke-walkthrough.md` alongside the `.http` files
+      in "Try the full flow" — small additions, but ones a reader
+      landing on this README right after Etap 6 Stage 2 would
+      otherwise miss entirely.
+- [x] `docs/architecture.md`'s Docker services list (section 12) said
+      "frontend doesn't exist yet" (written back when that was true) —
+      added the real `frontend` service entry, dropped the stale
+      caveat.
+- [x] This roadmap's own top-of-file status table: `Phase 10 - Frontend`
+      flipped from "IN PROGRESS (Etap 0-5/6 DONE)" to fully `DONE`, and
+      the "Phases 3 through 9" summary paragraph extended to "3 through
+      10".
+- [x] Marked this section, the Etap 6 header, and the `# Phase 10 -
+      Frontend` heading itself all done.
+
+Exit criteria met: grepped both `README.md` and `docs/architecture.md`
+afterward for any remaining "frontend...progress/underway/doesn't
+exist/future" phrasing — none left. Full suite 96/96, typecheck clean
+(no code changed this stage, but re-verified as the final gate before
+closing out Phase 10 entirely).
+
+This closes out **Phase 10 (Frontend) in full** — Etap 0 through 6, all
+done. Phase 11 (Testing) turned out to already be satisfied
+incrementally by every phase along the way — see its retrospective
+below. Phase 12+ (speculative future improvements) is next, whenever
+that's picked up.
+
+---
+
+# Phase 11 - Testing — DONE (satisfied incrementally, not as a separate phase)
 
 Goal:
 
 Ensure application quality.
 
+This was written as a Phase 0-era placeholder assuming testing would
+happen as a distinct phase after everything else. In practice every
+phase (3 through 10) wrote its own unit/integration tests as it went —
+this section was never revisited, so it just sat here looking
+unstarted. Verified retroactively, not implemented now:
+
 ---
 
-## Unit Tests
+## Unit Tests — DONE
 
 Test:
 
-- Domain entities
-- Value objects
-- Use cases
+- [x] Domain entities — `test_conversation_entity.py`,
+      `test_message_entity.py`, `test_user_entity.py`,
+      `test_diet_plan_entity.py`, `test_nutrition_profile_entity.py`,
+      among others across all four modules.
+- [x] Value objects — `test_value_objects.py`, `test_ai_value_objects.py`,
+      `test_weekly_obligation.py`, `test_email_verification_token.py`,
+      `test_password_reset_token.py`, `test_refresh_token.py`, etc.
+- [x] Use cases — a dedicated `test_*_use_case.py` file per use case
+      across identity/conversation/nutrition (register, login, logout,
+      archive/delete/send-message, generate/reschedule/export a diet
+      plan, create/update a nutrition profile, and more).
 
 ---
 
-## Integration Tests
+## Integration Tests — DONE
 
 Test:
 
-- Database repositories
-- API endpoints
+- [x] Database repositories — `test_mongo_conversation_repository.py`,
+      `test_mongo_diet_plan_repository.py`,
+      `test_mongo_nutrition_profile_repository.py`,
+      `test_user_repository_contract.py` — real ephemeral Postgres/Mongo
+      (`docker-compose.test.yml`, auto-managed by `conftest.py`), not
+      fakes.
+- [x] API endpoints — `test_auth_api.py`, `test_conversation_api.py`,
+      `test_nutrition_api.py`, `test_diet_plan_api.py`,
+      `test_diet_plan_export_api.py`, and more — real FastAPI
+      `TestClient` calls against the real app.
+
+Verified retroactively by actually running the suite, not just counting
+files: `pytest` → **353 passed**, 0 failed, against the real ephemeral
+test databases.
 
 ---
 
-## End-to-End Tests
+## End-to-End Tests — DONE (manual, not a dedicated automated test)
 
 Test:
 
@@ -2378,6 +3858,16 @@ Send Chat
 
 Receive AI Response
 ```
+
+No single automated test chains all five steps together — but this
+exact flow (and considerably more: diet-plan generation, reschedule,
+CSV export) is repeatedly exercised manually against the real Docker
+stack: `docs/https/*.http` at the API level, and (since Etap 6 of
+Phase 10) `docs/frontend-smoke-walkthrough.md` through the actual UI —
+both passed on a fresh account, not reused test data. This matches how
+this project verifies end-to-end behavior everywhere else (real Docker
+stack + a repeatable manual script), rather than a separate browser-
+automation E2E framework that was never otherwise called for.
 
 ---
 

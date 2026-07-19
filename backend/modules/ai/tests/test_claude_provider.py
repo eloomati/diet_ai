@@ -49,7 +49,7 @@ async def test_claude_provider_maps_response_to_ai_response() -> None:
     provider = ClaudeProvider(api_key="test-key", model="claude-opus-4-8", client=fake_client)
 
     response = await provider.generate_response(
-        Prompt(question="What should I eat?", category="BREAKFAST")
+        Prompt(question="What should I eat?", categories=("BREAKFAST",))
     )
 
     assert response.content == "Try oatmeal."
@@ -66,7 +66,7 @@ async def test_claude_provider_builds_messages_from_history() -> None:
 
     prompt = Prompt(
         question="And tomorrow?",
-        category="BREAKFAST",
+        categories=("BREAKFAST",),
         system_prompt="You are a nutrition assistant. Category: BREAKFAST.",
         conversation_history=(
             PromptTurn(role="user", content="Hi"),
@@ -100,7 +100,7 @@ async def test_claude_provider_generate_structured_response_parses_json() -> Non
     provider = ClaudeProvider(api_key="test-key", client=fake_client)
 
     result = await provider.generate_structured_response(
-        Prompt(question="Generate a 1-day diet plan.", category="DIET"), _DIET_PLAN_SCHEMA
+        Prompt(question="Generate a 1-day diet plan.", categories=("DIET",)), _DIET_PLAN_SCHEMA
     )
 
     assert result == {"days": [{"day_number": 1, "meals": []}]}
@@ -114,7 +114,7 @@ async def test_claude_provider_generate_structured_response_sends_output_config(
     provider = ClaudeProvider(api_key="test-key", client=fake_client)
 
     await provider.generate_structured_response(
-        Prompt(question="Generate a plan.", category="DIET"), _DIET_PLAN_SCHEMA
+        Prompt(question="Generate a plan.", categories=("DIET",)), _DIET_PLAN_SCHEMA
     )
 
     sent = fake_client.messages.last_kwargs

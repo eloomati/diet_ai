@@ -78,11 +78,18 @@ Creates a new user account.
 ```json
 {
   "email": "user@example.com",
-  "password": "StrongPass123"
+  "password": "StrongPass123",
+  "captcha_token": "<token from the CAPTCHA widget>"
 }
 ```
 
 Password: 8-128 characters, must satisfy `PasswordPolicy` (see domain-model.md).
+
+`captcha_token`: required, verified server-side against the configured
+provider (`CAPTCHA_PROVIDER` — `mock` always accepts in dev/tests,
+`turnstile` calls Cloudflare's `siteverify` for real) before anything else
+happens — same "fail before real work" shape as the diet-plan
+profile-required check.
 
 ### Response
 
@@ -105,7 +112,9 @@ Body:
 
 400 Bad Request — `INVALID_PASSWORD` (fails password policy)
 
-422 Unprocessable Entity — `VALIDATION_ERROR` (malformed email / missing fields)
+400 Bad Request — `BAD_REQUEST` (CAPTCHA verification failed)
+
+422 Unprocessable Entity — `VALIDATION_ERROR` (malformed email / missing fields, including a missing `captcha_token`)
 
 409 Conflict — `USER_ALREADY_EXISTS`
 
@@ -270,9 +279,14 @@ is registered.
 
 ```json
 {
-  "email": "user@example.com"
+  "email": "user@example.com",
+  "captcha_token": "<token from the CAPTCHA widget>"
 }
 ```
+
+`captcha_token`: required, checked before the don't-leak-existence logic
+below — a failed CAPTCHA rejects outright and reveals nothing about the
+email either (same provider/verification as `POST /auth/register`).
 
 ### Response
 
@@ -292,7 +306,11 @@ Body:
 
 ### Errors
 
-None — always `200`, whether or not the email exists.
+400 Bad Request — `BAD_REQUEST` (CAPTCHA verification failed)
+
+422 Unprocessable Entity — `VALIDATION_ERROR` (missing `captcha_token`)
+
+Otherwise always `200`, whether or not the email exists.
 
 ---
 
@@ -568,14 +586,16 @@ All endpoints below require `Authorization: Bearer {access_token}`.
 
 ## POST /conversations
 
-Creates a new conversation.
+Creates a new conversation. `categories` is a list — a conversation can be
+steered by more than one category at once (e.g. `["DIET", "RUNNING"]` for a
+race-prep nutrition chat); at least one is required.
 
 ### Request
 
 ```json
 {
   "title": "High protein breakfasts",
-  "category": "BREAKFAST"
+  "categories": ["BREAKFAST", "DIET"]
 }
 ```
 
@@ -593,7 +613,7 @@ Body:
 {
   "conversation_id": "uuid",
   "title": "High protein breakfasts",
-  "category": "BREAKFAST",
+  "categories": ["BREAKFAST", "DIET"],
   "status": "ACTIVE"
 }
 ```
@@ -602,7 +622,8 @@ Body:
 
 401 Unauthorized — missing/invalid token (see auth-runbook.md)
 
-422 Unprocessable Entity — `VALIDATION_ERROR` (invalid `category`, empty `title`)
+422 Unprocessable Entity — `VALIDATION_ERROR` (invalid category value, empty
+`categories` list, empty `title`)
 
 ---
 
@@ -625,7 +646,7 @@ Body:
   {
     "conversation_id": "uuid",
     "title": "High protein breakfasts",
-    "category": "BREAKFAST",
+    "categories": ["BREAKFAST", "DIET"],
     "status": "ACTIVE",
     "updated_at": "2026-01-01T12:00:00Z"
   }
@@ -652,7 +673,7 @@ Body:
 {
   "conversation_id": "uuid",
   "title": "High protein breakfasts",
-  "category": "BREAKFAST",
+  "categories": ["BREAKFAST", "DIET"],
   "status": "ACTIVE",
   "messages": [
     {
@@ -765,11 +786,14 @@ Module:
 Nutrition
 ```
 
-All endpoints below require `Authorization: Bearer {access_token}` and a
-nutrition profile must already exist for the caller (`POST /profile` —
-see Nutrition Profile API above). `goal` and `diet_type` are **not**
-request fields — they're read from the caller's existing
-`NutritionProfile`, the same way chat responses are personalized from it.
+All endpoints below require `Authorization: Bearer {access_token}`. Only
+`POST /diet-plans/generate` requires a nutrition profile to already exist
+for the caller (`POST /profile` — see Nutrition Profile API above) — the
+other six endpoints (list, get, reschedule, and the three export
+endpoints) only check plan/export ownership, never the profile. `goal`
+and `diet_type` are **not** request fields on generation — they're read
+from the caller's existing `NutritionProfile`, the same way chat
+responses are personalized from it.
 
 ---
 
@@ -824,10 +848,14 @@ Body:
       ]
     }
   ],
-  "created_at": "2026-01-01T10:00:00Z",
-  "updated_at": "2026-01-01T10:00:00Z"
+  "created_at": "2026-01-01T10:00:00.482391+00:00",
+  "updated_at": "2026-01-01T10:00:00.482391+00:00"
 }
 ```
+
+`created_at`/`updated_at` are plain `datetime.isoformat()` output —
+microseconds and a `+00:00` offset, **not** `Z`-normalized like the error
+envelope's `timestamp` field below.
 
 `time` (Phase 9): AI-suggested time of day for the meal, `"HH:MM"` or
 `null` if the model didn't provide one (never required — see
@@ -887,6 +915,9 @@ Errors:
 400 Bad Request code=BAD_REQUEST — day_number or meal_name doesn't exist
                 within this plan (the plan itself is fine, so this is 400,
                 not 404 — see architecture.md)
+422 Unprocessable Entity code=VALIDATION_ERROR — day_number < 1, or
+                meal_name is empty — request-shape validation, checked
+                before the day/meal lookup above ever runs
 ```
 
 ---
@@ -924,7 +955,7 @@ Body:
     "goal": "MUSCLE_GAIN",
     "diet_type": "VEGETARIAN",
     "duration_days": 3,
-    "created_at": "2026-01-01T10:00:00Z"
+    "created_at": "2026-01-01T10:00:00.482391+00:00"
   }
 ]
 ```
@@ -933,6 +964,8 @@ Errors:
 
 ```
 400 Bad Request code=BAD_REQUEST — from is after to
+422 Unprocessable Entity code=VALIDATION_ERROR — from/to isn't a valid
+                ISO date (e.g. "from=not-a-date")
 ```
 
 ---
@@ -961,7 +994,7 @@ Body:
   "export_id": "uuid",
   "diet_plan_id": "uuid",
   "filename": "3fa8...-a1b2c3d4.csv",
-  "created_at": "2026-01-01T10:05:00Z"
+  "created_at": "2026-01-01T10:05:00.482391+00:00"
 }
 ```
 

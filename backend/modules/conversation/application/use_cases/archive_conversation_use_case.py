@@ -24,7 +24,7 @@ class ArchiveConversationUseCase:
         return GetConversationHistoryResult(
             conversation_id=str(conversation.id),
             title=conversation.title,
-            category=conversation.category.value,
+            categories=[c.value for c in conversation.categories],
             status=conversation.status.value,
             messages=[
                 MessageView(

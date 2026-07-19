@@ -5,20 +5,20 @@ from backend.modules.conversation.domain import ConversationCategory
 
 class CreateConversationRequest(BaseModel):
     title: str = Field(min_length=1, max_length=200)
-    category: ConversationCategory
+    categories: list[ConversationCategory] = Field(min_length=1)
 
 
 class CreateConversationResponse(BaseModel):
     conversation_id: str
     title: str
-    category: str
+    categories: list[str]
     status: str
 
 
 class ConversationSummaryResponse(BaseModel):
     conversation_id: str
     title: str
-    category: str
+    categories: list[str]
     status: str
     updated_at: str
 
@@ -33,7 +33,7 @@ class MessageResponse(BaseModel):
 class ConversationHistoryResponse(BaseModel):
     conversation_id: str
     title: str
-    category: str
+    categories: list[str]
     status: str
     messages: list[MessageResponse]
 
