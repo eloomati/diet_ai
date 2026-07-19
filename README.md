@@ -37,12 +37,13 @@ cd diet_ai
 docker compose up -d --build
 ```
 
-This builds the backend and frontend images and starts seven containers:
+This builds the backend and frontend images and starts eight containers:
 
 | Service    | Container          | Port        | Purpose                                             |
 |------------|--------------------|-------------|------------------------------------------------------|
 | `backend`  | `diet_ai_backend`  | 8000        | FastAPI application                                  |
 | `frontend` | `diet_ai_frontend` | 5173        | React + Vite dev server — the web UI                 |
+| `frontend-admin` | `diet_ai_frontend_admin` | 5174 | React + Vite dev server — the admin panel (Phase 12, in progress; login requires an `ADMIN`/`SUPER_ADMIN` account) |
 | `db`       | `diet_ai_db`       | 5432        | PostgreSQL — Identity module                         |
 | `mongo`    | `diet_ai_mongo`    | 27017       | MongoDB — Conversation + Nutrition modules           |
 | `ollama`   | `diet_ai_ollama`   | 11434       | Local LLM — powers chat + diet-plan generation by default |
@@ -394,12 +395,14 @@ diet_ai/
 │
 ├── frontend/              # React + Vite + TS + Tailwind v4 + shadcn/ui (Phase 10, done)
 │
+├── frontend-admin/        # separate admin panel app (Phase 12, in progress) — ADMIN/SUPER_ADMIN only
+│
 ├── docs/                  # architecture, domain model, API contract, roadmap, .http smoke tests
 │
 ├── docker/                # entrypoint.sh (waits for Postgres, runs migrations, then execs uvicorn)
 │
 ├── Dockerfile
-├── docker-compose.yml       # dev stack: db, mongo, ollama, mailhog, sftp, backend, frontend
+├── docker-compose.yml       # dev stack: db, mongo, ollama, mailhog, sftp, backend, frontend, frontend-admin
 ├── docker-compose.test.yml  # ephemeral test stack, auto-managed by conftest.py
 ├── conftest.py
 ├── pytest.ini

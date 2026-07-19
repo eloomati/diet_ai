@@ -24,7 +24,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 1 (Dietitian applications
                                               & profile): DONE
                                             Etap 2 (Admin module +
-                                              frontend-admin): Stage 1/6
+                                              frontend-admin): Stage 2/6
                                             Etaps 3-6: not started
 ```
 
@@ -640,17 +640,85 @@ gated to `ADMIN`/`SUPER_ADMIN`.
   called `DELETE /admin/users/{id}`, then confirmed all three Mongo
   documents and the Postgres `users` row were gone. `docker compose down`
   after.
-- **Stage 2 — `frontend-admin/` scaffold**: new sibling folder to
-  `frontend/` — its own Vite+React+TS+Tailwind v4 project (per the
-  confirmed decision), reusing the same `docker-compose.yml` pattern as
-  `frontend`'s own service (new `frontend-admin` service, its own port).
-  Login reuses the existing `/auth/login` endpoint (no separate admin
-  auth system) — the login form just also checks the returned role and
-  refuses entry below `ADMIN`. Layout: a plain, legible shell (no rail
-  choreography like the main app) — a top bar with a "Powrót do
-  aplikacji" link back to the main frontend, and a tab bar: Raporty /
-  Użytkownicy / Dietetycy / Transakcje (Transakcje's real content
-  arrives in Etap 3).
+- **Stage 2 — `frontend-admin/` scaffold — DONE**: new sibling folder
+  to `frontend/` — its own Vite+React+TS+Tailwind v4 project (per the
+  confirmed decision), same shadcn `base-nova` style and the identical
+  design tokens/palette as the main app (brand consistency — this is
+  the same product's admin tool, not a separate one), but no
+  `react-router` (a single-page tab switcher needs no routes) and no
+  registration/password-reset/email-verification flows (admin accounts
+  are provisioned by role change, never self-registered). Own
+  `docker-compose.yml` service (`frontend-admin`, port 5174, mirroring
+  `frontend`'s exact pattern) and its own `Dockerfile`.
+
+  **Login gate**: reuses the existing `POST /auth/login` +
+  `GET /auth/me` endpoints — no separate admin auth system. `AuthContext.login()`
+  fetches `/auth/me` right after storing tokens and immediately clears
+  them and throws `InsufficientRoleError` if the role isn't
+  `ADMIN`/`SUPER_ADMIN` — a `DIET_USER` or plain `USER` can authenticate
+  against the backend but is never treated as "logged in" by this app's
+  own state, not even for an instant. The same check runs during the
+  silent bootstrap-refresh path on page load, not just on the login
+  form's explicit submit.
+
+  **Layout**: a plain top bar (title, logged-in email, a "← Powrót do
+  aplikacji" link to `VITE_MAIN_APP_URL`, a logout button) — no rail
+  choreography like the main app — plus a `Tabs` bar: Raporty /
+  Użytkownicy / Dietetycy / Transakcje. All four are honest placeholders
+  for now ("pojawi się w kolejnym etapie" / "po wdrożeniu modułu
+  płatności"), each already its own file
+  (`features/shell/tabs/*.tsx`) so Stage 3/4 replace one at a time
+  without touching the others.
+
+  **Two real bugs found and fixed while live-verifying, both would
+  have silently broken the admin panel in the browser despite
+  passing every automated test**:
+  1. `docker-compose.yml`'s `backend` service hardcodes
+     `CORS_ORIGINS: http://localhost:5173` as an environment variable,
+     which overrides `Settings.cors_origins`'s default entirely —
+     editing the Python default (also done, `"http://localhost:5173,http://localhost:5174"`,
+     for anyone running the backend outside Docker) had no effect on
+     the actual running container. Confirmed via a real CORS preflight
+     (`OPTIONS` with `Origin: http://localhost:5174`) returning
+     `400 Disallowed CORS origin` even after rebuilding — fixed by
+     updating the compose file's env var too, re-verified as `200` with
+     `access-control-allow-origin: http://localhost:5174`. Neither
+     `pytest` nor a component test would ever catch this class of bug —
+     it's purely a Docker Compose environment-variable precedence
+     issue, only visible by actually issuing a cross-origin request
+     against the containerized backend.
+  2. (Caught before it shipped, while writing the tests, not after) —
+     `App.test.tsx`'s first draft imported the module-level
+     `queryClient` singleton from `@/lib/queryClient` for every test
+     instead of a fresh `new QueryClient()` per render, which would
+     have let cached `/auth/me` responses leak between unrelated test
+     cases — fixed before running.
+
+  Exit criteria met: `npx tsc --noEmit` and `npm run build` both clean;
+  10 new tests (`AuthContext.test.tsx`: 6, covering ADMIN/SUPER_ADMIN
+  acceptance, USER/DIET_USER rejection with token cleanup, and logout;
+  `App.test.tsx`: 4, covering the login page, the full shell with all 4
+  tabs after a real ADMIN login, the non-admin rejection message, and
+  logout back to the login page) — both passing and exercising the
+  exact role-gate logic that matters most in this stage. Backend's full
+  suite re-run after the CORS settings change: 443 passed, same 2
+  pre-existing timezone-boundary failures from Etap 1 Stage 5 and
+  nothing else.
+
+  Live-verified: `docker compose up -d --build backend frontend-admin`
+  — confirmed via `docker compose logs` no new migration ran (this
+  stage touches no backend persistence) and both services started
+  clean; bootstrapped an `ADMIN` via direct SQL (same pattern as
+  Etap 0's first `SUPER_ADMIN`); confirmed the login page renders with
+  the shared design tokens in a real browser (one clean screenshot —
+  the Claude-in-Chrome extension hit the same intermittent
+  `chrome-extension://` connection error as Etap 1 Stage 4's browser
+  check and didn't reliably recover across multiple fresh tabs this
+  time either); fell back to `curl` for the functional checks: real
+  `ADMIN` login → `/auth/me` returns `role: "ADMIN"`, a plain `USER`
+  login → `/auth/me` returns `role: "USER"` (confirming the data the
+  frontend's role-gate acts on), and the CORS preflight fix above.
+  `docker compose down` after.
 - **Stage 3 — Użytkownicy tab**: list, activate/ban/delete actions;
   role-change control visible only when the logged-in admin is
   `SUPER_ADMIN`.

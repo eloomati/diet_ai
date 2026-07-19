@@ -13,11 +13,12 @@ class Settings(BaseSettings):
 
     testing: bool = False
 
-    # CORS — comma-separated origins allowed to call the API (the frontend's
-    # dev server by default). A plain comma-separated string rather than a
-    # list field: pydantic-settings would otherwise expect JSON syntax in a
-    # .env value, which is awkward to hand-edit.
-    cors_origins: str = "http://localhost:5173"
+    # CORS — comma-separated origins allowed to call the API (both frontend
+    # dev servers by default — the main app on 5173, frontend-admin on
+    # 5174). A plain comma-separated string rather than a list field:
+    # pydantic-settings would otherwise expect JSON syntax in a .env value,
+    # which is awkward to hand-edit.
+    cors_origins: str = "http://localhost:5173,http://localhost:5174"
 
     # CAPTCHA — provider selection: "mock" | "turnstile". Guards registration
     # and password-reset requests against bots.
