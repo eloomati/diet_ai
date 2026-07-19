@@ -71,6 +71,48 @@ describe('KalendarzTab', () => {
     vi.unstubAllGlobals()
   })
 
+  it('shows a loading state while the plan list is in flight', async () => {
+    let resolveList!: (response: Response) => void
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveList = resolve
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+
+    expect(await screen.findByText('Ładowanie planów…')).toBeInTheDocument()
+
+    resolveList(jsonResponse(200, []))
+
+    expect(
+      await screen.findByText('Brak wygenerowanych planów — wygeneruj plan w czacie, żeby zobaczyć go w kalendarzu.'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows a loading state for the selected plan while it is in flight', async () => {
+    let resolveDetail!: (response: Response) => void
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/p1')) {
+        return new Promise<Response>((resolve) => {
+          resolveDetail = resolve
+        })
+      }
+      return Promise.resolve(jsonResponse(200, [PLAN_SUMMARY]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+
+    expect(await screen.findByText('Ładowanie kalendarza…')).toBeInTheDocument()
+
+    resolveDetail(jsonResponse(200, threeDayPlan()))
+
+    expect(await screen.findByTestId('meal-day1-Owsianka')).toBeInTheDocument()
+  })
+
   it('shows an empty state when there are no plans yet', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, []))
     vi.stubGlobal('fetch', fetchMock)
@@ -242,6 +284,20 @@ describe('KalendarzTab', () => {
 
     const patchCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')
     expect(patchCall).toBeUndefined()
+  })
+
+  it('shows an error state when the selected plan fails to load', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(500, { code: 'INTERNAL_ERROR', message: 'boom' }))
+      }
+      return Promise.resolve(jsonResponse(200, [PLAN_SUMMARY]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+
+    expect(await screen.findByText('Nie udało się wczytać tego planu.')).toBeInTheDocument()
   })
 
   it('shows an error state when the plan list fails to load', async () => {

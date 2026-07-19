@@ -59,6 +59,25 @@ describe('PlanyTab', () => {
     expect(screen.getByText(/15 stycznia 2026/)).toBeInTheDocument()
   })
 
+  it('shows a loading state while the plan list is in flight', async () => {
+    let resolveList!: (response: Response) => void
+    const fetchMock = vi.fn().mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveList = resolve
+        }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPlanyTab()
+
+    expect(await screen.findByText('Ładowanie planów…')).toBeInTheDocument()
+
+    resolveList(jsonResponse(200, [PLAN_SUMMARY]))
+
+    expect(await screen.findByText('Budowa masy mięśniowej · Wegetariańska · 3 dni')).toBeInTheDocument()
+  })
+
   it('shows an empty state when there are no plans', async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, []))
     vi.stubGlobal('fetch', fetchMock)
@@ -115,6 +134,29 @@ describe('PlanyTab', () => {
 
     expect(await screen.findByText('Wygenerowany plan')).toBeInTheDocument()
     expect(screen.getByText(/08:00 · Owsianka/)).toBeInTheDocument()
+  })
+
+  it('shows a loading state for plan details while they are in flight', async () => {
+    const user = userEvent.setup()
+    let resolveDetail!: (response: Response) => void
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/p1')) {
+        return new Promise<Response>((resolve) => {
+          resolveDetail = resolve
+        })
+      }
+      return Promise.resolve(jsonResponse(200, [PLAN_SUMMARY]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPlanyTab()
+    await user.click(await screen.findByText('Budowa masy mięśniowej · Wegetariańska · 3 dni'))
+
+    expect(await screen.findByText('Ładowanie szczegółów…')).toBeInTheDocument()
+
+    resolveDetail(jsonResponse(200, PLAN_DETAIL))
+
+    expect(await screen.findByText('Wygenerowany plan')).toBeInTheDocument()
   })
 
   it('exports and downloads a plan when "Pobierz" is clicked', async () => {

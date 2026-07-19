@@ -393,6 +393,43 @@ describe('ChatCanvas', () => {
     ).toBeInTheDocument()
   })
 
+  it('shows a pending state while a plan is being generated', async () => {
+    const user = userEvent.setup()
+    let resolveGenerate!: (response: Response) => void
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/generate')) {
+        return new Promise<Response>((resolve) => {
+          resolveGenerate = resolve
+        })
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas(undefined)
+
+    await user.click(screen.getByRole('button', { name: 'Generuj plan' }))
+
+    expect(await screen.findByText('Generowanie planu…')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Generowanie…' })).toBeDisabled()
+
+    resolveGenerate(
+      jsonResponse(201, {
+        plan_id: 'p1',
+        user_id: 'u1',
+        goal: 'MUSCLE_GAIN',
+        diet_type: 'VEGETARIAN',
+        duration_days: 3,
+        requirements: [],
+        days: [],
+        created_at: '2026-01-01T10:00:00Z',
+        updated_at: '2026-01-01T10:00:00Z',
+      }),
+    )
+
+    expect(await screen.findByText('Wygenerowany plan')).toBeInTheDocument()
+  })
+
   it('shows a generic retry message for an unexpected plan-generation failure', async () => {
     const user = userEvent.setup()
     const fetchMock = vi

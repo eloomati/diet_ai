@@ -3022,7 +3022,7 @@ with its "+2" badge) all rendering correctly together — clean console.
 
 ---
 
-# Etap 4 — Plany dietetyczne
+# Etap 4 — Plany dietetyczne — DONE (Stages 1-6/6)
 
 Goal: wire the profile modal's "Plany" and "Kalendarz" tabs, plus the
 chat's "Generuj plan" button, to `docs/api.md`'s Diet Plan API.
@@ -3368,7 +3368,56 @@ session's earlier live drag-and-drop tests, confirming the SFTP-backed
 archive round-trips real state, not stale/cached data. Clean console.
 The test download was deleted afterward as a testing artifact.
 
-## Stage 6 — Tests & docs sync
+## Stage 6 — Tests & docs sync — DONE
+
+- [x] Closed real coverage gaps left over from Stages 1-5 (each of which
+      tested its happy/error paths but not every loading state):
+      `ChatCanvas.test.tsx` gained a case for the "Generowanie planu…"
+      pending banner + disabled "Generowanie…" button label while a
+      generation request is in flight (via a manually-resolved
+      `Promise<Response>`, the standard pattern for exercising a pending
+      `useMutation`/`useQuery` state without a real timer); `PlanyTab.test.tsx`
+      gained the equivalent for "Ładowanie planów…" (list) and "Ładowanie
+      szczegółów…" (expanded plan detail); `KalendarzTab.test.tsx` gained
+      "Ładowanie planów…", "Ładowanie kalendarza…" (selected-plan detail),
+      and a previously-untested error branch ("Nie udało się wczytać tego
+      planu." when the selected plan's `GET` fails).
+- [x] `docs/api.md`'s Diet Plan API section cross-checked against the
+      actual backend (`diet_plan_router.py`, its schemas/DTOs, and all 7
+      use cases) via a dedicated research pass. Three real discrepancies
+      found and fixed in the docs (backend behavior was correct; the
+      prose had drifted):
+      1. The blanket "a nutrition profile must already exist for the
+         caller" claim only actually holds for `POST /generate` — the
+         other six endpoints (list, get, reschedule, and all three
+         export endpoints) never check for a profile, only plan/export
+         ownership. Narrowed the claim accordingly.
+      2. Every `created_at`/`updated_at` example showed a `Z`-suffixed,
+         microsecond-free timestamp (`"2026-01-01T10:00:00Z"`), copying
+         the convention used by the shared error envelope's
+         `utc_now_z()`-normalized `timestamp` field — but diet-plan
+         DTOs use plain `datetime.isoformat()`, so the real shape is
+         `"2026-01-01T10:00:00.482391+00:00"` (microseconds, `+00:00`
+         offset, no `Z`). Fixed the three examples and added a note
+         calling out the difference explicitly, so it isn't assumed to
+         match the error envelope again.
+      3. Two undocumented `422 VALIDATION_ERROR` paths added: `GET
+         /diet-plans` when `from`/`to` isn't a valid ISO date (FastAPI's
+         automatic query-param validation, distinct from the already-
+         documented 400 for "from is after to"), and `PATCH .../meals`
+         when `day_number < 1` or `meal_name` is empty (Pydantic field
+         validation, which runs before the domain-level 400 for an
+         unknown day/meal).
+- [x] Roadmap status updated (this section, plus the Etap 4 header).
+
+Exit criteria met: full suite 87/87 (up from 81 — 6 new cases, 0
+regressions), `npm run build` and `npm run lint` both clean (lint's two
+warnings are pre-existing shadcn-generated `only-export-components`
+notices in `button.tsx`/`tabs.tsx`, unrelated to this Etap). No live
+browser re-verification needed for this stage — every underlying
+feature was already thoroughly live-verified against the real backend
+in Stages 1-5; this stage only added test coverage and fixed
+documentation prose, neither of which changes runtime behavior.
 
 ---
 
