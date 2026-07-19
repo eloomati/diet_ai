@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     sftp_password: str = "dietai"
     sftp_remote_dir: str = "/upload"
 
+    # Dietitian profile photos — local disk for MVP (confirmed decision:
+    # local disk, not MinIO/S3). Swapping to object storage later only
+    # means a new `FileStorage` implementation, no call sites change.
+    dietitian_photos_storage_dir: str = "./data/dietitian_photos"
+    dietitian_photos_base_url: str = "/static/dietitian-photos"
+
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
     jwt_access_ttl_minutes: int = 15

@@ -7,6 +7,10 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from backend.shared.database.postgres import Base
+from backend.modules.dietitian.infrastructure.persistence.models import (
+    DietitianApplicationModel,
+    DietitianProfileModel,
+)
 from backend.modules.identity.infrastructure.persistence.models import (
     EmailLogModel,
     EmailVerificationTokenModel,

@@ -231,32 +231,269 @@ Goal: a `USER` can apply to become a dietitian; once approved
 (Etap 2 handles the admin-side approval action), they get a public
 profile they manage from inside the existing `frontend/` app.
 
-- **Stage 1 — New `backend/modules/dietitian/` module**: `DietitianApplication`
-  entity (`status`: `PENDING`/`APPROVED`/`REJECTED`, applicant user id,
-  submitted form fields, `reviewed_by`/`reviewed_at`), `DietitianProfile`
-  entity (experience text, diplomas, description, up to 3 photo
-  references, two fixed `Offer`s — "oceń wygenerowany plan" /
-  "stwórz plan indywidualny" — each with a price). Mongo persistence
-  (matching `conversation`/`nutrition`'s existing choice, not Postgres —
-  this is document-shaped content, not transactional).
-- **Stage 2 — Apply flow**: `POST /dietitian/applications` (any `USER`,
-  one pending application at a time). Frontend: "Zgłoszenie dietetyka"
-  button in the bottom-right corner of the Profil tab, opening a form
-  (experience, description, etc.) — matches the mockup precedent of
-  building real screens against the existing design system
-  (`FieldError`/`Skeleton`/`EmptyState`/`Badge` from Etap 5's pass).
-- **Stage 3 — Photo upload**: new generic upload endpoint
-  (`POST /dietitian/profile/photos`, max 3, local-disk storage per the
-  confirmed decision, served via a static route) — built as a small
-  reusable port (`FileStorage` interface + local-disk adapter) so a
-  later swap to object storage doesn't touch call sites.
-- **Stage 4 — Dietitian's own profile management (main app)**: once
-  `role == DIET_USER` (set in Etap 2 via admin approval), the Profil
-  modal gains a **"Profil dietetyka"** tab (alongside today's
-  Profil/Plany/Kalendarz) — edit experience/diplomas/description/photos,
-  view submitted reviews (Etap 4). A **"Transakcje"** tab also appears
-  here (Etap 3 wires its actual content) showing transactions routed to
-  this dietitian.
+- **Stage 1 — New `backend/modules/dietitian/` module — DONE**:
+  **Deviation from the sketch above, per explicit user direction mid-stage**:
+  Mongo was the original plan (matching `conversation`/`nutrition`'s
+  document-shaped choice), but the user asked for the dietitian profile
+  to be "a separate table with a proper connection to the user" —
+  Postgres, relational, FK to `users.id`. Both `DietitianApplication`
+  and `DietitianProfile` moved to Postgres for consistency within the
+  module (one persistence technology, not split), which also sets up
+  cleanly for Etap 3/4's `transactions`/reviews tables (already planned
+  as Postgres) to join against a dietitian's profile without a cross-
+  database join. New module built mirroring `identity`'s exact
+  SQLAlchemy convention (not `nutrition`'s Mongo one): domain entities →
+  `infrastructure/persistence/models` (SQLAlchemy) → mappers →
+  repositories, plus `backend/alembic/version/20260719_07_dietitian_tables.py`.
+  - `DietitianApplication`: `status` (`PENDING`/`APPROVED`/`REJECTED`),
+    `experience`/`diplomas` (Postgres `TEXT[]`, a first for this
+    codebase — every prior Postgres column has been scalar)/`description`,
+    `reviewed_by`/`reviewed_at` (nullable FK to `users.id`,
+    `ON DELETE SET NULL` — losing the reviewing admin account shouldn't
+    cascade-delete the application it reviewed). `approve()`/`reject()`
+    guard against re-reviewing an already-decided application
+    (`ApplicationAlreadyReviewedError`) — a genuine domain invariant
+    about the application's *own* state, unlike Etap 0's role-transition
+    authorization question, which was about the *caller's* permission
+    and therefore stayed out of the entity.
+  - `DietitianProfile`: kept deliberately minimal for this stage —
+    `experience`/`diplomas`/`description` only. Photos (Stage 3) and the
+    two fixed offer prices (Stage 4) get their own columns via their own
+    migrations when those stages actually need them, mirroring how
+    Etap 0 added `role` as its own migration rather than guessing the
+    full shape upfront.
+  - Both tables: `user_id` is a `UNIQUE` FK to `users.id` (`ON DELETE
+    CASCADE`) — one row per user, ever. No re-application-after-rejection
+    flow exists yet (flagged as a scope decision, not an oversight — the
+    user's spec didn't call for one; revisit if needed by dropping the
+    unique constraint and querying "latest" instead of a 1:1 row).
+  - **Applied the Etap-0 lesson directly**: both repositories' `save()`
+    update-branch lists *every* mutable field explicitly, with an
+    inline comment pointing at the exact bug Etap 0 Stage 1 found (a
+    missing field there was `role`; the equivalent mistake here would
+    have been forgetting `status` on the application, silently breaking
+    approve/reject persistence).
+
+  Exit criteria met (scoped per the new testing-scope guidance — this
+  stage is fully isolated with no other module depending on it yet, so
+  only the new module's own tests ran, not the full suite): 11 new
+  entity unit tests. `pytest.ini` gained the new test path.
+  Live-verified against both the ephemeral test Postgres (implicitly,
+  via the autouse migration fixture succeeding) and the real Docker dev
+  Postgres — confirmed via `docker compose logs` that
+  `20260719_07_dietitian_tables` applied cleanly, and via `psql \d` that
+  both tables have the exact FKs/unique constraints/array column
+  designed above. Clean backend logs, `docker compose down` after.
+- **Stage 2 — Apply flow — DONE**: `POST /dietitian/applications`
+  (any authenticated `USER`, one pending application per user — the
+  DB's `UNIQUE` constraint on `user_id` from Stage 1 backs this, and the
+  use case also checks `get_by_user_id` first to return a clean 409
+  rather than surfacing a raw integrity-error) and
+  `GET /dietitian/applications/me` (404 when none submitted yet — lets
+  the frontend distinguish "no application" from "application exists"
+  without a separate boolean flag). New use cases
+  (`SubmitDietitianApplicationUseCase`, `GetMyDietitianApplicationUseCase`)
+  and their DTOs/exceptions threaded through `application/__init__.py`
+  exactly like Etap 0's `ChangeUserRoleUseCase` was. New
+  `api/schemas/application_schemas.py`, `api/dependencies/dietitian_dependencies.py`,
+  `api/routers/application_router.py` (prefix `/dietitian`), and a new
+  module-level `api/router.py` aggregator — this module had no API
+  surface mounted at all before this stage, so `backend/app/api_router.py`
+  also gained its `dietitian_router` import/include.
+  **Shared dependency promoted before the new code needed it**:
+  `get_db_session` moved from `identity/api/dependencies/auth_dependencies.py`
+  to `backend/shared/database/postgres.py` (re-exported from its old
+  location so identity's existing imports keep working unchanged) —
+  the same "promote once a second module needs an identity-only utility"
+  pattern Phase 8 established for `SecureToken`/JSON-Schema helpers.
+  Frontend: `frontend/src/api/dietitian.ts` (types +
+  `getMyDietitianApplication`/`submitDietitianApplication`) and a new
+  `DietitianApplicationSection.tsx`, mounted at the bottom-right of the
+  Profil tab (`ProfilTab.tsx`) exactly where the mockup spec called for
+  it. It queries `GET .../me` on mount: 404 → the "Zgłoszenie dietetyka"
+  button, which opens a `Dialog` form (experience/diplomas/description,
+  diplomas as one-per-line free text) reusing the existing design system
+  (`FieldError`, the new `Textarea` shadcn primitive, `Badge` for the
+  post-submit status); any other status → a `Badge` showing the Polish
+  status label instead of the button, so a pending/approved/rejected
+  application can never be resubmitted from the UI.
+
+  Exit criteria met (scoped, not the full suite — this stage only
+  touches the new `dietitian` module and one already-isolated
+  `get_db_session` refactor): the `get_db_session` move was verified by
+  running all of `identity`'s tests (128 passed, since that dependency
+  threads through identity's whole API surface) rather than just the
+  new file; the apply-flow itself added 2 new API test files' worth of
+  coverage — `test_submit_dietitian_application_use_case.py` (3 tests),
+  `test_get_my_dietitian_application_use_case.py` (2 tests), and
+  `test_dietitian_application_api.py` (6 tests, including the 409-on-
+  duplicate and 401-when-unauthenticated cases) — 22 tests total in the
+  module. Frontend: a new `DietitianApplicationSection.test.tsx` (2
+  tests: button→submit→badge, and badge-shown-directly for an existing
+  application) plus `ProfilTab.test.tsx`'s 4 existing tests updated to
+  mock the new `/dietitian/applications/me` call (404) so they stay
+  deterministic. `npx tsc --noEmit` and `npm run build` both clean.
+
+  Live-verified against the real Docker backend: registered a fresh
+  user, confirmed `GET .../me` → 404 before applying, `POST` → 201 with
+  `status: "PENDING"`, `GET .../me` → 200 with the same row, and a
+  second `POST` → 409 — all via `curl`, then cross-checked the row
+  directly with `psql \d dietitian_applications` / `SELECT ...`. Then
+  live-verified the frontend in a real browser (Vite dev server +
+  Docker backend): opened the Profil tab, confirmed the button renders
+  bottom-right, filled and submitted the form, confirmed the dialog
+  closed and the button was replaced by a "Zgłoszenie w trakcie
+  rozpatrywania" badge, then closed and reopened the Profil modal to
+  confirm the badge is refetched from the server (not just local state)
+  rather than resetting to the button. Dev server and
+  `docker compose down` both stopped after.
+- **Stage 3 — Photo upload — DONE**: `POST /dietitian/profile/photos`
+  (multipart upload, gated by `require_role(Role.DIET_USER)` — reusing
+  Etap 0's dependency directly, cross-module, exactly as designed).
+  `DietitianProfile` gained a `photos: tuple[str, ...]` field (new
+  migration `20260719_08_dietitian_photos.py`, chained after Stage 1's)
+  and an `add_photo()` domain method enforcing a hard cap of 3 — a
+  `MAX_PROFILE_PHOTOS` constant shared between the entity's own
+  defensive check and the use case's earlier check (see below).
+  **Applied the Etap-0 lesson a second time**: `SqlAlchemyDietitianProfileRepository.save()`'s
+  update branch gained `existing.photos = list(profile.photos)`, with
+  the same inline comment as Stage 1's application repository, this
+  time naming `photos` as the field that would have silently vanished.
+  New `FileStorage` port (`application/ports/file_storage.py`) +
+  `LocalDiskFileStorage` adapter (`infrastructure/storage/`) per the
+  confirmed local-disk decision — the adapter never trusts the client's
+  filename beyond its extension (generates its own UUID-based stored
+  name), which also rules out path traversal by construction, not by
+  sanitization. `UploadDietitianProfilePhotoUseCase` checks the 3-photo
+  cap *before* calling `FileStorage.save()`, not after — so a rejected
+  4th upload never writes an orphaned file to disk (verified by a
+  dedicated use-case test asserting the fake storage recorded nothing).
+  API layer validates content-type (`image/jpeg`/`png`/`webp` only) and
+  a 5 MB size cap before ever reaching the use case. New settings
+  (`dietitian_photos_storage_dir`, `dietitian_photos_base_url`) and a
+  `StaticFiles` mount added in `main.py::create_app()` to actually serve
+  the stored files back. Added the `python-multipart` dependency
+  (required by FastAPI's `UploadFile`/`File(...)`, not previously
+  needed anywhere in this codebase) to `requirements.txt`.
+
+  **Genuine sequencing gap, called out rather than worked around**:
+  this stage assumes a `DietitianProfile` already exists, but the only
+  thing that will ever create one is Etap 2's admin-approval flow,
+  which doesn't exist yet — there is still no way for a user to become
+  `DIET_USER` with a profile through the API alone. Tests and live
+  verification both seed that state directly against Postgres (a new
+  `_test_db_session()` helper using its own dedicated engine, and a
+  direct `psql UPDATE`/`INSERT` for live verification) — the same
+  "bypass via direct SQL until the real flow exists" pattern already
+  used for the first SUPER_ADMIN in Etap 0. This is a stand-in, not a
+  design decision: once Etap 2 exists, the real approve-application
+  action becomes the only path that creates a profile.
+
+  Exit criteria met (scoped — this stage only touches the new
+  photo-upload path within the already-isolated `dietitian` module):
+  domain tests for `add_photo()` (2), a `LocalDiskFileStorage` unit test
+  (2, including one asserting a path-traversal-shaped filename is
+  ignored), use-case tests against an in-memory profile repo + fake
+  storage (3), and an API test file (6: success, 401, 403-without-role,
+  404-without-a-profile, 400-unsupported-type, 400-on-a-4th-photo) — 35
+  tests total in the module (up from 22 after Stage 2).
+
+  Live-verified against the real Docker backend: confirmed the new
+  migration applied via `docker compose logs`; registered a user,
+  promoted it to `DIET_USER` and seeded a profile via direct `psql`,
+  then via `curl` uploaded 3 photos (each 201, `photos` array growing),
+  confirmed a 4th → 400 and a `application/pdf` upload → 400, and
+  confirmed the stored file is byte-for-byte fetchable through the
+  static route (`GET http://localhost:8000/static/dietitian-photos/<name>`
+  returned the exact uploaded content). Cross-checked
+  `dietitian_profiles.photos` directly via `psql \d` / `SELECT`.
+  `docker compose down` after. The locally-created `./data/dietitian_photos/`
+  scratch directory (a side effect of importing `main.py` during local
+  verification) was deleted and added to `.gitignore`.
+- **Stage 4 — Dietitian's own profile management (main app) — DONE**:
+  the Profil modal now conditionally gains **"Profil dietetyka"** and
+  **"Transakcje"** tabs, gated purely on `user.role === 'DIET_USER'`
+  (`ProfileModal.tsx`) — a regular `USER` never sees either tab. Reviews
+  (Etap 4) and real transaction data (Etap 3) are deliberately *not*
+  built here — the "Transakcje" tab is a shell (`TransakcjeTab.tsx`, an
+  `EmptyState` placeholder) per the plan's own note that Etap 3 wires
+  its actual content; a reviews section wasn't added at all, since the
+  plan attributed it to Etap 4 specifically, not this stage.
+  Backend gained the rest of the profile-management surface beyond
+  Stage 3's upload-only endpoint: `GET /dietitian/profile/me`,
+  `PUT /dietitian/profile` (partial update, reusing Stage 1's
+  `update_details()` domain method verbatim), and
+  `DELETE /dietitian/profile/photos/{index}` (new `remove_photo()`
+  domain method, symmetric with `add_photo()` — an out-of-range index
+  raises `InvalidDietitianProfileError`, mapped to 400). All three
+  reuse `require_role(Role.DIET_USER)` directly, unchanged since Etap 0.
+  Frontend: `DietitianProfileTab.tsx` (edit form mirroring
+  `NutritionProfileForm`'s save-mutation pattern, plus a photo gallery —
+  thumbnails with a hover-remove button, an "add" button disabled at the
+  3-photo cap) and a new `frontend/src/lib/apiFetch.ts` capability:
+  `authedFetch` now detects a `FormData` body and skips both
+  JSON-stringifying it and forcing a `Content-Type` header, letting the
+  browser set its own multipart boundary — the first real upload from
+  the frontend since the CSV *export* work only ever needed downloads.
+  A new `resolveStaticUrl()` helper resolves a root-absolute photo path
+  (e.g. `/static/dietitian-photos/x.jpg`) against the API's own origin,
+  since those files are served outside the `/api/v1` prefix and a bare
+  `<img src>` would otherwise resolve against the frontend's own origin.
+  **Frontend type gap fixed in passing**: `MeResponse` never gained a
+  `role` field back in Etap 0 Stage 4 even though the backend has
+  returned it since then — this stage's tab-gating needed it, so it was
+  added now (`UserRole` union type + `role: UserRole` on `MeResponse`).
+
+  **Genuine repo-hygiene bug found and fixed while checking `git
+  status` before this retrospective**: `.gitignore`'s bare `lib/` /
+  `lib64/` entries (meant for Python's packaging output) also matched
+  `frontend/src/lib/` at any depth, since an unanchored gitignore
+  pattern matches every directory with that name regardless of
+  location. Consequence: **all 12 files under `frontend/src/lib/`
+  (`apiFetch.ts`, the entire `auth/` module — `AuthContext.tsx`,
+  `useAuth.ts`, `tokenStore.ts` — plus `toast.ts`, `queryClient.ts`,
+  `utils.ts`, `profileOptions.ts`, `categoryOptions.ts`, and 2 test
+  files) had never been committed in any prior session**, despite all
+  of Phase 10 being marked DONE — a fresh clone of this repo would not
+  have built the frontend at all. Fixed by anchoring both patterns to
+  the repo root (`/lib/`, `/lib64/`) and staging the 12 previously-
+  untracked files alongside the `.gitignore` fix (confirmed via the
+  user) — left for the user to commit, per the standing rule.
+
+  Exit criteria met (scoped — this stage only extends the already-
+  isolated `dietitian` module and adds new frontend components; the
+  `apiFetch.ts` change is small and additive, not a behavior change to
+  the existing JSON path): domain tests for `remove_photo()` (2),
+  three new use-case test files (`get_my_dietitian_profile`,
+  `update_dietitian_profile`, `remove_dietitian_profile_photo` — 8
+  tests total), and a new `test_dietitian_profile_api.py` (7 tests:
+  get/update/remove success and error paths) — 53 tests total in the
+  module (up from 35 after Stage 3). The two API test files' shared
+  DB-seeding helpers (`_test_db_session`, `promote_to_dietitian(_with_profile)`)
+  were extracted into a new `tests/db_helpers.py` rather than
+  duplicated a second time. Frontend: `DietitianProfileTab.test.tsx`
+  (4), `TransakcjeTab.test.tsx` (1), and `ProfileModal.test.tsx` gained
+  2 new tests asserting the tabs are hidden for `USER` and shown for
+  `DIET_USER` — full suite run since `apiFetch.ts`/`auth.ts` are
+  genuinely shared, cross-cutting files (105 passed, up from 105 total
+  including the new ones). `npx tsc --noEmit` and `npm run build` both
+  clean.
+
+  Live-verified against the real Docker backend via `curl` (registered
+  a user, promoted to `DIET_USER` with a seeded profile via direct SQL —
+  same Etap-2-doesn't-exist-yet stand-in as Stage 3 — then confirmed
+  `GET`/`PUT`/upload/`DELETE` all round-trip correctly, and that
+  `GET /auth/me` now returns `role: "DIET_USER"`). **Browser-based UI
+  verification could not be completed this stage**: the Claude-in-
+  Chrome extension entered a persistent `Cannot access a chrome-
+  extension:// URL of different extension` error across two separate
+  tabs and did not recover — flagged rather than worked around, per the
+  guidance to stop after repeated tool failures rather than loop.
+  Substituted the `curl`-based backend verification above plus the full
+  automated test suites (53 backend, 105 frontend) as the closest
+  available substitute; an actual in-browser pass of the new tabs is
+  still outstanding and should happen opportunistically once the
+  extension recovers. `docker compose down` after.
 - **Stage 5 — Tests + docs sync**.
 
 ---
@@ -280,6 +517,23 @@ gated to `ADMIN`/`SUPER_ADMIN`.
   `POST /admin/dietitian-applications/{id}/reject`. All gated by
   Etap 0's `require_role(ADMIN, SUPER_ADMIN)` (role-change itself stays
   `SUPER_ADMIN`-only per Etap 0 Stage 3).
+
+  **`DELETE /admin/users/{id}` needs explicit cross-database cleanup —
+  flagged now (2026-07-19), before this stage is built, not discovered
+  mid-implementation.** `ConversationDocument`/`NutritionProfileDocument`/
+  `DietPlanDocument`/`DietPlanExportDocument` (all Mongo) and now
+  `DietitianApplication`/`DietitianProfile` (Postgres, Etap 1 Stage 1)
+  all store a plain `user_id` pointing at the Postgres `users` row —
+  Postgres's `ON DELETE CASCADE` only cleans up *other Postgres tables*
+  (so deleting a user correctly cascades to their dietitian application/
+  profile), it does **not** reach into Mongo. No account-deletion flow
+  exists anywhere in the backend yet, so this isn't a regression of
+  working behavior — it's a real gap this specific new endpoint has to
+  close itself: the use case needs to explicitly delete the user's Mongo-
+  held conversations, nutrition profile, and diet plans (and, once
+  Etap 5's `messaging` module exists, their dietitian chat threads too)
+  *before or alongside* the Postgres delete, not assume the DB cascade
+  covers it.
 - **Stage 2 — `frontend-admin/` scaffold**: new sibling folder to
   `frontend/` — its own Vite+React+TS+Tailwind v4 project (per the
   confirmed decision), reusing the same `docker-compose.yml` pattern as

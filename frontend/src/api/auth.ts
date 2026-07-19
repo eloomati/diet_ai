@@ -22,11 +22,14 @@ export interface TokenPair {
   token_type: string
 }
 
+export type UserRole = 'USER' | 'DIET_USER' | 'ADMIN' | 'SUPER_ADMIN'
+
 export interface MeResponse {
   user_id: string
   email: string
   status: string
   email_verified: boolean
+  role: UserRole
 }
 
 export interface MessageResponse {
