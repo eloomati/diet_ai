@@ -4,3 +4,7 @@ class TransactionApplicationError(Exception):
 
 class DietitianNotFoundError(TransactionApplicationError):
     pass
+
+
+class TransactionNotFoundError(TransactionApplicationError):
+    pass

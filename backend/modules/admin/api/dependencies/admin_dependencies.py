@@ -11,6 +11,12 @@ from backend.modules.admin.application.use_cases.list_dietitian_applications_use
     ListDietitianApplicationsUseCase,
 )
 from backend.modules.admin.application.use_cases.list_users_use_case import ListUsersUseCase
+from backend.modules.admin.application.use_cases.mark_transaction_paid_use_case import (
+    MarkTransactionPaidUseCase,
+)
+from backend.modules.admin.application.use_cases.mark_transaction_unpaid_use_case import (
+    MarkTransactionUnpaidUseCase,
+)
 from backend.modules.admin.application.use_cases.reject_dietitian_application_use_case import (
     RejectDietitianApplicationUseCase,
 )
@@ -43,6 +49,16 @@ from backend.modules.nutrition.domain.repositories.diet_plan_export_repository i
 from backend.modules.nutrition.domain.repositories.diet_plan_repository import DietPlanRepository
 from backend.modules.nutrition.domain.repositories.nutrition_profile_repository import (
     NutritionProfileRepository,
+)
+from backend.modules.transactions.api.dependencies import (
+    get_transaction_event_publisher,
+    get_transaction_repository,
+)
+from backend.modules.transactions.application.ports.transaction_event_publisher import (
+    TransactionEventPublisher,
+)
+from backend.modules.transactions.domain.repositories.transaction_repository import (
+    TransactionRepository,
 )
 from backend.shared.database import get_db_session
 
@@ -115,3 +131,16 @@ def get_reject_dietitian_application_use_case(
     ),
 ) -> RejectDietitianApplicationUseCase:
     return RejectDietitianApplicationUseCase(application_repository)
+
+
+def get_mark_transaction_paid_use_case(
+    transaction_repository: TransactionRepository = Depends(get_transaction_repository),
+    event_publisher: TransactionEventPublisher = Depends(get_transaction_event_publisher),
+) -> MarkTransactionPaidUseCase:
+    return MarkTransactionPaidUseCase(transaction_repository, event_publisher)
+
+
+def get_mark_transaction_unpaid_use_case(
+    transaction_repository: TransactionRepository = Depends(get_transaction_repository),
+) -> MarkTransactionUnpaidUseCase:
+    return MarkTransactionUnpaidUseCase(transaction_repository)

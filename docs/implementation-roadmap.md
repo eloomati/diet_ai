@@ -26,7 +26,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 2 (Admin module +
                                               frontend-admin): DONE
                                             Etap 3 (Transactions
-                                              module): Stage 2/5
+                                              module): Stage 3/5
                                             Etaps 4-6: not started
 ```
 
@@ -1038,11 +1038,46 @@ about to build this etap, from the looser sketch above):
   cross-checked both persisted rows directly via
   `psql SELECT offer_type, amount, status FROM transactions`.
   `docker compose down` after.
-- **Stage 3 — Admin mark paid/unpaid**: `POST /admin/transactions/{id}/mark-paid`
-  / `.../mark-unpaid` (admin-only, in the existing `admin` module — same
-  reuse-the-owning-module's-repository-port pattern as every other admin
-  action). Marking paid calls the `TransactionEventPublisher` port
-  (see above) — a no-op today, a real Kafka publish once Etap 5 exists.
+- **Stage 3 — Admin mark paid/unpaid — DONE**: `POST /admin/transactions/{id}/mark-paid`
+  / `.../mark-unpaid`, both admin-only, both living in the existing
+  `admin` module (`MarkTransactionPaidUseCase`/`MarkTransactionUnpaidUseCase`)
+  — same reuse-the-owning-module's-repository-port pattern as every
+  other admin action, this time reusing `transactions`' own exported
+  `get_transaction_repository` dependency exactly the way `admin`
+  already reuses `dietitian`'s. New `TransactionEventPublisher` port
+  (`application/ports/`) + `NoOpTransactionEventPublisher`
+  (`infrastructure/events/`) — same "swappable port, mock/no-op default"
+  shape as `EmailSender`/`SftpClient`/`FileStorage`, right down to
+  keeping a `published: list[Transaction]` for tests to assert against,
+  mirroring `MockEmailSender.sent`. `mark_paid()` calls
+  `publish_transaction_paid()` after saving; `mark_unpaid()` doesn't
+  publish anything — only a transaction *becoming* paid is a
+  meaningful event (Etap 5's dietitian-contact-reveal trigger), not the
+  reverse. A new `TransactionNotFoundError` was added to `transactions`'
+  own `application/use_cases/exceptions.py` (not `admin`'s) — same
+  precedent as `DietitianApplicationNotFoundError` living in `dietitian`
+  even though `admin`'s approve/reject use cases are the ones raising it.
+
+  Exit criteria met (scoped — only `admin` and `transactions`, the two
+  already-isolated modules touched; no full suite): 4 new use-case unit
+  tests (mark-paid updates status + publishes exactly one event;
+  mark-paid on an unknown id raises without publishing; mark-unpaid
+  clears `paid_at`; mark-unpaid on an unknown id raises) using
+  `InMemoryTransactionRepository` reused directly from `transactions/tests/fakes.py`
+  (cross-module fake reuse, same precedent as `admin`'s
+  `delete_user_use_case` test importing nutrition/conversation fakes),
+  plus 4 new API tests (403 for a non-admin, the full paid→unpaid
+  round-trip via a transaction created through the real Stage 2
+  endpoint, and both 404 shapes) — 51 tests total across the two
+  modules (16 + 35, up from 16 + 27).
+
+  Live-verified against the real Docker backend via `curl`: registered
+  an admin/buyer/dietitian trio, created a real transaction, marked it
+  paid (`paid_at` populated in the response), marked it unpaid again
+  (`paid_at` cleared), confirmed a non-admin caller gets 403, and
+  cross-checked the final `UNPAID`/`NULL` state directly via
+  `psql SELECT status, paid_at FROM transactions`. `docker compose down`
+  after.
 - **Stage 4 — Transakcje tabs wired**: both the admin panel's Transakcje
   tab (all transactions) and the dietitian's own Transakcje tab from
   Etap 1 Stage 4 (only transactions routed to them) now show real data.

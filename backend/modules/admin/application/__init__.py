@@ -8,6 +8,8 @@ from .use_cases import (
     DeleteUserUseCase,
     ListDietitianApplicationsUseCase,
     ListUsersUseCase,
+    MarkTransactionPaidUseCase,
+    MarkTransactionUnpaidUseCase,
     RejectDietitianApplicationUseCase,
 )
 
@@ -20,6 +22,8 @@ __all__ = [
     "ListDietitianApplicationsUseCase",
     "ApproveDietitianApplicationUseCase",
     "RejectDietitianApplicationUseCase",
+    "MarkTransactionPaidUseCase",
+    "MarkTransactionUnpaidUseCase",
     "AdminApplicationError",
     "CannotDeleteSelfError",
 ]
