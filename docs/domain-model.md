@@ -179,6 +179,8 @@ passwordHash
 
 status
 
+role
+
 emailVerified
 
 createdAt
@@ -197,6 +199,15 @@ Business rules:
 - inactive users cannot authenticate,
 - `emailVerified` is tracked but does not gate authentication — a
   deliberate scope boundary (Phase 8), not an oversight.
+- `role` (Phase 12) is one of `USER` (default for every new account),
+  `DIET_USER`, `ADMIN`, `SUPER_ADMIN`. `User.change_role()` is a plain
+  state transition + `UserRoleChanged` event — it does **not** itself
+  enforce who may promote whom (e.g. "only `SUPER_ADMIN` may grant
+  `ADMIN`"); that's an authorization concern enforced by the API layer's
+  `require_role` dependency guarding whichever endpoint calls it, not a
+  domain invariant about the entity's own state. There is no
+  self-escalation path anywhere in the API — the only way to change a
+  role is `PATCH /admin/users/{user_id}/role`, itself `SUPER_ADMIN`-only.
 
 ---
 
@@ -812,6 +823,8 @@ UserLoggedIn
 PasswordChanged
 
 EmailVerified
+
+UserRoleChanged
 
 ProfileCreated
 

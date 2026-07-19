@@ -209,12 +209,19 @@ touching any other module's behavior yet.
   proper bootstrap mechanism (e.g. a one-off management script, or a
   `SUPER_ADMIN_SEED_EMAIL` env var the app promotes on startup).
 
-- **Stage 4 — Docs sync**: unit/integration tests were already added
-  incrementally in Stages 1-3 (not deferred here, unlike a first read
-  of this plan might suggest) — this stage is now just `docs/api.md`
-  gaining the `role` field on `/me` plus the new
-  `PATCH /admin/users/{id}/role` endpoint, and `docs/domain-model.md`
-  documenting `Role`/`UserRoleChanged`.
+- **Stage 4 — Docs sync — DONE**: unit/integration tests were already
+  added incrementally in Stages 1-3 (not deferred here, unlike a first
+  read of this plan might suggest) — this stage was pure docs, no code
+  changes, so no test run was needed for it at all (per the updated
+  testing-scope guidance). `docs/api.md`'s `/me` response gained `role`
+  plus a full new `PATCH /admin/users/{user_id}/role` section (request/
+  response/errors, including the "no self-escalation path" note);
+  `docs/domain-model.md`'s `User` gained the `role` field, a rule
+  explaining `change_role()`'s authorization split, and `UserRoleChanged`
+  in the domain events list; `docs/openapi.json` regenerated via
+  `scripts/export_openapi.py` and confirmed to contain the new endpoint.
+
+This closes out **Etap 0 (Roles & RBAC foundation) in full.**
 
 ---
 
