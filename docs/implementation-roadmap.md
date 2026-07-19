@@ -140,10 +140,32 @@ touching any other module's behavior yet.
   check; `alembic history` confirmed a clean single-head chain with no
   branching.
 
-- **Stage 2 — RBAC dependency**: a `require_role(*roles)` FastAPI
-  dependency (alongside the existing `current_user` dependency),
-  raising 403 `FORBIDDEN` outside the allowed set. `GET /auth/me`
-  response gains `role`.
+- **Stage 2 — RBAC dependency — DONE**: `require_role(*roles)` added to
+  `current_user.py` alongside `get_current_user` — a dependency
+  *factory* (`Depends(require_role(Role.ADMIN, Role.SUPER_ADMIN))`)
+  that builds on `get_current_user` for the token/session work and only
+  adds the role check on top, raising `AppException(FORBIDDEN, 403)`
+  when the caller's role isn't in the allowed set. `GET /auth/me`'s
+  response (`MeResponse`) and the handler both gained `role`.
+  Tested by calling the returned inner function directly with
+  constructed `User`s (bypassing the HTTP layer entirely) rather than
+  inventing a throwaway protected route just to exercise it — Stage 3's
+  real `PATCH /admin/users/{id}/role` endpoint will be the first genuine
+  HTTP-level test of this dependency, so building a fake one now would
+  just be temporary scaffolding.
+
+  Exit criteria met: 4 new tests for `require_role` (allows a matching
+  role, allows any role in a multi-role allow-list, rejects an
+  out-of-set role with 403/`FORBIDDEN`, rejects `DIET_USER` against a
+  `SUPER_ADMIN`-only gate) plus the two existing `/me` API tests
+  extended to assert `role`. Full backend suite **360/360**.
+  Live-verified against the real Docker backend (not just pytest): a
+  brand-new `register → login → me` round-trip returned
+  `"role": "USER"`, and — importantly — logging in with an account
+  created *before* this migration (`smoketest-etap6@example.com`, from
+  Phase 10's frontend smoke walkthrough) also returned `"role": "USER"`,
+  confirming the migration's `server_default` backfill actually took
+  effect on real pre-existing rows, not just fresh ones.
 - **Stage 3 — Role-change endpoint**: `PATCH /admin/users/{id}/role`
   (`SUPER_ADMIN`-only) — lives here, not in Etap 2's admin module yet,
   since it's really an Identity-module concern (mutating a `User`); the

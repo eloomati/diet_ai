@@ -103,6 +103,7 @@ def test_me_with_valid_token_returns_200() -> None:
         body = me.json()
         assert body["email"] == "me.user@example.com"
         assert body["status"] == "ACTIVE"
+        assert body["role"] == "USER"
     finally:
         _cleanup_overrides()
 
@@ -171,6 +172,7 @@ def test_me_real_flow_returns_current_user(client: TestClient) -> None:
     assert body["user_id"] == user_id
     assert body["email"] == email
     assert body["status"] == "ACTIVE"
+    assert body["role"] == "USER"
 
 
 def test_me_real_without_token_returns_401(client: TestClient) -> None:

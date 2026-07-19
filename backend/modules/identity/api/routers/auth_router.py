@@ -172,6 +172,7 @@ async def me(current_user: User = Depends(get_current_user)) -> MeResponse:
         user_id=str(current_user.id),
         email=current_user.email.value,
         status=current_user.status.value,
+        role=current_user.role.value,
         email_verified=current_user.email_verified,
     )
 
