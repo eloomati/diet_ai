@@ -25,7 +25,9 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                               & profile): DONE
                                             Etap 2 (Admin module +
                                               frontend-admin): DONE
-                                            Etaps 3-6: not started
+                                            Etap 3 (Transactions
+                                              module): Stage 1/5
+                                            Etaps 4-6: not started
 ```
 
 ---
@@ -919,20 +921,91 @@ status, no real payment gateway (per the user's explicit demo-scope
 call, same spirit as this project's existing Mock AI provider / Mailhog
 / local SFTP stand-ins for real external services).
 
+Design decisions settled before Stage 1 (revised 2026-07-20, once actually
+about to build this etap, from the looser sketch above):
+
+- **Status is a 2-state toggle, not a one-way state machine**:
+  `TransactionStatus`: `UNPAID` (initial) / `PAID`. The admin action is
+  literally "mark paid" / "mark unpaid" — a reversible toggle, unlike
+  `DietitianApplication`'s one-way `PENDING → APPROVED|REJECTED`. No
+  `PENDING`/`CANCELLED` states — nothing in the spec calls for them, and
+  adding a richer state machine than the two real actions need would be
+  speculative. `mark_paid()` sets `status=PAID` + `paid_at=now()`;
+  `mark_unpaid()` sets `status=UNPAID` + `paid_at=None` — both idempotent,
+  neither raises on a redundant call (unlike approve/reject, this isn't
+  guarding an invariant, just flipping a flag).
+- **`amount` is server-computed, not client-supplied**: a small fixed
+  price table keyed by `offer_type` (`PLAN_REVIEW` / `INDIVIDUAL_PLAN`)
+  lives in the domain layer — the create-transaction request only ever
+  sends `dietitian_id` + `offer_type`; letting a client set its own price
+  would be a real integrity hole for a module whose entire job is
+  tracking money. Stored as `Numeric(10, 2)` / `Decimal`, not `float`.
+- **FK behavior**: `user_id` (buyer) is `ON DELETE CASCADE` (same as
+  `dietitian_applications`/`dietitian_profiles` — owned data disappears
+  with its owner, and this needs zero changes to Etap 2's
+  `DeleteUserUseCase`). `dietitian_id` is `ON DELETE SET NULL` (mirrors
+  `dietitian_applications.reviewed_by` — deleting the dietitian shouldn't
+  erase the *buyer's* transaction history).
+- **Kafka doesn't exist yet — a port stands in for it, not a stub
+  string of TODOs**: Stage 3 needs to react to a transaction turning
+  `PAID`, but Etap 5 is what actually adds Kafka. Same shape as
+  `EmailSender`/`SftpClient`/`FileStorage` elsewhere in this codebase: a
+  `TransactionEventPublisher` port, `NoOpTransactionEventPublisher` as
+  the only implementation for now. Etap 5 Stage 1 adds a
+  `KafkaTransactionEventPublisher` and wires it in — the mark-paid use
+  case itself doesn't change.
+
 - **Stage 1 — New `backend/modules/transactions/` module, Postgres
-  schema**: `transactions` table — id, `user_id` (buyer), `dietitian_id`
-  (nullable-safe FK to the dietitian's user), `offer_type` (plan-review
-  vs individual-plan), `amount`, `status` (`PENDING`/`PAID`/`UNPAID`/
-  `CANCELLED` — exact states firmed up during implementation),
+  schema — DONE**: `Transaction` entity + `transactions` table — `id`,
+  `user_id` (buyer), `dietitian_id`, `offer_type`, `amount`, `status`,
   `created_at`, `paid_at`. Postgres, not Mongo — this is the one new
   module that's genuinely transactional/relational, matching Identity's
-  existing choice of Postgres for the same reason.
-- **Stage 2 — Create-transaction use case**: fired when a user selects
-  a dietitian's offer (Etap 4 wires the actual UI trigger) — creates a
-  `PENDING` transaction, no payment gateway call.
+  existing choice of Postgres for the same reason. Domain + repository
+  port + SQLAlchemy model/mapper/migration only — no API surface yet
+  (mirrors Etap 1 Stage 1's own scoping: schema first, endpoints next).
+  Built exactly per the design decisions settled above: `amount` is
+  `Numeric(10, 2)`/`Decimal`, resolved server-side from the
+  `OFFER_PRICES` table keyed by `OfferType`, never accepted from a
+  caller; `TransactionStatus` is the 2-state `UNPAID`/`PAID` toggle,
+  `mark_paid()`/`mark_unpaid()` both idempotent; `Transaction.create()`
+  itself rejects `user_id == dietitian_id` (a pure data invariant, no
+  repository lookup needed, so it lives in the entity — checking that
+  the dietitian side is an actual `DIET_USER` does need a lookup and is
+  deferred to Stage 2's use case). `dietitian_id` is modeled as
+  `UUID | None` in the domain entity, not just nullable at the DB
+  level — it can legitimately become `None` for an existing row once
+  the dietitian account is deleted (`ON DELETE SET NULL`), so the
+  domain type has to allow that even though `create()` never produces
+  it. New migration `20260720_09_transactions.py`, chained after
+  Etap 1's `20260719_08_dietitian_photos`.
+
+  Exit criteria met (scoped — new, fully isolated module): 6 new entity
+  unit tests (`create()` defaults, price lookup, self-purchase
+  rejection, `mark_paid`/`mark_unpaid`, idempotent re-marking).
+  `pytest.ini` and `alembic/env.py` both gained the new module.
+
+  Live-verified against the real Docker backend: confirmed the
+  migration applied via `docker compose logs`, confirmed the exact
+  schema/FKs/indexes via `psql \d transactions`, then proved both FK
+  behaviors concretely rather than just trusting the DDL — inserted a
+  real transaction row, deleted the *dietitian's* user row directly and
+  confirmed the transaction survived with `dietitian_id` now `NULL`,
+  then deleted the *buyer's* user row and confirmed the transaction row
+  was gone (cascade). `docker compose down` after.
+- **Stage 2 — Create-transaction use case + endpoint**:
+  `POST /transactions` (`{dietitian_id, offer_type}`, buyer = caller) —
+  creates an `UNPAID` transaction with the server-computed amount.
+  Validates `dietitian_id` actually belongs to a `DIET_USER` (404
+  otherwise) and rejects buying from yourself (400). Fired from Etap 4's
+  offer-selection UI once that exists; until then, exercised directly
+  (same "verify via curl/direct calls ahead of the real UI trigger"
+  pattern Etap 2's dietitian-approval flow used before Etap 4's
+  marketplace existed).
 - **Stage 3 — Admin mark paid/unpaid**: `POST /admin/transactions/{id}/mark-paid`
-  / `.../mark-unpaid` (admin-only) — marking paid publishes the Kafka
-  `TransactionPaid` event Etap 5 consumes.
+  / `.../mark-unpaid` (admin-only, in the existing `admin` module — same
+  reuse-the-owning-module's-repository-port pattern as every other admin
+  action). Marking paid calls the `TransactionEventPublisher` port
+  (see above) — a no-op today, a real Kafka publish once Etap 5 exists.
 - **Stage 4 — Transakcje tabs wired**: both the admin panel's Transakcje
   tab (all transactions) and the dietitian's own Transakcje tab from
   Etap 1 Stage 4 (only transactions routed to them) now show real data.
@@ -960,7 +1033,7 @@ Goal: users can actually discover and hire a dietitian.
   profile (experience, diplomas, description, photos, reviews, the two
   offers). "Zgłoś się" per offer.
 - **Stage 4 — Offer selection → payment stub**: selecting an offer
-  creates a `PENDING` transaction (Etap 3 Stage 2) and shows a stand-in
+  creates an `UNPAID` transaction (Etap 3 Stage 2) and shows a stand-in
   payment screen — a single "Zapłać" action that's honest about being a
   placeholder (no card form, no gateway redirect) — admin flips it to
   paid from the panel (Etap 3 Stage 3).
@@ -979,7 +1052,10 @@ scratch, plus a second chat surface distinct from the AI one.
   `docker-compose.yml`, plus a thin producer/consumer wrapper started
   from `backend/app/main.py`'s lifespan (same place the existing
   email-retry background loop lives). First real event:
-  `TransactionPaid` (published by Etap 3 Stage 3) → a consumer creates
+  `TransactionPaid` — Etap 3 Stage 3 already defines the
+  `TransactionEventPublisher` port and calls it on every mark-paid; this
+  stage swaps in a real `KafkaTransactionEventPublisher`, no change to
+  that use case itself — a consumer creates
   a `Notification` row (new small table/collection — landing spot
   TBD during implementation, likely Postgres alongside `transactions`
   since notifications are per-user transactional state) and — this is

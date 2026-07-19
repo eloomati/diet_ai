@@ -18,6 +18,7 @@ from backend.modules.identity.infrastructure.persistence.models import (
     RefreshTokenModel,
     UserModel,
 )
+from backend.modules.transactions.infrastructure.persistence.models import TransactionModel
 
 # this is the Alembic Config object
 config = context.config
