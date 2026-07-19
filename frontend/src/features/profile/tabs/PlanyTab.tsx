@@ -1,8 +1,11 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { ClipboardX } from 'lucide-react'
 import { useState, type FormEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/EmptyState'
 import { DietPlanCard } from '@/features/dietPlans/DietPlanCard'
 import { ApiError } from '@/lib/apiFetch'
 import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
@@ -92,11 +95,14 @@ export function PlanyTab() {
       </form>
 
       {plansQuery.isPending ? (
-        <p className="text-sm text-muted-foreground">Ładowanie planów…</p>
+        <div className="flex flex-col gap-2" role="status" aria-label="Ładowanie planów…">
+          <Skeleton className="h-11 w-full rounded-xl" />
+          <Skeleton className="h-11 w-full rounded-xl" />
+        </div>
       ) : plansQuery.isError ? (
         <p className="text-sm text-destructive">{listErrorMessage(plansQuery.error)}</p>
       ) : plansQuery.data.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Brak wygenerowanych planów w tym zakresie dat.</p>
+        <EmptyState icon={ClipboardX} message="Brak wygenerowanych planów w tym zakresie dat." />
       ) : (
         <ul className="flex flex-col gap-2">
           {plansQuery.data.map((plan) => {
@@ -133,7 +139,11 @@ export function PlanyTab() {
               {expandedPlanId === plan.plan_id && (
                 <div className="border-t border-border p-3">
                   {expandedPlanQuery.isPending ? (
-                    <p className="text-sm text-muted-foreground">Ładowanie szczegółów…</p>
+                    <div className="flex flex-col gap-1.5" role="status" aria-label="Ładowanie szczegółów…">
+                      <Skeleton className="h-5 w-2/3 rounded" />
+                      <Skeleton className="h-8 w-full rounded-lg" />
+                      <Skeleton className="h-8 w-full rounded-lg" />
+                    </div>
                   ) : expandedPlanQuery.isError ? (
                     <p className="text-sm text-destructive">Nie udało się wczytać szczegółów planu.</p>
                   ) : (

@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, Info } from 'lucide-react'
+import { ChevronLeft, Info, MessageSquare } from 'lucide-react'
 import { useState } from 'react'
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Button } from '@/components/ui/button'
+import { Skeleton } from '@/components/ui/skeleton'
+import { EmptyState } from '@/components/EmptyState'
 import { useAuth } from '@/lib/auth'
 import { categoryEmoji, categoryLabel } from '@/lib/categoryOptions'
 import { listConversations } from '@/api/conversations'
@@ -97,13 +99,17 @@ export function LeftRail({
       <div className="flex-1 overflow-y-auto px-2.5">
         {isAuthenticated ? (
           conversationsQuery.isPending ? (
-            <p className="px-2.5 py-4 text-xs text-muted-foreground">Ładowanie…</p>
+            <div className="flex flex-col gap-1.5 px-2.5 py-1.5" role="status" aria-label="Ładowanie historii rozmów…">
+              <Skeleton className="h-11 w-full rounded-lg" />
+              <Skeleton className="h-11 w-full rounded-lg" />
+              <Skeleton className="h-11 w-full rounded-lg" />
+            </div>
           ) : conversationsQuery.isError ? (
             <p className="px-2.5 py-4 text-xs text-destructive">
               Nie udało się wczytać historii rozmów.
             </p>
           ) : conversationsQuery.data.length === 0 ? (
-            <p className="px-2.5 py-4 text-xs text-muted-foreground">Brak jeszcze żadnych rozmów.</p>
+            <EmptyState icon={MessageSquare} message="Brak jeszcze żadnych rozmów." />
           ) : (
             <ul className="flex flex-col gap-0.5 py-1.5">
               {[...conversationsQuery.data]

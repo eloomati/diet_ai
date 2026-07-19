@@ -3425,11 +3425,71 @@ documentation prose, neither of which changes runtime behavior.
 
 Goal: cross-cutting quality pass once every real screen exists.
 
-## Stage 1 — Errors, loading, empty states
+## Stage 1 — Errors, loading, empty states — DONE
 
-- [ ] Global toast/banner for API error codes (`docs/api.md`'s common
-      error format), loading skeletons, empty states for history/plans/
-      calendar.
+Grounded in an audit of the current state (every error/loading/empty
+path across auth, chat, profile, plans, and calendar was ad hoc inline
+text — no toast system, no `Skeleton` component, and two mutations with
+no error UI at all).
+
+- [x] Added shadcn's `sonner`-backed toast system (`npx shadcn add
+      sonner`), stripped of its default `next-themes` dependency (the
+      app has no dark-mode toggle yet — light tokens only, per Etap 0's
+      decision) — hardcoded `theme="light"` instead and uninstalled
+      `next-themes`. Mounted a single `<Toaster />` in `App.tsx`. A
+      small `src/lib/toast.ts` exposes `notifyError(message: string)` —
+      simpler than the originally-sketched `notifyError(error,
+      fallback)` keyed off `ApiError.code`, since both real call sites
+      (below) only ever have one documented error case each (a 404 on
+      an already-gone conversation), so per-code branching would have
+      been speculative.
+- [x] Fixed the two mutations the audit found completely silent on
+      failure — `ChatCanvas`'s archive and delete conversation
+      mutations had no `onError` handling at all. Both now call
+      `notifyError` with a dedicated message rather than inventing new
+      inline error UI (a toast fits a background action better than a
+      persistent inline message would).
+- [x] Existing per-feature inline errors (login/register, password
+      reset, profile save, message send, plan generate, reschedule,
+      export) left as-is — already contextual, already tested, already
+      correct; this stage closed real gaps, it didn't replace working
+      UI with toasts for its own sake.
+- [x] Added a `Skeleton` component (`npx shadcn add skeleton`) in place
+      of plain "Ładowanie…" text: history (`LeftRail`), plans
+      (`PlanyTab`'s list + expanded detail), calendar (`KalendarzTab`'s
+      plan list + grid), and `ChatCanvas`'s conversation-loading state
+      (message-bubble-shaped placeholders). Each wrapper got
+      `role="status"` (a real a11y improvement, not just a test hook)
+      so both assistive tech and tests can target the loading region by
+      its accessible name instead of matching now-removed plain text.
+- [x] Normalized the three empty-state messages (history/plans/calendar)
+      to one consistent visual treatment via a new shared
+      `src/components/EmptyState.tsx` (centered, a small lucide icon —
+      `MessageSquare`/`ClipboardX`/`CalendarOff` respectively —
+      consistent muted-foreground sizing), without changing any of
+      their existing distinct wording.
+
+Exit criteria met: 6 new tests (2 toast-wiring cases in
+`ChatCanvas.test.tsx` mocking `@/lib/toast` and asserting the exact
+message per mutation; the 4 pre-existing loading-state tests from Etap
+4 Stage 6 updated from `findByText` to `findByRole('status', { name })`
+now that the text moved from visible content to an accessible name).
+Full suite 89/89, `npm run build`/`npm run lint`/typecheck all clean
+(lint's 2 warnings are the same pre-existing shadcn-generated notices
+from before this stage).
+
+Live-verified against the real backend: the empty-state icon confirmed
+visually via `PlanyTab`'s date filter (a range with zero matching
+plans). The toast was verified with a genuine race, not just a mock —
+opened the same archived conversation in two tabs (the second one
+auto-logged in via the shared refresh token, confirming session
+bootstrap works across tabs), deleted it for real from tab 2
+(overriding `window.confirm` to auto-accept rather than fighting a
+blocking native dialog), then clicked "Usuń rozmowę" in tab 1 on the
+now-already-deleted conversation — the real `DELETE` genuinely 404'd
+and the exact expected toast ("Nie udało się usunąć rozmowy. Spróbuj
+ponownie.") rendered in the bottom-right corner. Clean console
+throughout.
 
 ## Stage 2 — Responsiveness
 

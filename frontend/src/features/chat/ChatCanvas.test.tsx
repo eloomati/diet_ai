@@ -4,7 +4,11 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { notifyError } from '@/lib/toast'
+
 import { ChatCanvas } from './ChatCanvas'
+
+vi.mock('@/lib/toast', () => ({ notifyError: vi.fn() }))
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -35,6 +39,7 @@ function renderCanvas(conversationId?: string) {
 describe('ChatCanvas', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.mocked(notifyError).mockClear()
   })
 
   it('shows the hero when there is no active conversation', () => {
@@ -226,6 +231,55 @@ describe('ChatCanvas', () => {
 
     const archiveCall = fetchMock.mock.calls.find(([url]) => (url as string).includes('/archive'))
     expect(archiveCall).toBeDefined()
+  })
+
+  it('shows a toast when archiving fails (previously a silent failure)', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/archive')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'not found' }))
+      }
+      if (init?.method === undefined) {
+        return Promise.resolve(
+          jsonResponse(200, { conversation_id: 'c1', title: 'Dieta', categories: ['DIET'], status: 'ACTIVE', messages: [] }),
+        )
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas('c1')
+
+    await user.click(await screen.findByRole('button', { name: 'Archiwizuj rozmowę' }))
+
+    await waitFor(() =>
+      expect(notifyError).toHaveBeenCalledWith('Nie udało się zarchiwizować rozmowy. Spróbuj ponownie.'),
+    )
+  })
+
+  it('shows a toast when deleting fails (previously a silent failure)', async () => {
+    const user = userEvent.setup()
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'not found' }))
+      }
+      if (init?.method === undefined) {
+        return Promise.resolve(
+          jsonResponse(200, { conversation_id: 'c1', title: 'Dieta', categories: ['DIET'], status: 'ACTIVE', messages: [] }),
+        )
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas('c1')
+
+    await user.click(await screen.findByRole('button', { name: 'Usuń rozmowę' }))
+
+    await waitFor(() =>
+      expect(notifyError).toHaveBeenCalledWith('Nie udało się usunąć rozmowy. Spróbuj ponownie.'),
+    )
   })
 
   it('shows a disabled composer immediately for an already-archived conversation', async () => {

@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { CalendarOff } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
@@ -9,7 +10,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { EmptyState } from '@/components/EmptyState'
 import { ApiError } from '@/lib/apiFetch'
 import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
 import { cn } from '@/lib/utils'
@@ -273,16 +276,22 @@ export function KalendarzTab() {
   }
 
   if (plansQuery.isPending) {
-    return <p className="text-sm text-muted-foreground">Ładowanie planów…</p>
+    return (
+      <div className="flex flex-col gap-2" role="status" aria-label="Ładowanie planów…">
+        <Skeleton className="h-9 w-full rounded-lg" />
+        <Skeleton className="h-64 w-full rounded-xl" />
+      </div>
+    )
   }
   if (plansQuery.isError) {
     return <p className="text-sm text-destructive">Nie udało się wczytać planów. Spróbuj ponownie.</p>
   }
   if (plansQuery.data.length === 0) {
     return (
-      <p className="text-sm text-muted-foreground">
-        Brak wygenerowanych planów — wygeneruj plan w czacie, żeby zobaczyć go w kalendarzu.
-      </p>
+      <EmptyState
+        icon={CalendarOff}
+        message="Brak wygenerowanych planów — wygeneruj plan w czacie, żeby zobaczyć go w kalendarzu."
+      />
     )
   }
 
@@ -331,7 +340,10 @@ export function KalendarzTab() {
       </Select>
 
       {planQuery.isPending ? (
-        <p className="text-sm text-muted-foreground">Ładowanie kalendarza…</p>
+        <div className="flex flex-col gap-3" role="status" aria-label="Ładowanie kalendarza…">
+          <Skeleton className="h-9 w-full rounded-lg" />
+          <Skeleton className="h-72 w-full rounded-xl" />
+        </div>
       ) : planQuery.isError ? (
         <p className="text-sm text-destructive">Nie udało się wczytać tego planu.</p>
       ) : plan ? (
