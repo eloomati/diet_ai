@@ -1,7 +1,12 @@
+import { BarChart3 } from 'lucide-react'
+
+import { EmptyState } from '@/components/EmptyState'
+
 export function RaportyTab() {
   return (
-    <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-      Raporty będą dostępne w kolejnej wersji panelu.
-    </p>
+    <EmptyState
+      icon={BarChart3}
+      message="Raporty będą dostępne w kolejnej wersji panelu."
+    />
   )
 }

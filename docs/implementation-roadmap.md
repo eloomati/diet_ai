@@ -24,7 +24,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 1 (Dietitian applications
                                               & profile): DONE
                                             Etap 2 (Admin module +
-                                              frontend-admin): Stage 4/6
+                                              frontend-admin): Stage 5/6
                                             Etaps 3-6: not started
 ```
 
@@ -838,11 +838,25 @@ gated to `ADMIN`/`SUPER_ADMIN`.
   there with no action buttons, and confirmed directly via `psql` that
   the approved applicant's Postgres row now has `role = 'DIET_USER'`.
   `docker compose down` after.
-- **Stage 5 — Raporty tab placeholder**: an explicit "coming later"
-  empty state (matching this project's existing convention of shipping
-  honest placeholders — e.g. the main app's "Co nowego" rail before this
-  phase) — no report generation logic yet, out of scope per the user's
-  own framing ("do implementacji później").
+- **Stage 5 — Raporty tab placeholder — DONE**: elevated Raporty (and,
+  since it's in the same boat — a placeholder with no real fix date —
+  Transakcje too) from Stage 2's bare paragraph to a proper `EmptyState`
+  component: icon + centered message, matching the main app's own
+  `EmptyState` shape exactly (new `frontend-admin/src/components/EmptyState.tsx`,
+  same props/layout, since the two apps don't share a component
+  library). No report-generation logic — explicitly out of scope per
+  the user's own framing ("do implementacji później"). New
+  `RaportyTab.test.tsx` (the tab's first dedicated test — it had none
+  before, having only ever been asserted on indirectly through
+  `App.test.tsx`).
+
+  Exit criteria met: 23/23 `frontend-admin` tests passing (1 new),
+  `npx tsc --noEmit` and `npm run build` both clean. Live-verified in a
+  real browser (Claude-in-Chrome held up again): bootstrapped a fresh
+  `SUPER_ADMIN`, logged in, clicked Raporty, confirmed the bar-chart
+  icon + message render centered and the Stage 4 tab-bar layout fix
+  still holds. `docker compose down` after — no backend touched this
+  stage, so no backend test run was needed.
 - **Stage 6 — Tests + docs sync**.
 
 ---
