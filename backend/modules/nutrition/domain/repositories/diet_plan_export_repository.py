@@ -16,3 +16,7 @@ class DietPlanExportRepository(ABC):
     @abstractmethod
     async def list_by_diet_plan_id(self, diet_plan_id: UUID) -> list[DietPlanExport]:
         raise NotImplementedError
+
+    @abstractmethod
+    async def delete_by_user_id(self, user_id: UUID) -> None:
+        raise NotImplementedError

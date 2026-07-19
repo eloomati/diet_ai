@@ -7,6 +7,7 @@ from backend.modules.dietitian.domain.entities.dietitian_application import Diet
 from backend.modules.dietitian.domain.repositories.dietitian_application_repository import (
     DietitianApplicationRepository,
 )
+from backend.modules.dietitian.domain.value_objects.application_status import ApplicationStatus
 from backend.modules.dietitian.infrastructure.mappers.dietitian_application_mapper import (
     DietitianApplicationMapper,
 )
@@ -48,3 +49,12 @@ class SqlAlchemyDietitianApplicationRepository(DietitianApplicationRepository):
             existing.updated_at = application.updated_at
 
         await self._session.flush()
+
+    async def list_all(
+        self, status: ApplicationStatus | None = None
+    ) -> list[DietitianApplication]:
+        stmt = select(DietitianApplicationModel).order_by(DietitianApplicationModel.created_at)
+        if status is not None:
+            stmt = stmt.where(DietitianApplicationModel.status == status.value)
+        result = await self._session.execute(stmt)
+        return [DietitianApplicationMapper.to_domain(model) for model in result.scalars().all()]

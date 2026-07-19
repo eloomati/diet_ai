@@ -46,3 +46,14 @@ class SqlAlchemyUserRepository(UserRepository):
             existing.updated_at = user.updated_at
 
         await self._session.flush()
+
+    async def list_all(self) -> list[User]:
+        stmt = select(UserModel).order_by(UserModel.created_at)
+        result = await self._session.execute(stmt)
+        return [UserMapper.to_domain(model) for model in result.scalars().all()]
+
+    async def delete(self, user_id: UUID) -> None:
+        model = await self._session.get(UserModel, user_id)
+        if model is not None:
+            await self._session.delete(model)
+            await self._session.flush()

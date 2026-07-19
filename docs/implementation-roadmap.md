@@ -15,14 +15,17 @@ Phase 12.
 
 ---
 
-## Status (as of 2026-07-19)
+## Status (as of 2026-07-20)
 
 ```
 Phase 0-11  - Foundation through Testing   DONE — see the archived roadmap
-Phase 12    - Dietitian Marketplace,       PLANNED — not started. This
-              Admin Panel & Roles           document's prospective plan,
-                                            awaiting stage-by-stage
-                                            implementation.
+Phase 12    - Dietitian Marketplace,       IN PROGRESS —
+              Admin Panel & Roles           Etap 0 (Roles & RBAC): DONE
+                                            Etap 1 (Dietitian applications
+                                              & profile): DONE
+                                            Etap 2 (Admin module +
+                                              frontend-admin): Stage 1/6
+                                            Etaps 3-6: not started
 ```
 
 ---
@@ -494,7 +497,46 @@ profile they manage from inside the existing `frontend/` app.
   available substitute; an actual in-browser pass of the new tabs is
   still outstanding and should happen opportunistically once the
   extension recovers. `docker compose down` after.
-- **Stage 5 — Tests + docs sync**.
+- **Stage 5 — Tests + docs sync — DONE**: closing stage for Etap 1 as a
+  whole, so — per the standing testing-scope rule — the *full* suite
+  ran rather than just the dietitian module.
+  - `docs/api.md`: new **Dietitian API** module section covering all 6
+    endpoints built across Stages 2-4 (`POST`/`GET .../applications*`,
+    `GET`/`PUT .../profile`, `POST`/`DELETE .../profile/photos*`), plus
+    an Overview bullet mentioning dietitian applications/profiles.
+  - `docs/domain-model.md`: new **Dietitian Context** (bounded contexts)
+    and **Dietitian Domain** section (`DietitianApplication`,
+    `DietitianProfile` — both aggregate roots, their rules, and an
+    explicit note that neither currently emits domain events, unlike
+    `User.change_role()`), both added to Aggregates/Persistence Mapping,
+    and a short addendum on the Relationships diagram. Inserting a new
+    domain section required renumbering sections 7-13 to 8-14 — done
+    and verified sequential.
+  - `docs/openapi.json` regenerated via `scripts/export_openapi.py` —
+    confirmed the new dietitian paths are present.
+  - This document's own status block flipped Phase 12 from PLANNED to
+    IN PROGRESS, with Etap 0/Etap 1 marked DONE.
+
+  **Full-suite closing gate run (backend + frontend)**: frontend clean
+  (105/105). Backend: 416 passed, **2 pre-existing failures unrelated to
+  this etap** — `test_diet_plan_api.py::test_list_diet_plans_from_today_includes_todays_plan`
+  and `::test_list_diet_plans_to_in_the_past_excludes_todays_plan`
+  (Phase 10 nutrition tests, untouched this whole session). Root cause:
+  both compute `date.today()` in the *local* timezone (CEST, UTC+2) and
+  compare it against `DietPlan.created_at`, which is stored in UTC —
+  for roughly 2 hours after local midnight but before UTC midnight,
+  local "today" and the plan's actual UTC-dated `created_at` disagree
+  by one day, flipping both tests' expected result. Confirmed by
+  comparing `date.today()` vs `datetime.now(UTC).date()` at the time of
+  the run (`2026-07-20` vs `2026-07-19`) — a genuine latent bug, but a
+  clock-window flake unrelated to any dietitian-module change, so it
+  wasn't fixed here; left as a flagged, separately-scoped issue for
+  whoever next touches `nutrition`'s date-range filtering.
+
+Etap 1 (Dietitian applications & profile) is now **DONE** — all 5
+stages complete: the module (Postgres, Stage 1), the apply flow
+(Stage 2), photo upload (Stage 3), the dietitian's own profile
+management UI (Stage 4), and this docs/tests sync (Stage 5).
 
 ---
 
@@ -503,37 +545,101 @@ profile they manage from inside the existing `frontend/` app.
 Goal: the actual admin panel — a separate app, separate backend module,
 gated to `ADMIN`/`SUPER_ADMIN`.
 
-- **Stage 1 — New `backend/modules/admin/` module**: no new persistence
-  of its own — its use cases call the existing `identity`/`dietitian`/
-  (later) `transactions` modules' repository ports directly (an
-  established cross-module pattern already used elsewhere in this
-  codebase), so admin logic stays a thin orchestration layer rather than
-  a second source of truth. Endpoints: `GET /admin/users` (list, no
-  sensitive fields), `POST /admin/users/{id}/activate`,
+- **Stage 1 — New `backend/modules/admin/` module — DONE**: no new
+  persistence of its own, exactly as planned — its use cases call the
+  existing `identity`/`dietitian`/`nutrition`/`conversation` modules'
+  repository ports directly, reusing their already-exported API-layer
+  provider functions (`get_conversation_repository`,
+  `get_nutrition_profile_repository`, `get_diet_plan_repository`,
+  `get_diet_plan_export_repository`, `get_dietitian_application_repository`,
+  `get_dietitian_profile_repository`) the same way every module already
+  reuses identity's `get_current_user`/`require_role` — so admin logic
+  stays a thin orchestration layer, not a second source of truth, and no
+  new repository implementation had to be written for it.
+  Endpoints, all gated by `require_role(ADMIN, SUPER_ADMIN)`:
+  `GET /admin/users`, `POST /admin/users/{id}/activate`,
   `POST /admin/users/{id}/ban`, `DELETE /admin/users/{id}`,
-  `GET /admin/dietitian-applications`,
+  `GET /admin/dietitian-applications` (optional `?status=` filter),
   `POST /admin/dietitian-applications/{id}/approve` (promotes the user
-  to `DIET_USER` via Etap 0 Stage 1's `change_role()`),
-  `POST /admin/dietitian-applications/{id}/reject`. All gated by
-  Etap 0's `require_role(ADMIN, SUPER_ADMIN)` (role-change itself stays
-  `SUPER_ADMIN`-only per Etap 0 Stage 3).
+  to `DIET_USER` and creates their `DietitianProfile` — see below),
+  `POST /admin/dietitian-applications/{id}/reject`.
 
-  **`DELETE /admin/users/{id}` needs explicit cross-database cleanup —
-  flagged now (2026-07-19), before this stage is built, not discovered
-  mid-implementation.** `ConversationDocument`/`NutritionProfileDocument`/
-  `DietPlanDocument`/`DietPlanExportDocument` (all Mongo) and now
-  `DietitianApplication`/`DietitianProfile` (Postgres, Etap 1 Stage 1)
-  all store a plain `user_id` pointing at the Postgres `users` row —
-  Postgres's `ON DELETE CASCADE` only cleans up *other Postgres tables*
-  (so deleting a user correctly cascades to their dietitian application/
-  profile), it does **not** reach into Mongo. No account-deletion flow
-  exists anywhere in the backend yet, so this isn't a regression of
-  working behavior — it's a real gap this specific new endpoint has to
-  close itself: the use case needs to explicitly delete the user's Mongo-
-  held conversations, nutrition profile, and diet plans (and, once
-  Etap 5's `messaging` module exists, their dietitian chat threads too)
-  *before or alongside* the Postgres delete, not assume the DB cascade
-  covers it.
+  **New repository capabilities added to support this stage** (each
+  module's own domain/infrastructure layers, not admin's): `UserRepository`
+  gained `list_all()`/`delete()`; `DietitianApplicationRepository`
+  gained `list_all(status=None)`; `NutritionProfileRepository`,
+  `DietPlanRepository`, `DietPlanExportRepository` each gained
+  `delete_by_user_id()` (Mongo bulk deletes — nothing in this codebase
+  had ever deleted these before). `ConversationRepository` needed no
+  change — `list_by_user()` + `delete(id)` already existed and compose
+  into exactly what `DeleteUserUseCase` needs.
+
+  **`DELETE /admin/users/{id}`'s cross-database cleanup, flagged before
+  this stage and now built exactly as flagged**: `DeleteUserUseCase`
+  deletes the user's Mongo-held conversations (via `list_by_user` +
+  `delete`), nutrition profile, diet plans, and diet plan exports —
+  all *before* the Postgres `user_repository.delete()` call, which
+  cascades to `refresh_tokens`/`password_reset_tokens`/
+  `email_verification_tokens`/`dietitian_applications`/
+  `dietitian_profiles` (all already `ON DELETE CASCADE`; `email_logs`
+  correctly has no FK and is deliberately left behind). Also added a
+  guard the original plan didn't call out but the entity model made
+  obviously necessary once actually building the endpoint: an admin
+  cannot delete their own account (`CannotDeleteSelfError`, 400) —
+  the same spirit as "no self-escalation path" for role changes.
+
+  **The dietitian-approval flow closes the exact gap Etap 1 left
+  open**: since Etap 1, there was no way for a `DietitianProfile` to
+  ever be created through the API — `ApproveDietitianApplicationUseCase`
+  is that path. It calls `application.approve(reviewed_by)` (raising
+  `ApplicationAlreadyReviewedError` on a second attempt), promotes the
+  user via `user.change_role(Role.DIET_USER)` directly (not through
+  identity's `ChangeUserRoleUseCase` — that object exists for the
+  `SUPER_ADMIN`-only role-change endpoint specifically; this is a
+  deliberately different path, gated by its own endpoint's
+  `require_role(ADMIN, SUPER_ADMIN)`), then creates the
+  `DietitianProfile` from the application's own experience/diplomas/
+  description. Defensively checks for an existing profile first (not
+  expected in practice — one application per user, ever, approvable
+  only once — but manual DB fixes during earlier live-verification
+  passes are exactly the kind of state that could violate that
+  assumption, so it's guarded rather than trusted).
+
+  Exit criteria met — scoped to the new `admin` module plus the small
+  repository additions in `identity`/`dietitian`/`nutrition` (genuinely
+  cross-cutting, so the *full* suite ran, not just the new module): 43
+  new tests total — 16 admin use-case unit tests (list/activate/ban/
+  delete users; list/approve/reject dietitian applications, including
+  the self-delete guard and the already-reviewed/already-exists edge
+  cases) using in-memory fakes reused directly from each source
+  module's own `tests/fakes.py`, plus 11 API-level tests across two new
+  files (`test_users_api.py`, `test_dietitian_applications_api.py`) —
+  27 tests in the new `backend/modules/admin/tests/` package
+  (`pytest.ini` gained the new test path), and existing-fake updates
+  (`InMemoryUserRepository` ×2, `InMemoryDietitianApplicationRepository`,
+  three nutrition fakes) so the new abstract repository methods didn't
+  break any ABC-inheriting fake. Full backend suite: 443 passed — the
+  same 2 pre-existing timezone-boundary failures from Etap 1 Stage 5
+  (unrelated, already flagged there) and nothing else.
+
+  Live-verified against the real Docker backend via `curl` (no new
+  migration needed — confirmed by `docker compose logs`, since this
+  module adds no persistence of its own): bootstrapped an `ADMIN` via
+  direct SQL (same pattern as Etap 0's first `SUPER_ADMIN`), confirmed
+  `GET /admin/users` lists both accounts, submitted a dietitian
+  application and approved it — confirmed via `GET /auth/me` that the
+  applicant's role flipped to `DIET_USER` and via
+  `GET /dietitian/profile/me` that a real profile now exists with the
+  application's own data. Separately verified ban→activate,
+  self-delete correctly rejected with 400, and — the part that mattered
+  most — the cross-database cleanup: gave a second user a real Mongo
+  nutrition profile, conversation, and diet plan, confirmed all three
+  existed via `mongosh` (`UUID('...')` query syntax, not a plain string
+  — `user_id` is stored as a native BSON UUID, an early verification
+  attempt silently matched zero documents until this was corrected),
+  called `DELETE /admin/users/{id}`, then confirmed all three Mongo
+  documents and the Postgres `users` row were gone. `docker compose down`
+  after.
 - **Stage 2 — `frontend-admin/` scaffold**: new sibling folder to
   `frontend/` — its own Vite+React+TS+Tailwind v4 project (per the
   confirmed decision), reusing the same `docker-compose.yml` pattern as
