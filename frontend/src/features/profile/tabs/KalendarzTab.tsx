@@ -348,7 +348,7 @@ export function KalendarzTab() {
         <p className="text-sm text-destructive">Nie udało się wczytać tego planu.</p>
       ) : plan ? (
         <>
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <div className="flex items-center gap-1.5">
               <Button
                 type="button"

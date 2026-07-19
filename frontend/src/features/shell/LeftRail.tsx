@@ -73,7 +73,12 @@ export function LeftRail({
   })
 
   return (
-    <aside className="flex h-full w-62 flex-col border-r border-border bg-card">
+    <>
+      {/* Below `md` the rail is an overlay, not a column — the backdrop
+          closes it on click. `md:hidden` alone keeps it invisible on
+          desktop, no viewport check needed here. */}
+      <div className="fixed inset-0 z-30 bg-black/40 md:hidden" onClick={onCollapse} aria-hidden="true" data-testid="rail-backdrop" />
+      <aside className="fixed inset-y-0 left-0 z-40 flex h-full w-62 flex-col border-r border-border bg-card md:static md:z-auto">
       <div className="flex items-center justify-between p-3.5 pb-2.5">
         <button onClick={onProfileClick} aria-label="Profil">
           <Avatar className="size-9 border border-border">
@@ -161,6 +166,7 @@ export function LeftRail({
       </div>
 
       <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />
-    </aside>
+      </aside>
+    </>
   )
 }
