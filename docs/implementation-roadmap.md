@@ -26,7 +26,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 2 (Admin module +
                                               frontend-admin): DONE
                                             Etap 3 (Transactions
-                                              module): Stage 1/5
+                                              module): Stage 2/5
                                             Etaps 4-6: not started
 ```
 
@@ -992,15 +992,52 @@ about to build this etap, from the looser sketch above):
   confirmed the transaction survived with `dietitian_id` now `NULL`,
   then deleted the *buyer's* user row and confirmed the transaction row
   was gone (cascade). `docker compose down` after.
-- **Stage 2 — Create-transaction use case + endpoint**:
-  `POST /transactions` (`{dietitian_id, offer_type}`, buyer = caller) —
-  creates an `UNPAID` transaction with the server-computed amount.
-  Validates `dietitian_id` actually belongs to a `DIET_USER` (404
-  otherwise) and rejects buying from yourself (400). Fired from Etap 4's
-  offer-selection UI once that exists; until then, exercised directly
-  (same "verify via curl/direct calls ahead of the real UI trigger"
-  pattern Etap 2's dietitian-approval flow used before Etap 4's
-  marketplace existed).
+- **Stage 2 — Create-transaction use case + endpoint — DONE**:
+  `POST /transactions` (`{dietitian_id, offer_type}`, buyer = caller,
+  any authenticated user — not role-gated, since anyone might want to
+  hire a dietitian) — creates an `UNPAID` transaction with the
+  server-computed amount. `CreateTransactionUseCase` checks order
+  matters: it loads `dietitian_id` via `UserRepository` and confirms
+  `role == DIET_USER` *first* (404 `DietitianNotFoundError` if missing
+  or not a dietitian) — only then calls `Transaction.create()`, whose
+  own self-purchase guard (Stage 1) fires second. Consequence, caught
+  live rather than assumed: a non-dietitian trying to "buy from
+  themselves" gets **404, not 400** — the dietitian-existence check
+  fails before the self-purchase check is ever reached, since they
+  aren't a real dietitian target either way. Confirmed correct by
+  testing both shapes separately: a plain user targeting their own id →
+  404; an actual `DIET_USER` targeting their own id → 400 from the
+  entity's guard.
+
+  Fired from Etap 4's offer-selection UI once that exists; until then,
+  exercised directly — same "verify via curl ahead of the real UI
+  trigger" pattern Etap 2's dietitian-approval flow used before Etap 4's
+  marketplace existed. Cross-module reuse follows the established
+  shape: `CreateTransactionUseCase` takes `identity`'s `UserRepository`
+  as a constructor dependency (via a locally-defined
+  `get_user_repository_for_transactions` provider — not a shared
+  export, mirroring how `admin`'s own equivalent provider is also
+  module-local, not something other modules import).
+
+  Exit criteria met (scoped — new, still-isolated module; no shared
+  repository interfaces changed this time, so no full-suite run):
+  4 new use-case unit tests (success; unknown dietitian id; target
+  exists but isn't a `DIET_USER`; self-purchase) using
+  `InMemoryTransactionRepository` (new `tests/fakes.py`) +
+  `identity`'s own `InMemoryUserRepository`, plus 6 new
+  `test_create_transaction_api.py` tests (201, 401, both 404 shapes,
+  400 self-purchase, 422 invalid `offer_type`) — 16 tests total in the
+  module (up from 6 after Stage 1).
+
+  Live-verified against the real Docker backend via `curl`: created a
+  real `PLAN_REVIEW` (49.00) and `INDIVIDUAL_PLAN` (149.00) transaction
+  between a real buyer and a real `DIET_USER`, confirmed both amounts
+  came back server-computed and exactly right; confirmed unauthenticated
+  → 401; confirmed a genuine `DIET_USER` targeting their own id → 400
+  (the scenario above, tested for real, not just in the suite);
+  cross-checked both persisted rows directly via
+  `psql SELECT offer_type, amount, status FROM transactions`.
+  `docker compose down` after.
 - **Stage 3 — Admin mark paid/unpaid**: `POST /admin/transactions/{id}/mark-paid`
   / `.../mark-unpaid` (admin-only, in the existing `admin` module — same
   reuse-the-owning-module's-repository-port pattern as every other admin
