@@ -33,7 +33,11 @@ export function AdminShell() {
       </header>
 
       <main className="flex-1 px-6 py-4">
-        <Tabs defaultValue="uzytkownicy">
+        {/* Base UI's Tabs root only gets a column layout (list above panel)
+            via a Tailwind selector keyed off an attribute it doesn't
+            actually set on this version — same latent bug the main app's
+            ProfileModal avoids by forcing flex-col explicitly here too. */}
+        <Tabs defaultValue="uzytkownicy" className="flex flex-col gap-0">
           <TabsList variant="line" className="border-b border-border">
             <TabsTrigger value="raporty">Raporty</TabsTrigger>
             <TabsTrigger value="uzytkownicy">Użytkownicy</TabsTrigger>

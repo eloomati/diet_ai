@@ -24,7 +24,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 1 (Dietitian applications
                                               & profile): DONE
                                             Etap 2 (Admin module +
-                                              frontend-admin): Stage 3/6
+                                              frontend-admin): Stage 4/6
                                             Etaps 3-6: not started
 ```
 
@@ -774,8 +774,70 @@ gated to `ADMIN`/`SUPER_ADMIN`.
   the CORS preflight for `/admin/users` from `http://localhost:5174`
   returns `200` with the right `access-control-allow-origin`.
   `docker compose down` after.
-- **Stage 4 — Dietetycy tab**: list pending/approved/rejected
-  applications, approve/reject actions.
+- **Stage 4 — Dietetycy tab — DONE**: real list
+  (`GET /admin/dietitian-applications`) with a status filter `Select`
+  (Oczekujące / Zaakceptowane / Odrzucone / Wszystkie, defaulting to
+  Oczekujące — what an admin needs day-to-day), each application shown
+  as a card (experience/diplomas/description + a status `Badge`), with
+  Zaakceptuj/Odrzuć actions only on `PENDING` ones.
+
+  **The endpoint only returns `user_id`, not an email** — solved
+  client-side rather than adding a backend field: reuses the
+  `['admin-users']` query (same key `UzytkownicyTab` already fetches,
+  so TanStack Query dedupes/shares the one request) to build a
+  `user_id → email` lookup map, falling back to the raw UUID if a
+  match isn't found (covered by a test, though it shouldn't happen in
+  practice — every application has a real owning user).
+
+  **A real, fully broken layout bug found and fixed in the browser,
+  invisible to every automated test**: `AdminShell`'s tab bar rendered
+  as a vertical column of four stacked links in the page's far-left
+  margin instead of a horizontal bar under the header — completely
+  unusable, but every unit test still passed, because jsdom doesn't
+  compute Flexbox layout at all, so `getByRole('tab', ...)` finds the
+  elements regardless of how (or whether) they're visually arranged.
+  Root cause: the shared `tabs.tsx` primitive's root class is
+  `"group/tabs flex gap-2 data-horizontal:flex-col"` — `data-horizontal:`
+  is a Tailwind arbitrary-attribute selector keyed on a boolean
+  `data-horizontal` attribute that this version of Base UI never
+  actually sets (it only sets `data-orientation="horizontal"`), so the
+  class silently never applies and `Tabs` falls back to a plain `flex`
+  (row) instead of the intended column (list-above-panel) layout. The
+  main app's own `ProfileModal` never hit this because it happens to
+  pass `className="flex h-full flex-col gap-0"` explicitly on its own
+  `<Tabs>` — a workaround, not a fix, that this stage's `AdminShell`
+  simply hadn't copied. Fixed the same way: `<Tabs defaultValue="uzytkownicy"
+  className="flex flex-col gap-0">`, with a comment explaining why,
+  so the next `<Tabs>` usage in this codebase doesn't rediscover the
+  same bug. The underlying `tabs.tsx` primitive itself was left
+  unpatched — fixing the arbitrary-selector bug at its source is a
+  larger, riskier change (affects every `Tabs` usage in both apps) than
+  this stage's scope justified; noted here for whoever next touches
+  that primitive.
+
+  Exit criteria met: 6 new `DietetycyTab.test.tsx` tests (email
+  resolution + details, empty state, no-actions-for-non-pending,
+  approve, reject, UUID fallback when the user list has no match) — all
+  passing, 22/22 for the whole `frontend-admin` suite, `npx tsc --noEmit`
+  and `npm run build` both clean.
+
+  Live-verified in a real browser this time (the Claude-in-Chrome
+  extension held up for the whole session, unlike the last two
+  stages): `docker compose up -d --build backend frontend-admin` —
+  ran into a genuine "No space left on device" failure starting
+  Postgres, caused by ~29GB of accumulated Docker images/build cache
+  from this session's many rebuilds eating nearly all free disk space;
+  resolved with `docker image prune -f` + `docker builder prune -f`
+  (dangling images and build cache only, no volumes touched) before
+  retrying successfully. Bootstrapped a `SUPER_ADMIN` and two dietitian
+  applications via `curl`/direct SQL, then logged into
+  `frontend-admin` for real: confirmed the (post-fix) horizontal tab
+  bar, clicked into Dietetycy, approved one application, watched it
+  disappear from the "Oczekujące" filter and the success toast fire,
+  switched the filter to "Zaakceptowane" and confirmed it now appeared
+  there with no action buttons, and confirmed directly via `psql` that
+  the approved applicant's Postgres row now has `role = 'DIET_USER'`.
+  `docker compose down` after.
 - **Stage 5 — Raporty tab placeholder**: an explicit "coming later"
   empty state (matching this project's existing convention of shipping
   honest placeholders — e.g. the main app's "Co nowego" rail before this
