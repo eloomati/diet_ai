@@ -26,3 +26,10 @@ class PasswordChanged:
 class EmailVerified:
     user_id: UUID
     occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+@dataclass(frozen=True, slots=True)
+class UserRoleChanged:
+    user_id: UUID
+    new_role: str
+    occurred_at: datetime = field(default_factory=lambda: datetime.now(UTC))

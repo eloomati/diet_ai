@@ -1,3 +1,4 @@
+from .change_user_role_use_case import ChangeUserRoleUseCase
 from .confirm_email_verification_use_case import ConfirmEmailVerificationUseCase
 from .confirm_password_reset_use_case import ConfirmPasswordResetUseCase
 from .email_retry_strategies import (
@@ -21,6 +22,7 @@ from .request_password_reset_use_case import RequestPasswordResetUseCase
 from .retry_failed_emails_use_case import RetryFailedEmailsUseCase
 
 __all__ = [
+    "ChangeUserRoleUseCase",
     "RegisterUserUseCase",
     "LoginUserUseCase",
     "LogoutUseCase",

@@ -256,15 +256,71 @@ Body:
   "user_id": "uuid",
   "email": "user@example.com",
   "status": "ACTIVE",
+  "role": "USER",
   "email_verified": false
 }
 ```
+
+`role`: one of `USER`, `DIET_USER`, `ADMIN`, `SUPER_ADMIN` — every user
+is `USER` until either a `SUPER_ADMIN` promotes them (see
+`PATCH /admin/users/{user_id}/role` below) or a future dietitian-
+application approval flow promotes them to `DIET_USER` (Phase 12).
 
 ### Errors
 
 401 Unauthorized — `INVALID_ACCESS_TOKEN` (missing/malformed/expired token, or token references a deleted user)
 
 403 Forbidden — `INACTIVE_USER`
+
+---
+
+## PATCH /admin/users/{user_id}/role
+
+Changes another user's role. `SUPER_ADMIN`-only — this is the only way
+any user ever gains `ADMIN`/`SUPER_ADMIN`/`DIET_USER`; there is no
+self-escalation path anywhere in the API.
+
+Authentication:
+
+Required — `Authorization: Bearer {access_token}`, and the caller's own
+role must be `SUPER_ADMIN`.
+
+### Request
+
+```json
+{
+  "new_role": "DIET_USER"
+}
+```
+
+`new_role`: one of `USER`, `DIET_USER`, `ADMIN`, `SUPER_ADMIN`.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "user_id": "uuid",
+  "email": "user@example.com",
+  "role": "DIET_USER"
+}
+```
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not SUPER_ADMIN
+404 Not Found code=NOT_FOUND — user_id doesn't exist
+422 Unprocessable Entity code=VALIDATION_ERROR — new_role isn't one of the 4 valid values
+```
 
 ---
 

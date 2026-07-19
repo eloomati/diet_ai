@@ -102,25 +102,126 @@ Checked before writing this plan, so it's grounded rather than guessed:
 Goal: introduce the role system every later etap depends on, without
 touching any other module's behavior yet.
 
-- **Stage 1 — `Role` value object + migration**: `Role` enum
+- **Stage 1 — `Role` value object + migration — DONE**: `Role` enum
   (`USER`, `DIET_USER`, `ADMIN`, `SUPER_ADMIN`), new `role` column on
-  `users` (Postgres, Alembic migration, default `USER` for every existing
-  row). `User` entity gains `role: Role` + a `change_role()` domain
-  method (validates legal transitions — e.g. only `SUPER_ADMIN` can
-  promote to `ADMIN`/`SUPER_ADMIN`; approving a dietitian application
-  promotes `USER` → `DIET_USER`).
-- **Stage 2 — RBAC dependency**: a `require_role(*roles)` FastAPI
-  dependency (alongside the existing `current_user` dependency),
-  raising 403 `FORBIDDEN` outside the allowed set. `GET /auth/me`
-  response gains `role`.
-- **Stage 3 — Role-change endpoint**: `PATCH /admin/users/{id}/role`
-  (`SUPER_ADMIN`-only) — lives here, not in Etap 2's admin module yet,
-  since it's really an Identity-module concern (mutating a `User`); the
-  admin module in Etap 2 will just call it.
-- **Stage 4 — Tests + docs sync**: unit tests for `Role`/`change_role()`
-  transition rules, integration test for the dependency (403 for wrong
-  role), `docs/api.md` gains the `role` field + the new endpoint,
-  `docs/domain-model.md` documents `Role`.
+  `users` (`backend/alembic/version/20260719_06_user_roles.py`, default
+  `'USER'` for every existing row via `server_default`). `User` entity
+  gained `role: Role = Role.USER` + a `change_role(new_role)` method +
+  a new `UserRoleChanged` domain event.
+  **Deviation from the sketch above**: `change_role()` does *not*
+  itself validate "only `SUPER_ADMIN` can promote to `ADMIN`" — that's
+  an authorization rule (who's allowed to call this), not a domain
+  invariant (a fact about the entity's own state), so it's deferred to
+  the API layer's `require_role` dependency (Stage 2) guarding whatever
+  endpoint calls `change_role` (Stage 3), matching how `assert_can_authenticate()`
+  is about the user's *own* state, never about a caller's permission.
+  The entity stays a plain setter + event; the dietitian-approval
+  `USER`→`DIET_USER` promotion (Etap 1) is just another caller of the
+  same method, gated by its own endpoint's role requirement — no
+  transition-legality table needed inside the entity.
+  **Real bug found and fixed while wiring persistence**:
+  `SqlAlchemyUserRepository.save()`'s update branch
+  (`infrastructure/persistence/repository/sqlalchemy_user_repository.py`)
+  set `existing.{email,password_hash,status,email_verified,updated_at}`
+  field-by-field on an already-loaded row, but the new `role` field was
+  missing from that list — a role change would have applied to the
+  in-memory `User` object, returned success, and then silently
+  vanished on the next fetch. Caught before any endpoint existed to
+  call it, purely by re-reading the repository during this stage rather
+  than assuming `to_model()`'s mapping (used only for brand-new rows)
+  covered updates too.
+
+  Exit criteria met: new unit tests (`Role`'s 4 members; `User.create()`
+  defaults to `Role.USER`; `change_role()` updates the field and emits
+  `UserRoleChanged`), `test_domain_exports.py` extended. Full backend
+  suite **356/356 passed** (up from 353), including the migration
+  itself — `conftest.py` runs a real `alembic upgrade head` against the
+  ephemeral test Postgres before every run, so this wasn't just an ORM
+  check; `alembic history` confirmed a clean single-head chain with no
+  branching.
+
+- **Stage 2 — RBAC dependency — DONE**: `require_role(*roles)` added to
+  `current_user.py` alongside `get_current_user` — a dependency
+  *factory* (`Depends(require_role(Role.ADMIN, Role.SUPER_ADMIN))`)
+  that builds on `get_current_user` for the token/session work and only
+  adds the role check on top, raising `AppException(FORBIDDEN, 403)`
+  when the caller's role isn't in the allowed set. `GET /auth/me`'s
+  response (`MeResponse`) and the handler both gained `role`.
+  Tested by calling the returned inner function directly with
+  constructed `User`s (bypassing the HTTP layer entirely) rather than
+  inventing a throwaway protected route just to exercise it — Stage 3's
+  real `PATCH /admin/users/{id}/role` endpoint will be the first genuine
+  HTTP-level test of this dependency, so building a fake one now would
+  just be temporary scaffolding.
+
+  Exit criteria met: 4 new tests for `require_role` (allows a matching
+  role, allows any role in a multi-role allow-list, rejects an
+  out-of-set role with 403/`FORBIDDEN`, rejects `DIET_USER` against a
+  `SUPER_ADMIN`-only gate) plus the two existing `/me` API tests
+  extended to assert `role`. Full backend suite **360/360**.
+  Live-verified against the real Docker backend (not just pytest): a
+  brand-new `register → login → me` round-trip returned
+  `"role": "USER"`, and — importantly — logging in with an account
+  created *before* this migration (`smoketest-etap6@example.com`, from
+  Phase 10's frontend smoke walkthrough) also returned `"role": "USER"`,
+  confirming the migration's `server_default` backfill actually took
+  effect on real pre-existing rows, not just fresh ones.
+- **Stage 3 — Role-change endpoint — DONE**: `PATCH /admin/users/{user_id}/role`
+  (`SUPER_ADMIN`-only via `Depends(require_role(Role.SUPER_ADMIN))`) —
+  lives in the identity module (not Etap 2's admin module yet), exactly
+  as planned, since it's really an Identity-module concern (mutating a
+  `User`); the admin module in Etap 2 will just call it. New
+  `ChangeUserRoleUseCase`/`ChangeUserRoleCommand` (loads the target user
+  via `UserRepository`, calls `user.change_role(...)`, saves — a
+  `UserNotFoundError` maps to 404 `NOT_FOUND`, matching the direct-ID-
+  lookup convention used elsewhere in the app, unlike the 400 mapping
+  `UserNotFoundError` gets in the email-verification flow where it's
+  really a token-validity edge case).
+
+  Exit criteria met: 5 new tests in `test_change_user_role_api.py`
+  (SUPER_ADMIN can change a role — including a persistence check via a
+  follow-up real `/auth/me` call, not just trusting the response body;
+  every other role gets 403; an unknown user id gets 404; a
+  non-enum role value gets 422; no auth at all gets 401). Non-caller
+  setup uses `app.dependency_overrides[get_current_user]` to become
+  whichever role a given test needs — the same override mechanism
+  `test_auth_me_api.py` already established — rather than inventing new
+  direct-Postgres test scaffolding just to mint a `SUPER_ADMIN` caller.
+  Full backend suite **365/365**.
+
+  Live-verified against the real Docker backend end to end: registered
+  two real users, promoted one to `SUPER_ADMIN` via a direct
+  `UPDATE users SET role = ...` (there is no self-escalation path by
+  design, and no bootstrap-admin seed mechanism exists yet — noted
+  below as an open item for Etap 2, not solved here), logged in as that
+  real `SUPER_ADMIN`, called the real endpoint against the second
+  user's real id, confirmed `DIET_USER` in the response, then — a
+  second, independent real login as the *target* user — confirmed
+  `/auth/me` also returned `DIET_USER` (real persistence, not just
+  the response echoing the request). Also confirmed a real 403 when
+  that same now-`DIET_USER` account tried calling the endpoint itself.
+  Clean backend logs throughout, `docker compose down` after.
+
+  **Open item flagged, not solved now**: there's currently no way to
+  create the *first* `SUPER_ADMIN` in a real deployment short of a
+  direct SQL `UPDATE` (fine for this dev demo, not fine for anything
+  real) — Etap 2 (or a dedicated small stage before it) should add a
+  proper bootstrap mechanism (e.g. a one-off management script, or a
+  `SUPER_ADMIN_SEED_EMAIL` env var the app promotes on startup).
+
+- **Stage 4 — Docs sync — DONE**: unit/integration tests were already
+  added incrementally in Stages 1-3 (not deferred here, unlike a first
+  read of this plan might suggest) — this stage was pure docs, no code
+  changes, so no test run was needed for it at all (per the updated
+  testing-scope guidance). `docs/api.md`'s `/me` response gained `role`
+  plus a full new `PATCH /admin/users/{user_id}/role` section (request/
+  response/errors, including the "no self-escalation path" note);
+  `docs/domain-model.md`'s `User` gained the `role` field, a rule
+  explaining `change_role()`'s authorization split, and `UserRoleChanged`
+  in the domain events list; `docs/openapi.json` regenerated via
+  `scripts/export_openapi.py` and confirmed to contain the new endpoint.
+
+This closes out **Etap 0 (Roles & RBAC foundation) in full.**
 
 ---
 

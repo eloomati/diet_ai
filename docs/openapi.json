@@ -343,6 +343,64 @@
         }
       }
     },
+    "/api/v1/admin/users/{user_id}/role": {
+      "patch": {
+        "tags": [
+          "identity-admin"
+        ],
+        "summary": "Change User Role",
+        "operationId": "change_user_role_api_v1_admin_users__user_id__role_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "user_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "User Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeUserRoleRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangeUserRoleResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/conversations": {
       "get": {
         "tags": [
@@ -1121,6 +1179,41 @@
         ],
         "title": "ActivityLevel"
       },
+      "ChangeUserRoleRequest": {
+        "properties": {
+          "new_role": {
+            "$ref": "#/components/schemas/Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_role"
+        ],
+        "title": "ChangeUserRoleRequest"
+      },
+      "ChangeUserRoleResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "title": "User Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "email",
+          "role"
+        ],
+        "title": "ChangeUserRoleResponse"
+      },
       "ConfirmEmailVerificationRequest": {
         "properties": {
           "token": {
@@ -1658,6 +1751,10 @@
             "type": "string",
             "title": "Status"
           },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
           "email_verified": {
             "type": "boolean",
             "title": "Email Verified"
@@ -1668,6 +1765,7 @@
           "user_id",
           "email",
           "status",
+          "role",
           "email_verified"
         ],
         "title": "MeResponse"
@@ -1960,6 +2058,16 @@
           "new_time"
         ],
         "title": "RescheduleMealRequest"
+      },
+      "Role": {
+        "type": "string",
+        "enum": [
+          "USER",
+          "DIET_USER",
+          "ADMIN",
+          "SUPER_ADMIN"
+        ],
+        "title": "Role"
       },
       "SendMessageRequest": {
         "properties": {

@@ -1,3 +1,4 @@
+from .change_user_role_dto import ChangeUserRoleCommand
 from .confirm_email_verification_dto import ConfirmEmailVerificationCommand
 from .confirm_password_reset_dto import ConfirmPasswordResetCommand
 from .login_user_dto import LoginUserCommand, LoginUserResult
@@ -17,4 +18,5 @@ __all__ = [
     "RequestPasswordResetCommand",
     "ConfirmPasswordResetCommand",
     "ConfirmEmailVerificationCommand",
+    "ChangeUserRoleCommand",
 ]

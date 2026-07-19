@@ -1,3 +1,4 @@
+from .admin_schemas import ChangeUserRoleRequest, ChangeUserRoleResponse
 from .auth_schemas import (
     LoginRequest,
     LoginResponse,
@@ -21,6 +22,8 @@ from .password_reset_schemas import (
 )
 
 __all__ = [
+    "ChangeUserRoleRequest",
+    "ChangeUserRoleResponse",
     "RegisterRequest",
     "RegisterResponse",
     "LoginRequest",

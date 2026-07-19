@@ -7,12 +7,14 @@ from backend.modules.identity.domain.events.user_events import (
     PasswordChanged,
     UserLoggedIn,
     UserRegistered,
+    UserRoleChanged,
 )
 from backend.modules.identity.domain.exceptions.identity_domain_errors import (
     InactiveUserAuthenticationError,
 )
 from backend.modules.identity.domain.value_objects.email import Email
 from backend.modules.identity.domain.value_objects.password_hash import PasswordHash
+from backend.modules.identity.domain.value_objects.role import Role
 from backend.modules.identity.domain.value_objects.user_status import UserStatus
 
 
@@ -22,6 +24,7 @@ class User:
     email: Email
     password_hash: PasswordHash
     status: UserStatus = UserStatus.ACTIVE
+    role: Role = Role.USER
     email_verified: bool = False
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -74,3 +77,12 @@ class User:
         self.email_verified = True
         self.updated_at = datetime.now(UTC)
         self.domain_events.append(EmailVerified(user_id=self.id))
+
+    def change_role(self, new_role: Role) -> None:
+        # Who is *allowed* to call this (e.g. only SUPER_ADMIN may grant
+        # ADMIN/SUPER_ADMIN) is an authorization concern enforced by the
+        # API layer's role-gated dependency, not a domain invariant — the
+        # entity itself has no notion of "who's asking".
+        self.role = new_role
+        self.updated_at = datetime.now(UTC)
+        self.domain_events.append(UserRoleChanged(user_id=self.id, new_role=new_role.value))

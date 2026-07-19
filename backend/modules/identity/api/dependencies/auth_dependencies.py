@@ -4,6 +4,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.identity.application import (
+    ChangeUserRoleUseCase,
     ConfirmEmailVerificationUseCase,
     ConfirmPasswordResetUseCase,
     LoginUserUseCase,
@@ -155,3 +156,10 @@ def get_logout_use_case(
 ) -> LogoutUseCase:
     refresh_repo = SqlAlchemyRefreshTokenRepository(session)
     return LogoutUseCase(refresh_repo)
+
+
+def get_change_user_role_use_case(
+    session: AsyncSession = Depends(get_db_session),
+) -> ChangeUserRoleUseCase:
+    user_repo = SqlAlchemyUserRepository(session)
+    return ChangeUserRoleUseCase(user_repo)
