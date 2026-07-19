@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -29,6 +29,21 @@ function threeDayPlan() {
       { day_number: 1, meals: [{ name: 'Owsianka', calories: 500, protein: 30, carbohydrates: 60, fat: 12, time: '08:00' }] },
       { day_number: 2, meals: [{ name: 'Jajecznica', calories: 450, protein: 28, carbohydrates: 20, fat: 30, time: '08:00' }] },
       { day_number: 3, meals: [{ name: 'Placki', calories: 480, protein: 20, carbohydrates: 70, fat: 14, time: null }] },
+    ],
+    updated_at: '2026-01-15T10:00:00Z',
+  }
+}
+
+function twoMealPlan() {
+  return {
+    ...PLAN_SUMMARY,
+    plan_id: 'p1',
+    duration_days: 2,
+    user_id: 'u1',
+    requirements: [],
+    days: [
+      { day_number: 1, meals: [{ name: 'Owsianka', calories: 500, protein: 30, carbohydrates: 60, fat: 12, time: '08:00' }] },
+      { day_number: 2, meals: [{ name: 'Obiad', calories: 700, protein: 40, carbohydrates: 80, fat: 20, time: '12:00' }] },
     ],
     updated_at: '2026-01-15T10:00:00Z',
   }
@@ -78,16 +93,19 @@ describe('KalendarzTab', () => {
 
     renderKalendarzTab()
 
-    expect(await screen.findByText('Dzień 1')).toBeInTheDocument()
-    expect(screen.getByText('Dzień 2')).toBeInTheDocument()
-    expect(screen.getByText('Dzień 3')).toBeInTheDocument()
+    // 2026-01-15 (day 1) is a Thursday, so the 3-day plan (Thu/Fri/Sat)
+    // lands entirely within one real week — Pon-Śr and Ndz stay empty.
+    expect(await screen.findByText('Czw')).toBeInTheDocument()
+    expect(screen.getByText('Pt')).toBeInTheDocument()
+    expect(screen.getByText('Sob')).toBeInTheDocument()
     expect(screen.getByText('08:00')).toBeInTheDocument()
     expect(screen.getByText('Bez pory')).toBeInTheDocument()
-    expect(screen.getByText('Owsianka')).toBeInTheDocument()
-    expect(screen.getByText('Placki')).toBeInTheDocument()
+    expect(screen.getByTestId('meal-day1-Owsianka')).toBeInTheDocument()
+    expect(screen.getByTestId('meal-day2-Jajecznica')).toBeInTheDocument()
+    expect(screen.getByTestId('meal-day3-Placki')).toBeInTheDocument()
   })
 
-  it('paginates a 10-day plan across two weeks', async () => {
+  it('paginates a 10-day plan across real calendar weeks', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn().mockImplementation((url: string) => {
       if (url.includes('/diet-plans/p10')) {
@@ -99,18 +117,67 @@ describe('KalendarzTab', () => {
 
     renderKalendarzTab()
 
-    expect(await screen.findByText('Dzień 1')).toBeInTheDocument()
-    expect(screen.getByText(/Dni 1-7/)).toBeInTheDocument()
+    // Day 1 (2026-01-15, Thu) through day 4 (2026-01-18, Sun) fall in the
+    // first real week (12-18 stycznia); days 5-10 (Mon-Sat) fall entirely
+    // in the second (19-25 stycznia) — so this 10-day plan spans exactly
+    // two real weeks, not three chunks of 7.
+    await screen.findByTestId('meal-day1-Posiłek 1')
+    expect(screen.getByText(/12–18 stycznia 2026/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '← Poprzedni tydzień' })).toBeDisabled()
-    expect(screen.queryByText('Dzień 8')).not.toBeInTheDocument()
+    expect(screen.getByTestId('meal-day4-Posiłek 4')).toBeInTheDocument()
+    expect(screen.queryByTestId('meal-day5-Posiłek 5')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Następny tydzień →' }))
 
-    expect(await screen.findByText('Dzień 8')).toBeInTheDocument()
-    expect(screen.getByText('Dzień 10')).toBeInTheDocument()
-    expect(screen.getByText(/Dni 8-10/)).toBeInTheDocument()
+    expect(await screen.findByTestId('meal-day5-Posiłek 5')).toBeInTheDocument()
+    expect(screen.getByTestId('meal-day10-Posiłek 10')).toBeInTheDocument()
+    expect(screen.getByText(/19–25 stycznia 2026/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Następny tydzień →' })).toBeDisabled()
-    expect(screen.queryByText('Dzień 1')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('meal-day1-Posiłek 1')).not.toBeInTheDocument()
+  })
+
+  it('always shows all 7 days of the week, including ones the plan does not cover', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(200, twoMealPlan()))
+      }
+      return Promise.resolve(jsonResponse(200, [{ ...PLAN_SUMMARY, duration_days: 2 }]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+
+    // twoMealPlan only has day 1 (Thu) and day 2 (Fri) — Pon/Wt/Śr/Sob/Ndz
+    // have no plan data at all, but the week grid still shows all 7.
+    await screen.findByTestId('meal-day1-Owsianka')
+    expect(screen.getByText('Pon')).toBeInTheDocument()
+    expect(screen.getByText('Wt')).toBeInTheDocument()
+    expect(screen.getByText('Śr')).toBeInTheDocument()
+    expect(screen.getByText('Czw')).toBeInTheDocument()
+    expect(screen.getByText('Pt')).toBeInTheDocument()
+    expect(screen.getByText('Sob')).toBeInTheDocument()
+    expect(screen.getByText('Ndz')).toBeInTheDocument()
+  })
+
+  it('always shows the full 07:00-21:00 hour grid, even for hours with no meals', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(200, twoMealPlan()))
+      }
+      return Promise.resolve(jsonResponse(200, [{ ...PLAN_SUMMARY, duration_days: 2 }]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+
+    // twoMealPlan only has meals at 08:00 and 12:00 — every other half-hour
+    // row in the 07:00-21:00 baseline should still render.
+    await screen.findByTestId('meal-day1-Owsianka')
+    expect(screen.getByText('07:00')).toBeInTheDocument()
+    expect(screen.getByText('07:30')).toBeInTheDocument()
+    expect(screen.getByText('09:00')).toBeInTheDocument()
+    expect(screen.getByText('15:00')).toBeInTheDocument()
+    expect(screen.getByText('20:30')).toBeInTheDocument()
   })
 
   it('shows an error state when the plan list fails to load', async () => {
@@ -120,5 +187,119 @@ describe('KalendarzTab', () => {
     renderKalendarzTab()
 
     expect(await screen.findByText('Nie udało się wczytać planów. Spróbuj ponownie.')).toBeInTheDocument()
+  })
+
+  it('drags a meal to a different time within the same day and persists it', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/diet-plans/p1/meals') && init?.method === 'PATCH') {
+        const plan = twoMealPlan()
+        plan.days[0].meals[0].time = '12:00'
+        return Promise.resolve(jsonResponse(200, plan))
+      }
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(200, twoMealPlan()))
+      }
+      return Promise.resolve(jsonResponse(200, [{ ...PLAN_SUMMARY, duration_days: 2 }]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+    await screen.findByTestId('meal-day1-Owsianka')
+
+    fireEvent.pointerDown(screen.getByTestId('meal-day1-Owsianka'))
+    fireEvent.pointerEnter(screen.getByTestId('cell-day1-12:00'))
+    fireEvent.pointerUp(window)
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+      expect(patchCall).toBeDefined()
+    })
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    const body = JSON.parse(patchCall![1].body as string)
+    expect(body).toEqual({ day_number: 1, meal_name: 'Owsianka', new_time: '12:00:00' })
+
+    expect(await screen.findByText(/Przeniesiono „Owsianka” na 12:00/)).toBeInTheDocument()
+  })
+
+  it('forces a cross-day drop back onto the meal\'s own day, keeping only the time change', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/diet-plans/p1/meals') && init?.method === 'PATCH') {
+        const plan = twoMealPlan()
+        plan.days[0].meals[0].time = '13:00'
+        return Promise.resolve(jsonResponse(200, plan))
+      }
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(200, twoMealPlan()))
+      }
+      return Promise.resolve(jsonResponse(200, [{ ...PLAN_SUMMARY, duration_days: 2 }]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+    await screen.findByTestId('meal-day1-Owsianka')
+
+    // Day 2's cell at a *different* time than Owsianka's origin (08:00) —
+    // a real cross-day, cross-time drop.
+    fireEvent.pointerDown(screen.getByTestId('meal-day1-Owsianka'))
+    fireEvent.pointerEnter(screen.getByTestId('cell-day2-13:00'))
+    fireEvent.pointerUp(window)
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+      expect(patchCall).toBeDefined()
+    })
+    const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
+    const body = JSON.parse(patchCall![1].body as string)
+    // day_number stays 1 (Owsianka's own day) — the API has no way to move
+    // it to day 2, so only the time (13:00, from wherever was hovered) applies.
+    expect(body).toEqual({ day_number: 1, meal_name: 'Owsianka', new_time: '13:00:00' })
+
+    expect(
+      await screen.findByText(/Zmieniono godzinę na 13:00 — dnia nie można zmienić przez przeciąganie\./),
+    ).toBeInTheDocument()
+  })
+
+  it('does not persist a drop back onto the same cell', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(200, twoMealPlan()))
+      }
+      return Promise.resolve(jsonResponse(200, [{ ...PLAN_SUMMARY, duration_days: 2 }]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+    await screen.findByTestId('meal-day1-Owsianka')
+
+    fireEvent.pointerDown(screen.getByTestId('meal-day1-Owsianka'))
+    fireEvent.pointerEnter(screen.getByTestId('cell-day1-08:00'))
+    fireEvent.pointerUp(window)
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')
+    expect(patchCall).toBeUndefined()
+  })
+
+  it('shows a friendly error when the reschedule request fails', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/diet-plans/p1/meals') && init?.method === 'PATCH') {
+        return Promise.resolve(jsonResponse(400, { code: 'BAD_REQUEST', message: 'meal not found' }))
+      }
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(200, twoMealPlan()))
+      }
+      return Promise.resolve(jsonResponse(200, [{ ...PLAN_SUMMARY, duration_days: 2 }]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+    await screen.findByTestId('meal-day1-Owsianka')
+
+    fireEvent.pointerDown(screen.getByTestId('meal-day1-Owsianka'))
+    fireEvent.pointerEnter(screen.getByTestId('cell-day1-12:00'))
+    fireEvent.pointerUp(window)
+
+    expect(
+      await screen.findByText('Nie udało się przenieść posiłku — plan mógł się zmienić w międzyczasie.'),
+    ).toBeInTheDocument()
   })
 })
