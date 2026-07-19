@@ -293,4 +293,117 @@ describe('ChatCanvas', () => {
     const deleteCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'DELETE')
     expect(deleteCall).toBeUndefined()
   })
+
+  it('generates a diet plan and renders it, even with no active conversation', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/generate')) {
+        return Promise.resolve(
+          jsonResponse(201, {
+            plan_id: 'p1',
+            user_id: 'u1',
+            goal: 'MUSCLE_GAIN',
+            diet_type: 'VEGETARIAN',
+            duration_days: 3,
+            requirements: [],
+            days: [
+              {
+                day_number: 1,
+                meals: [
+                  { name: 'Owsianka białkowa', calories: 600, protein: 45, carbohydrates: 70, fat: 15, time: '08:00' },
+                ],
+              },
+            ],
+            created_at: '2026-01-01T10:00:00Z',
+            updated_at: '2026-01-01T10:00:00Z',
+          }),
+        )
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas(undefined)
+
+    await user.click(screen.getByRole('button', { name: 'Generuj plan' }))
+
+    expect(await screen.findByText('Wygenerowany plan')).toBeInTheDocument()
+    expect(screen.getByText(/Budowa masy mięśniowej · Wegetariańska · 3 dni/)).toBeInTheDocument()
+    expect(screen.getByText(/08:00 · Owsianka białkowa/)).toBeInTheDocument()
+
+    const generateCall = fetchMock.mock.calls.find(([url]) => (url as string).includes('/diet-plans/generate'))
+    expect(generateCall).toBeDefined()
+    const body = JSON.parse(generateCall![1].body as string)
+    expect(body).toEqual({ duration_days: 3 })
+  })
+
+  it('includes the typed composer text as a requirement hint', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/diet-plans/generate')) {
+        return Promise.resolve(
+          jsonResponse(201, {
+            plan_id: 'p1',
+            user_id: 'u1',
+            goal: 'WEIGHT_LOSS',
+            diet_type: 'STANDARD',
+            duration_days: 3,
+            requirements: ['wysokobiałkowe śniadania'],
+            days: [],
+            created_at: '2026-01-01T10:00:00Z',
+            updated_at: '2026-01-01T10:00:00Z',
+          }),
+        )
+      }
+      if (init?.method === undefined) {
+        return Promise.resolve(
+          jsonResponse(200, { conversation_id: 'c1', title: 'Dieta', categories: ['DIET'], status: 'ACTIVE', messages: [] }),
+        )
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas('c1')
+    await screen.findByText('🥗 DIET')
+
+    await user.type(screen.getByPlaceholderText('Napisz wiadomość…'), 'wysokobiałkowe śniadania')
+    await user.click(screen.getByRole('button', { name: 'Generuj plan' }))
+
+    await screen.findByText('Wygenerowany plan')
+
+    const generateCall = fetchMock.mock.calls.find(([url]) => (url as string).includes('/diet-plans/generate'))
+    const body = JSON.parse(generateCall![1].body as string)
+    expect(body).toEqual({ duration_days: 3, requirements: ['wysokobiałkowe śniadania'] })
+  })
+
+  it('prompts to complete the profile first when generating without one', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(404, { code: 'NOT_FOUND', message: 'no nutrition profile' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas(undefined)
+
+    await user.click(screen.getByRole('button', { name: 'Generuj plan' }))
+
+    expect(
+      await screen.findByText('Uzupełnij najpierw profil żywieniowy (zakładka Profil), żeby wygenerować plan.'),
+    ).toBeInTheDocument()
+  })
+
+  it('shows a generic retry message for an unexpected plan-generation failure', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(jsonResponse(500, { code: 'INTERNAL_ERROR', message: 'boom' }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas(undefined)
+
+    await user.click(screen.getByRole('button', { name: 'Generuj plan' }))
+
+    expect(await screen.findByText('Nie udało się wygenerować planu. Spróbuj ponownie.')).toBeInTheDocument()
+  })
 })

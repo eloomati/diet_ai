@@ -3027,14 +3027,54 @@ with its "+2" badge) all rendering correctly together — clean console.
 Goal: wire the profile modal's "Plany" and "Kalendarz" tabs, plus the
 chat's "Generuj plan" button, to `docs/api.md`'s Diet Plan API.
 
-## Stage 1 — Generate
+## Stage 1 — Generate — DONE
 
-- [ ] "Generuj plan" button in the chat composer → `POST
-      /diet-plans/generate` (404 if no profile yet, per the API contract
-      — surfaced as a prompt to complete the profile first). Graying out
-      the button until the conversation has "enough" info is an explicit
-      documented future item (needs a backend heuristic first), not part
-      of this stage.
+- [x] "Generuj plan" button in the chat composer (Etap 0's placeholder)
+      wired to `POST /diet-plans/generate` via a `useMutation`. Works from
+      any state — the bare hero screen with no conversation at all, or
+      inside an existing one — since plan generation is purely
+      profile-based and doesn't need a `conversation_id`.
+      **Deviation**: 404 (no profile yet) maps to a friendly prompt
+      ("Uzupełnij najpierw profil żywieniowy (zakładka Profil), żeby
+      wygenerować plan.") per the roadmap's plan; graying out the button
+      proactively is confirmed out of scope (needs a backend heuristic for
+      "enough info", not built yet).
+- [x] `duration_days`: no UI control exists yet (the mockup never designed
+      one) — hardcoded to **3**, not the originally-planned 7. Found live:
+      the small local Ollama model (`AI_PROVIDER=ollama`, this repo's dev
+      default) reliably failed to produce valid structured output for a
+      7-day plan (two consecutive real `500`s), while `duration_days: 1`
+      succeeded immediately — confirmed via direct `curl` against the real
+      backend, isolating the failure to generation size, not a frontend
+      bug. Switched the default to 3, matching `docs/api.md`'s own request
+      example; a real 3-day generation succeeded live afterward. Exit
+      criteria for later stages should keep this in mind if a duration
+      picker is ever added — day-count directly trades off against local
+      model reliability (Claude in production doesn't have this problem
+      per the docs' own error note).
+- [x] `requirements`: derived from the composer's current text (trimmed,
+      single-element array) if non-empty, otherwise omitted — lets a user
+      type free-text hints and either send it as a chat message or use it
+      to steer plan generation instead, with no separate requirements
+      input needed.
+- [x] Successful generations render inline as a new `DietPlanCard` (goal +
+      diet type + duration header, then each day's meals with time/
+      calories/macros) directly in the chat canvas — Stages 2/3 (plan
+      list, calendar) don't exist yet, so this is the only place to see a
+      freshly generated plan right now.
+
+Exit criteria met: 4 new `ChatCanvas.test.tsx` cases (renders a generated
+plan with no active conversation, includes typed composer text as a
+requirement, 404 → profile-completion prompt, 500 → generic retry
+message); full suite 61/61, `npm run build`/`npm run lint` green.
+Verified live against the real backend (`AI_PROVIDER=ollama`): the
+duration_days-7-fails/1-succeeds isolation above, then a real 3-day plan
+generated successfully end-to-end and rendered correctly (3 days × 5
+meals each with real macros) — confirmed via `get_page_text` after the
+browser's screenshot capture started timing out under the host's Ollama
+CPU load (a tooling/resource hiccup, not an app issue — network-request
+inspection independently confirmed the `POST` returned `201`). Clean
+console throughout.
 
 ## Stage 2 — Plan list with date filter
 
