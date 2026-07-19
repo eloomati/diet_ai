@@ -4,6 +4,7 @@ from .exceptions import (
     DietitianDomainError,
     InvalidDietitianApplicationError,
     InvalidDietitianProfileError,
+    PhotoLimitExceededError,
 )
 from .repositories import DietitianApplicationRepository, DietitianProfileRepository
 from .value_objects import ApplicationStatus
@@ -18,4 +19,5 @@ __all__ = [
     "InvalidDietitianApplicationError",
     "InvalidDietitianProfileError",
     "ApplicationAlreadyReviewedError",
+    "PhotoLimitExceededError",
 ]

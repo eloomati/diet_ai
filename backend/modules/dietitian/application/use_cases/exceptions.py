@@ -8,3 +8,11 @@ class DietitianApplicationAlreadyExistsError(DietitianApplicationError):
 
 class DietitianApplicationNotFoundError(DietitianApplicationError):
     pass
+
+
+class DietitianProfileError(Exception):
+    pass
+
+
+class DietitianProfileNotFoundError(DietitianProfileError):
+    pass

@@ -4,7 +4,10 @@ from uuid import UUID, uuid4
 
 from backend.modules.dietitian.domain.exceptions.dietitian_domain_errors import (
     InvalidDietitianProfileError,
+    PhotoLimitExceededError,
 )
+
+MAX_PROFILE_PHOTOS = 3
 
 
 @dataclass(slots=True)
@@ -14,6 +17,7 @@ class DietitianProfile:
     experience: str
     diplomas: tuple[str, ...]
     description: str
+    photos: tuple[str, ...] = ()
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -36,6 +40,14 @@ class DietitianProfile:
             created_at=now,
             updated_at=now,
         )
+
+    def add_photo(self, photo_url: str) -> None:
+        if len(self.photos) >= MAX_PROFILE_PHOTOS:
+            raise PhotoLimitExceededError(
+                f"A dietitian profile can have at most {MAX_PROFILE_PHOTOS} photos."
+            )
+        self.photos = (*self.photos, photo_url)
+        self.updated_at = datetime.now(UTC)
 
     def update_details(
         self,

@@ -2,7 +2,11 @@ import uuid
 
 import pytest
 
-from backend.modules.dietitian.domain import DietitianProfile, InvalidDietitianProfileError
+from backend.modules.dietitian.domain import (
+    DietitianProfile,
+    InvalidDietitianProfileError,
+    PhotoLimitExceededError,
+)
 
 
 def _create(**overrides) -> DietitianProfile:
@@ -42,3 +46,27 @@ def test_update_details_rejects_blanking_out_experience() -> None:
 
     with pytest.raises(InvalidDietitianProfileError):
         profile.update_details(experience="   ")
+
+
+def test_add_photo_appends_up_to_three() -> None:
+    profile = _create()
+
+    profile.add_photo("/static/dietitian-photos/a.jpg")
+    profile.add_photo("/static/dietitian-photos/b.jpg")
+    profile.add_photo("/static/dietitian-photos/c.jpg")
+
+    assert profile.photos == (
+        "/static/dietitian-photos/a.jpg",
+        "/static/dietitian-photos/b.jpg",
+        "/static/dietitian-photos/c.jpg",
+    )
+
+
+def test_add_photo_rejects_a_fourth() -> None:
+    profile = _create()
+    profile.add_photo("/static/dietitian-photos/a.jpg")
+    profile.add_photo("/static/dietitian-photos/b.jpg")
+    profile.add_photo("/static/dietitian-photos/c.jpg")
+
+    with pytest.raises(PhotoLimitExceededError):
+        profile.add_photo("/static/dietitian-photos/d.jpg")

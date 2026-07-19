@@ -347,11 +347,69 @@ profile they manage from inside the existing `frontend/` app.
   confirm the badge is refetched from the server (not just local state)
   rather than resetting to the button. Dev server and
   `docker compose down` both stopped after.
-- **Stage 3 — Photo upload**: new generic upload endpoint
-  (`POST /dietitian/profile/photos`, max 3, local-disk storage per the
-  confirmed decision, served via a static route) — built as a small
-  reusable port (`FileStorage` interface + local-disk adapter) so a
-  later swap to object storage doesn't touch call sites.
+- **Stage 3 — Photo upload — DONE**: `POST /dietitian/profile/photos`
+  (multipart upload, gated by `require_role(Role.DIET_USER)` — reusing
+  Etap 0's dependency directly, cross-module, exactly as designed).
+  `DietitianProfile` gained a `photos: tuple[str, ...]` field (new
+  migration `20260719_08_dietitian_photos.py`, chained after Stage 1's)
+  and an `add_photo()` domain method enforcing a hard cap of 3 — a
+  `MAX_PROFILE_PHOTOS` constant shared between the entity's own
+  defensive check and the use case's earlier check (see below).
+  **Applied the Etap-0 lesson a second time**: `SqlAlchemyDietitianProfileRepository.save()`'s
+  update branch gained `existing.photos = list(profile.photos)`, with
+  the same inline comment as Stage 1's application repository, this
+  time naming `photos` as the field that would have silently vanished.
+  New `FileStorage` port (`application/ports/file_storage.py`) +
+  `LocalDiskFileStorage` adapter (`infrastructure/storage/`) per the
+  confirmed local-disk decision — the adapter never trusts the client's
+  filename beyond its extension (generates its own UUID-based stored
+  name), which also rules out path traversal by construction, not by
+  sanitization. `UploadDietitianProfilePhotoUseCase` checks the 3-photo
+  cap *before* calling `FileStorage.save()`, not after — so a rejected
+  4th upload never writes an orphaned file to disk (verified by a
+  dedicated use-case test asserting the fake storage recorded nothing).
+  API layer validates content-type (`image/jpeg`/`png`/`webp` only) and
+  a 5 MB size cap before ever reaching the use case. New settings
+  (`dietitian_photos_storage_dir`, `dietitian_photos_base_url`) and a
+  `StaticFiles` mount added in `main.py::create_app()` to actually serve
+  the stored files back. Added the `python-multipart` dependency
+  (required by FastAPI's `UploadFile`/`File(...)`, not previously
+  needed anywhere in this codebase) to `requirements.txt`.
+
+  **Genuine sequencing gap, called out rather than worked around**:
+  this stage assumes a `DietitianProfile` already exists, but the only
+  thing that will ever create one is Etap 2's admin-approval flow,
+  which doesn't exist yet — there is still no way for a user to become
+  `DIET_USER` with a profile through the API alone. Tests and live
+  verification both seed that state directly against Postgres (a new
+  `_test_db_session()` helper using its own dedicated engine, and a
+  direct `psql UPDATE`/`INSERT` for live verification) — the same
+  "bypass via direct SQL until the real flow exists" pattern already
+  used for the first SUPER_ADMIN in Etap 0. This is a stand-in, not a
+  design decision: once Etap 2 exists, the real approve-application
+  action becomes the only path that creates a profile.
+
+  Exit criteria met (scoped — this stage only touches the new
+  photo-upload path within the already-isolated `dietitian` module):
+  domain tests for `add_photo()` (2), a `LocalDiskFileStorage` unit test
+  (2, including one asserting a path-traversal-shaped filename is
+  ignored), use-case tests against an in-memory profile repo + fake
+  storage (3), and an API test file (6: success, 401, 403-without-role,
+  404-without-a-profile, 400-unsupported-type, 400-on-a-4th-photo) — 35
+  tests total in the module (up from 22 after Stage 2).
+
+  Live-verified against the real Docker backend: confirmed the new
+  migration applied via `docker compose logs`; registered a user,
+  promoted it to `DIET_USER` and seeded a profile via direct `psql`,
+  then via `curl` uploaded 3 photos (each 201, `photos` array growing),
+  confirmed a 4th → 400 and a `application/pdf` upload → 400, and
+  confirmed the stored file is byte-for-byte fetchable through the
+  static route (`GET http://localhost:8000/static/dietitian-photos/<name>`
+  returned the exact uploaded content). Cross-checked
+  `dietitian_profiles.photos` directly via `psql \d` / `SELECT`.
+  `docker compose down` after. The locally-created `./data/dietitian_photos/`
+  scratch directory (a side effect of importing `main.py` during local
+  verification) was deleted and added to `.gitignore`.
 - **Stage 4 — Dietitian's own profile management (main app)**: once
   `role == DIET_USER` (set in Etap 2 via admin approval), the Profil
   modal gains a **"Profil dietetyka"** tab (alongside today's

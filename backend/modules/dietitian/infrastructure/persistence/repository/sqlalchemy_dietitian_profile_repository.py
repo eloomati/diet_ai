@@ -32,9 +32,13 @@ class SqlAlchemyDietitianProfileRepository(DietitianProfileRepository):
             model = DietitianProfileMapper.to_model(profile)
             self._session.add(model)
         else:
+            # Every mutable field, not a hand-picked subset — Etap 0 found that
+            # exact kind of partial-update list silently drops whichever field
+            # isn't listed (there, `role`; here it would have been `photos`).
             existing.experience = profile.experience
             existing.diplomas = list(profile.diplomas)
             existing.description = profile.description
+            existing.photos = list(profile.photos)
             existing.updated_at = profile.updated_at
 
         await self._session.flush()

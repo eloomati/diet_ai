@@ -12,3 +12,7 @@ class InvalidDietitianProfileError(DietitianDomainError):
 
 class ApplicationAlreadyReviewedError(DietitianDomainError):
     pass
+
+
+class PhotoLimitExceededError(DietitianDomainError):
+    pass

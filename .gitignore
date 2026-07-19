@@ -147,6 +147,9 @@ rabbitmq-data/
 # ActiveMQ
 activemq-data/
 
+# Local-disk dietitian profile photo storage (dev/test only)
+data/dietitian_photos/
+
 # SageMath parsed files
 *.sage.py
 

@@ -1,6 +1,7 @@
 from uuid import UUID
 
 from backend.modules.dietitian.domain.entities.dietitian_application import DietitianApplication
+from backend.modules.dietitian.domain.entities.dietitian_profile import DietitianProfile
 
 
 class InMemoryDietitianApplicationRepository:
@@ -18,3 +19,29 @@ class InMemoryDietitianApplicationRepository:
 
     async def save(self, application: DietitianApplication) -> None:
         self._by_id[application.id] = application
+
+
+class InMemoryDietitianProfileRepository:
+    def __init__(self) -> None:
+        self._by_id: dict[UUID, DietitianProfile] = {}
+
+    async def get_by_user_id(self, user_id: UUID) -> DietitianProfile | None:
+        for profile in self._by_id.values():
+            if profile.user_id == user_id:
+                return profile
+        return None
+
+    async def save(self, profile: DietitianProfile) -> None:
+        self._by_id[profile.id] = profile
+
+
+class FakeFileStorage:
+    """Records saved files in memory instead of touching disk — the local-disk
+    adapter itself is exercised separately, not through use-case tests."""
+
+    def __init__(self) -> None:
+        self.saved: list[tuple[str, bytes]] = []
+
+    async def save(self, filename: str, content: bytes) -> str:
+        self.saved.append((filename, content))
+        return f"/static/dietitian-photos/fake-{len(self.saved)}.jpg"

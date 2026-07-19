@@ -13,6 +13,7 @@ class DietitianProfileMapper:
             experience=model.experience,
             diplomas=tuple(model.diplomas),
             description=model.description,
+            photos=tuple(model.photos),
             created_at=model.created_at,
             updated_at=model.updated_at,
         )
@@ -25,6 +26,7 @@ class DietitianProfileMapper:
             experience=profile.experience,
             diplomas=list(profile.diplomas),
             description=profile.description,
+            photos=list(profile.photos),
             created_at=profile.created_at,
             updated_at=profile.updated_at,
         )

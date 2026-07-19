@@ -18,5 +18,6 @@ class DietitianProfileModel(Base):
     experience: Mapped[str] = mapped_column(Text, nullable=False)
     diplomas: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     description: Mapped[str] = mapped_column(Text, nullable=False)
+    photos: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

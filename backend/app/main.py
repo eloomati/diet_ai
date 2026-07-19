@@ -3,8 +3,11 @@ import contextlib
 import logging
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from backend.app.api_router import api_router
 from backend.modules.ai.infrastructure import close_llm_provider, init_llm_provider
@@ -80,6 +83,13 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     register_exception_handlers(app)
+
+    Path(settings.dietitian_photos_storage_dir).mkdir(parents=True, exist_ok=True)
+    app.mount(
+        settings.dietitian_photos_base_url,
+        StaticFiles(directory=settings.dietitian_photos_storage_dir),
+        name="dietitian-photos",
+    )
 
     @app.get(f"{settings.api_prefix}/health", tags=["system"])
     async def health() -> dict[str, str]:
