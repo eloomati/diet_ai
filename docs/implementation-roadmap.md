@@ -3111,10 +3111,57 @@ and filtering to a January 2026 range correctly returned the
 .../diet-plans?from=2026-01-01&to=2026-01-31` network request) — clean
 console throughout.
 
-## Stage 3 — Calendar view
+## Stage 3 — Calendar view — DONE
 
-- [ ] "Kalendarz" tab → `GET /diet-plans/{id}` rendered as the mockup's
-      weekly grid (day columns × time rows), prev/next week navigation.
+- [x] `KalendarzTab` (Etap 0's placeholder) wired to `GET /diet-plans`
+      (for a plan picker) + `GET /diet-plans/{id}` (for the grid) — a new
+      `<Select>` lets the user pick which generated plan to view, defaulting
+      to the newest one. **Deviation from a literal reading of the plan**:
+      a `DietPlan`'s `days` only carry a relative `day_number` (1..N), never
+      an absolute calendar date, so "weekly grid with prev/next week
+      navigation" is interpreted as paginating through *that one plan's own*
+      days in chunks of 7 — not a real Mon-Sun calendar. Since
+      `duration_days` is capped at 14 (`docs/api.md`), that's at most two
+      "weeks" per plan, which is exactly what "prev/next week" suggests.
+- [x] Grid: day columns (the current 7-day window) × time rows, where rows
+      are derived from the actual distinct meal times present across the
+      visible days (sorted chronologically), plus one "Bez pory" row for
+      meals with no AI-suggested time — not an arbitrary fixed hourly
+      scale, so the grid never has empty rows for times nothing uses.
+      Each populated cell is a small meal chip (name + calories).
+- [x] Prev/next week buttons disable at the plan's own boundaries; a
+      1-3-day plan (this repo's current real data) simply never enables
+      "Następny tydzień" since it only has one window.
+
+**Real problems hit and fixed**: (1) the first draft's `Select` flipped
+from uncontrolled (`value=undefined`, before the plans list loaded) to
+controlled (a real plan id) once a `useEffect` set the auto-selected plan
+— Base UI (like React) warns against this, and a live check confirmed it.
+Fixed by deriving `effectivePlanId` synchronously during render
+(`selectedPlanId ?? plansQuery.data?.[0]?.plan_id ?? null`) instead of an
+effect + separate state, so the Select is never mounted before a real
+value exists. (2) Same `<SelectValue>`-shows-the-raw-id bug as Etap 2
+Stage 1 (Base UI's trigger echoes the literal value unless given a
+render-function child) — the plan picker showed a raw UUID instead of its
+formatted label; fixed the same way, with a render function that looks the
+plan up by id. (3) An initial extra "Pełne szczegóły planu"
+`<details>`-collapsed `DietPlanCard` caused duplicate-text test failures,
+since collapsed `<details>` content is still present in the DOM (and
+duplicated the "Dzień N" headings already in the grid) — removed
+entirely as redundant scope beyond what this stage asked for; the grid
+already shows every meal, and the Plany tab (Stage 2) already offers the
+full macro breakdown.
+
+Exit criteria met: 4 new `KalendarzTab.test.tsx` cases (empty state,
+auto-select-and-render-grid, 10-day plan paginates across two weeks with
+correct boundary-disabling, error state); full suite 70/70, `npm run
+build`/`npm run lint` green — including confirmation the Base UI
+controlled-value console warning is gone. Verified live against the real
+backend, reusing the two real plans from Stage 1/2: the plan picker
+correctly showed formatted labels (not raw ids) for both, the grid
+rendered the real all-null-`time` plan correctly under a single "Bez pory"
+row, and switching plans via the picker correctly re-fetched and
+re-rendered the other one — clean console throughout.
 
 ## Stage 4 — Reschedule (drag & drop)
 
