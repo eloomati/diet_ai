@@ -17,7 +17,8 @@ The API provides functionality for:
 - diet plan generation, AI-suggested + user-editable meal scheduling,
 - diet plan CSV export (archived for later re-download) and date-range filtering of plan history,
 - dietitian applications and (once approved) dietitian profile management, including up to 3 photos,
-- admin user management and dietitian-application review (ADMIN/SUPER_ADMIN-only).
+- admin user management and dietitian-application review (ADMIN/SUPER_ADMIN-only),
+- purchasing a dietitian's offer and admin-toggled paid/unpaid transaction records (no real payment gateway).
 
 Base URL:
 
@@ -1608,6 +1609,195 @@ Body: same shape as `GET /admin/dietitian-applications`'s entries.
 403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
 404 Not Found code=NOT_FOUND — application_id doesn't exist
 409 Conflict code=CONFLICT — application was already approved/rejected
+```
+
+---
+
+## GET /admin/transactions
+
+Lists every transaction, across every user and dietitian.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: an array in the same shape as `POST /transactions`'s response
+(see the Transactions API below).
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+```
+
+---
+
+## POST /admin/transactions/{transaction_id}/mark-paid
+
+Marks the transaction `PAID` and sets `paid_at` to now. A reversible
+toggle, not a one-way approval — re-marking an already-paid transaction
+paid is not an error, it just refreshes `paid_at`. Also triggers the
+`TransactionEventPublisher` port (a no-op today — see
+docs/architecture.md — a real Kafka publish once Phase 12 Etap 5 exists).
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `POST /transactions`'s response.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — transaction_id doesn't exist
+```
+
+---
+
+## POST /admin/transactions/{transaction_id}/mark-unpaid
+
+Marks the transaction `UNPAID` and clears `paid_at`. Does not publish
+any event — only a transaction *becoming* paid is a meaningful business
+event.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `POST /transactions`'s response.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — transaction_id doesn't exist
+```
+
+---
+
+# Transactions API
+
+Module:
+
+```
+Transactions
+```
+
+Database:
+
+```
+PostgreSQL
+```
+
+The demo has no real payment gateway (an explicit scope decision, same
+spirit as this project's Mock AI provider / Mailhog / local SFTP
+stand-ins for other real external services) — `POST /transactions`
+creates the record, and an admin manually flips it to paid from the
+admin panel (see `POST /admin/transactions/{id}/mark-paid` above).
+
+---
+
+## POST /transactions
+
+Creates a transaction for one of a dietitian's two fixed offers. `amount`
+is always server-computed from `offer_type` — never accepted from the
+client. Any authenticated user may call this (not role-gated — anyone
+might want to hire a dietitian).
+
+### Request
+
+```json
+{
+  "dietitian_id": "uuid",
+  "offer_type": "PLAN_REVIEW"
+}
+```
+
+`offer_type`: one of `PLAN_REVIEW` (49.00) or `INDIVIDUAL_PLAN` (149.00).
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body:
+
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "dietitian_id": "uuid",
+  "offer_type": "PLAN_REVIEW",
+  "amount": "49.00",
+  "status": "UNPAID",
+  "created_at": "2026-07-19T12:00:00+00:00",
+  "paid_at": null
+}
+```
+
+`status` is one of `UNPAID`, `PAID` — a reversible admin-toggled flag,
+not a one-way approval state. `dietitian_id` can be `null` on an
+*existing* transaction if that dietitian's account has since been
+deleted (the row itself is never deleted when that happens — see
+docs/architecture.md's Data Ownership Rules).
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+404 Not Found code=NOT_FOUND — dietitian_id doesn't exist, or isn't a DIET_USER
+400 Bad Request code=BAD_REQUEST — dietitian_id is the caller's own id
+422 Unprocessable Entity code=VALIDATION_ERROR — offer_type isn't one of the 2 valid values
+```
+
+---
+
+## GET /transactions/me
+
+Lists every transaction where the caller is the *dietitian* side —
+"my sales", not "my purchases" (there is no buyer-facing "my purchases"
+list yet). Requires the caller's role to be `DIET_USER`.
+
+Deliberately does **not** expose the buyer's identity beyond
+`user_id` — no endpoint available to a `DIET_USER` can resolve that UUID
+into anything identifying, and Phase 12 Etap 5's own design frames
+revealing the paying user's contact as the specific thing a
+`TransactionPaid` event triggers, not something available upfront.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: an array in the same shape as `POST /transactions`'s response.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
 ```
 
 ---

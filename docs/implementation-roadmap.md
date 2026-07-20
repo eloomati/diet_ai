@@ -26,7 +26,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 2 (Admin module +
                                               frontend-admin): DONE
                                             Etap 3 (Transactions
-                                              module): Stage 4/5
+                                              module): DONE
                                             Etaps 4-6: not started
 ```
 
@@ -1140,7 +1140,64 @@ about to build this etap, from the looser sketch above):
   checks above plus the two frontends' full test suites, which
   directly exercise the email-resolution and mark-paid/unpaid logic
   under test. `docker compose down` after.
-- **Stage 5 — Tests + docs sync**.
+- **Stage 5 — Tests + docs sync — DONE**: closing stage for Etap 3 —
+  documentation sync across all four docs plus the closing full-suite
+  gate, no new application code.
+
+  **`docs/api.md`**: added the two new admin transaction-oversight
+  endpoints (`GET /admin/transactions`,
+  `POST /admin/transactions/{id}/mark-paid`,
+  `POST /admin/transactions/{id}/mark-unpaid`) to the existing Admin API
+  section, and a brand-new `# Transactions API` module section
+  (`POST /transactions`, `GET /transactions/me`) between Admin API and
+  Conversation Categories.
+
+  **`docs/domain-model.md`**: new `## Transactions Context` bounded
+  context and a new `# 8. Transactions Domain` section (the entity, the
+  2-state toggle rule, the self-purchase guard, "no domain events
+  emitted" — matching the port/no-op pattern rather than raising real
+  events yet). Every subsequent top-level section renumbered (AI Domain
+  8→9 through Future Extensions 14→15 — verified sequential via
+  `grep -n "^# [0-9]"` afterward). Aggregates list, Persistence Mapping
+  (new `transactions` table entry), and Relationships (new note: User is
+  the only entity playing two different roles — buyer and dietitian — in
+  the same relationship, each with a different delete behavior) all
+  updated to match.
+
+  **`docs/architecture.md`**: Admin Module section updated for the new
+  `/admin/transactions` route group and its reuse of `transactions`'s own
+  `TransactionRepository`; new `## Transactions Module (Phase 12)`
+  section (responsibilities, the no-payment-gateway demo-scope decision,
+  the `TransactionEventPublisher` port with its code snippet, the FK
+  asymmetry explanation noting both directions were verified by real
+  deletion, not just read off the DDL); Data Ownership Rules gained a
+  short addendum that `transactions`' own `CreateTransactionUseCase` also
+  reuses `identity`'s `UserRepository` directly, the same
+  not-actually-an-exception pattern `admin` already established.
+
+  **`README.md`**: checked, needed no change — it tracks Phase 12 only at
+  the whole-phase level ("🚧 in progress"), not per-etap.
+
+  **`docs/openapi.json`**: regenerated via
+  `PYTHONPATH=. python scripts/export_openapi.py`; confirmed all three
+  new transaction paths present (`/api/v1/transactions`,
+  `/api/v1/transactions/me`, `/api/v1/admin/transactions`).
+
+  Exit criteria met — closing-gate full suites, not just the touched
+  modules: backend **479 passed, 0 failed** (the timezone flake flagged
+  in Etap 1 Stage 5 and re-flagged in Etap 2 Stage 5's retrospectives was
+  actually fixed for good back in Etap 2 Stage 6 — this is the first
+  closing stage all Phase 12 with a fully clean backend run). Main
+  frontend: **107 passed** (18 files). `frontend-admin`: **28 passed** (6
+  files). Both `npm run build`s clean (only the pre-existing, harmless
+  "chunks larger than 500 kB" warning on the main app).
+
+  No new bugs found this stage — this was a pure docs-and-verification
+  close-out.
+- **Etap 3 (Transactions module): DONE** — all 5 stages complete (domain
+  entity + schema + migration, create-transaction endpoint, admin
+  mark-paid/unpaid, both apps' Transakcje tabs wired to real data, this
+  docs/tests sync).
 
 ---
 
