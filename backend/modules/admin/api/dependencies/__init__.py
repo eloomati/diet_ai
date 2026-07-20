@@ -4,6 +4,7 @@ from .admin_dependencies import (
     get_ban_user_use_case,
     get_delete_user_use_case,
     get_list_dietitian_applications_use_case,
+    get_list_transactions_use_case,
     get_list_users_use_case,
     get_mark_transaction_paid_use_case,
     get_mark_transaction_unpaid_use_case,
@@ -20,6 +21,7 @@ __all__ = [
     "get_list_dietitian_applications_use_case",
     "get_approve_dietitian_application_use_case",
     "get_reject_dietitian_application_use_case",
+    "get_list_transactions_use_case",
     "get_mark_transaction_paid_use_case",
     "get_mark_transaction_unpaid_use_case",
 ]

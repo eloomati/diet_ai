@@ -16,6 +16,28 @@ def _create_transaction(client: TestClient, buyer_token: str, dietitian_id: str)
     return response.json()["id"]
 
 
+def test_list_transactions_requires_admin_role(client: TestClient) -> None:
+    token, _ = register_and_login(client, "txn.listnorole")
+
+    response = client.get("/api/v1/admin/transactions", headers=auth_headers(token))
+
+    assert response.status_code == 403
+
+
+def test_list_transactions_returns_all(client: TestClient) -> None:
+    admin_token, admin_id = register_and_login(client, "txn.listadmin")
+    asyncio.run(promote_role(admin_id, Role.ADMIN))
+    buyer_token, _ = register_and_login(client, "txn.listbuyer")
+    _, dietitian_id = register_and_login(client, "txn.listdietitian")
+    asyncio.run(promote_role(dietitian_id, Role.DIET_USER))
+    transaction_id = _create_transaction(client, buyer_token, dietitian_id)
+
+    response = client.get("/api/v1/admin/transactions", headers=auth_headers(admin_token))
+
+    assert response.status_code == 200
+    assert any(t["id"] == transaction_id for t in response.json())
+
+
 def test_mark_transaction_paid_requires_admin_role(client: TestClient) -> None:
     token, _ = register_and_login(client, "txn.marknorole")
 

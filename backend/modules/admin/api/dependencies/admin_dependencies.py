@@ -10,6 +10,9 @@ from backend.modules.admin.application.use_cases.delete_user_use_case import Del
 from backend.modules.admin.application.use_cases.list_dietitian_applications_use_case import (
     ListDietitianApplicationsUseCase,
 )
+from backend.modules.admin.application.use_cases.list_transactions_use_case import (
+    ListTransactionsUseCase,
+)
 from backend.modules.admin.application.use_cases.list_users_use_case import ListUsersUseCase
 from backend.modules.admin.application.use_cases.mark_transaction_paid_use_case import (
     MarkTransactionPaidUseCase,
@@ -144,3 +147,9 @@ def get_mark_transaction_unpaid_use_case(
     transaction_repository: TransactionRepository = Depends(get_transaction_repository),
 ) -> MarkTransactionUnpaidUseCase:
     return MarkTransactionUnpaidUseCase(transaction_repository)
+
+
+def get_list_transactions_use_case(
+    transaction_repository: TransactionRepository = Depends(get_transaction_repository),
+) -> ListTransactionsUseCase:
+    return ListTransactionsUseCase(transaction_repository)

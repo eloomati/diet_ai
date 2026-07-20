@@ -26,7 +26,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 2 (Admin module +
                                               frontend-admin): DONE
                                             Etap 3 (Transactions
-                                              module): Stage 3/5
+                                              module): Stage 4/5
                                             Etaps 4-6: not started
 ```
 
@@ -1078,9 +1078,68 @@ about to build this etap, from the looser sketch above):
   cross-checked the final `UNPAID`/`NULL` state directly via
   `psql SELECT status, paid_at FROM transactions`. `docker compose down`
   after.
-- **Stage 4 — Transakcje tabs wired**: both the admin panel's Transakcje
-  tab (all transactions) and the dietitian's own Transakcje tab from
-  Etap 1 Stage 4 (only transactions routed to them) now show real data.
+- **Stage 4 — Transakcje tabs wired — DONE**: two new `GET` endpoints,
+  each living in the module that actually owns the data (not `admin`
+  for the dietitian-facing one): `GET /transactions/me`
+  (`transactions` module, `DIET_USER`-gated, `list_by_dietitian_id(caller)`)
+  and `GET /admin/transactions` (`admin` module, `ADMIN`/`SUPER_ADMIN`-gated,
+  `list_all()`) — same "self-service view lives in the owning module,
+  cross-cutting oversight view lives in `admin`" split already used for
+  `GET /dietitian/applications/me` vs `GET /admin/dietitian-applications`.
+
+  **A deliberate scope decision, not an oversight**: the dietitian's own
+  Transakcje tab shows offer type, amount, status, and date — **not**
+  the buyer's identity. Etap 5 Stage 1's own design explicitly frames
+  "making the paying user's contact visible to the dietitian" as *the*
+  event `TransactionPaid` triggers — meaning buyer contact is meant to
+  stay hidden from the dietitian until that reveal exists. Building the
+  contact-hiding logic now (before Etap 5 exists) would mean redoing it
+  once the real reveal flow lands, so this stage just never surfaces
+  `user_id` in the dietitian-facing UI at all (the API response still
+  includes it — enforcing that server-side wasn't judged necessary yet,
+  since no endpoint available to a `DIET_USER` can resolve a bare UUID
+  into anything identifying anyway). The **admin** panel's Transakcje
+  tab, by contrast, legitimately needs to see everyone involved — it
+  resolves both `user_id` and `dietitian_id` against the already-cached
+  `['admin-users']` query, the identical client-side email-resolution
+  trick `DietetycyTab` already used in Etap 2 Stage 4.
+
+  Frontend: `frontend/src/api/transactions.ts` (new, main app) +
+  `TransakcjeTab.tsx` rewritten from Etap 1 Stage 4's placeholder to a
+  real list; `frontend-admin/src/api/admin.ts` gained
+  `getTransactions`/`markTransactionPaid`/`markTransactionUnpaid`, and
+  its own `TransakcjeTab.tsx` rewritten from Etap 2 Stage 5's
+  `EmptyState` placeholder to a real table with inline mark-paid/unpaid
+  toggle buttons per row.
+
+  Exit criteria met: backend — 2 new use-case tests
+  (`GetMyTransactionsAsDietitianUseCase`: filters correctly, empty when
+  none) + 3 new API tests (403/401/own-only) in `transactions`
+  (21 tests, up from 16), and 2 new `ListTransactionsUseCase` tests +
+  2 new API tests in `admin` (39 tests, up from 35) — no full suite
+  (still fully within the two already-isolated modules). Frontend:
+  main app gained 4 new `TransakcjeTab.test.tsx` tests (empty state,
+  offer/amount/status rendering — including a word-boundary regex fix
+  once `/49.00/` ambiguously matched `149.00` too — and an explicit
+  assertion that the buyer's UUID never appears in the DOM) plus 2
+  existing `ProfileModal.test.tsx` assertions updated for the new
+  content — 107/107 passing. `frontend-admin` gained 5 new
+  `TransakcjeTab.test.tsx` tests (empty state, resolved emails,
+  mark-paid, mark-unpaid, UUID fallback) — 28/28 passing. Both
+  `npx tsc --noEmit` and both `npm run build` clean.
+
+  Live-verified against the real Docker backend: created a real
+  transaction between a buyer and a `DIET_USER`, confirmed
+  `GET /transactions/me` (as the dietitian) returns exactly that one
+  transaction, confirmed `GET /admin/transactions` (as `SUPER_ADMIN`)
+  lists it among all transactions, and confirmed both frontend dev
+  servers respond `200`. **Browser click-through could not be
+  completed this stage** — the Claude-in-Chrome extension reported
+  fully disconnected (not just the intermittent flake from the last
+  three stages), so the UI-level verification rests on the `curl`
+  checks above plus the two frontends' full test suites, which
+  directly exercise the email-resolution and mark-paid/unpaid logic
+  under test. `docker compose down` after.
 - **Stage 5 — Tests + docs sync**.
 
 ---
