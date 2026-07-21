@@ -7,3 +7,8 @@ import { toast } from 'sonner'
 export function notifyError(message: string): void {
   toast.error(message)
 }
+
+/** Same spirit as notifyError, for a background action that succeeded. */
+export function notifyInfo(message: string): void {
+  toast(message)
+}

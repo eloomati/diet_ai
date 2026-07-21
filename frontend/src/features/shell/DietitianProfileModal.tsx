@@ -1,15 +1,18 @@
 import { Star } from 'lucide-react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { getPublicDietitianProfile } from '@/api/dietitian'
-import { OFFER_LABEL, OFFER_PRICE } from '@/api/transactions'
-import type { OfferType } from '@/api/transactions'
+import { OFFER_LABEL, OFFER_PRICE, createTransaction, getMyPurchases } from '@/api/transactions'
+import type { OfferType, Transaction } from '@/api/transactions'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { useAuth } from '@/lib/auth'
 import { ApiError, resolveStaticUrl } from '@/lib/apiFetch'
+import { notifyError, notifyInfo } from '@/lib/toast'
 
 const OFFERS: OfferType[] = ['PLAN_REVIEW', 'INDIVIDUAL_PLAN']
 
@@ -18,17 +21,100 @@ interface DietitianProfileModalProps {
   onOpenChange: (open: boolean) => void
 }
 
+interface ActivePayment {
+  offerType: OfferType
+  transaction: Transaction
+}
+
 function errorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message
   return 'Coś poszło nie tak. Spróbuj ponownie.'
 }
 
+function OfferRow({
+  offer,
+  existing,
+  disabledReason,
+  isPending,
+  onApply,
+  onGoToPayment,
+}: {
+  offer: OfferType
+  existing: Transaction | undefined
+  disabledReason: string | null
+  isPending: boolean
+  onApply: (offer: OfferType) => void
+  onGoToPayment: (offer: OfferType, transaction: Transaction) => void
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-xl border border-border p-3">
+      <div>
+        <p className="text-sm font-bold">{OFFER_LABEL[offer]}</p>
+        <p className="text-xs text-muted-foreground">{OFFER_PRICE[offer]} zł</p>
+      </div>
+      {existing?.status === 'PAID' ? (
+        <Badge className="gap-1 rounded-full px-2 py-0.5 text-xs font-bold">Opłacone ✓</Badge>
+      ) : existing ? (
+        <Button size="sm" variant="outline" onClick={() => onGoToPayment(offer, existing)}>
+          Przejdź do płatności
+        </Button>
+      ) : disabledReason ? (
+        <Button size="sm" disabled title={disabledReason}>
+          Zgłoś się
+        </Button>
+      ) : (
+        <Button size="sm" onClick={() => onApply(offer)} disabled={isPending}>
+          {isPending ? 'Wysyłanie…' : 'Zgłoś się'}
+        </Button>
+      )}
+    </div>
+  )
+}
+
 export function DietitianProfileModal({ dietitianId, onOpenChange }: DietitianProfileModalProps) {
+  const { isAuthenticated, user } = useAuth()
+  const queryClient = useQueryClient()
+  const [activePayment, setActivePayment] = useState<ActivePayment | null>(null)
+
+  useEffect(() => {
+    setActivePayment(null)
+  }, [dietitianId])
+
   const profileQuery = useQuery({
     queryKey: ['dietitian-profile', dietitianId],
     queryFn: () => getPublicDietitianProfile(dietitianId!),
     enabled: dietitianId !== null,
   })
+  const purchasesQuery = useQuery({
+    queryKey: ['my-purchases'],
+    queryFn: getMyPurchases,
+    enabled: isAuthenticated,
+  })
+
+  const createMutation = useMutation({
+    mutationFn: (offerType: OfferType) =>
+      createTransaction({ dietitian_id: dietitianId!, offer_type: offerType }),
+    onSuccess: (transaction) => {
+      void queryClient.invalidateQueries({ queryKey: ['my-purchases'] })
+      setActivePayment({ offerType: transaction.offer_type, transaction })
+    },
+    onError: (error) => notifyError(errorMessage(error)),
+  })
+
+  function existingTransactionFor(offer: OfferType): Transaction | undefined {
+    return purchasesQuery.data?.find((t) => t.dietitian_id === dietitianId && t.offer_type === offer)
+  }
+
+  function disabledReasonFor(): string | null {
+    if (!isAuthenticated) return 'Zaloguj się, aby się zgłosić'
+    if (user?.user_id === dietitianId) return 'Nie możesz zgłosić się do własnej oferty'
+    return null
+  }
+
+  function handlePay() {
+    notifyInfo('Dziękujemy! Administrator potwierdzi płatność ręcznie.')
+    setActivePayment(null)
+  }
 
   return (
     <Dialog open={dietitianId !== null} onOpenChange={onOpenChange}>
@@ -36,7 +122,34 @@ export function DietitianProfileModal({ dietitianId, onOpenChange }: DietitianPr
         <DialogTitle className="sr-only">Profil dietetyka</DialogTitle>
         <ScrollArea className="min-h-0 flex-1">
           <div className="p-6">
-            {profileQuery.isPending ? (
+            {activePayment ? (
+              <div className="flex flex-col gap-4">
+                <button
+                  type="button"
+                  onClick={() => setActivePayment(null)}
+                  className="w-fit text-xs font-bold text-muted-foreground hover:text-foreground"
+                >
+                  ← Wróć do profilu
+                </button>
+                <div className="rounded-xl border border-border p-4">
+                  <p className="text-xs font-bold tracking-wide text-muted-foreground uppercase">
+                    Płatność
+                  </p>
+                  <p className="mt-2 text-sm font-bold">{OFFER_LABEL[activePayment.offerType]}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {activePayment.transaction.amount} zł
+                  </p>
+                  <p className="mt-3 text-xs text-muted-foreground">
+                    To wersja demonstracyjna — nie ma tu prawdziwej bramki płatności ani
+                    formularza karty. Po kliknięciu "Zapłać" administrator ręcznie potwierdzi
+                    wpłatę z panelu administracyjnego.
+                  </p>
+                  <Button className="mt-4 w-fit" onClick={handlePay}>
+                    Zapłać
+                  </Button>
+                </div>
+              </div>
+            ) : profileQuery.isPending ? (
               <p className="text-sm text-muted-foreground">Ładowanie profilu…</p>
             ) : profileQuery.isError ? (
               <p className="text-sm text-destructive">{errorMessage(profileQuery.error)}</p>
@@ -121,21 +234,17 @@ export function DietitianProfileModal({ dietitianId, onOpenChange }: DietitianPr
                   </p>
                   <div className="flex flex-col gap-2">
                     {OFFERS.map((offer) => (
-                      <div
+                      <OfferRow
                         key={offer}
-                        className="flex items-center justify-between gap-2 rounded-xl border border-border p-3"
-                      >
-                        <div>
-                          <p className="text-sm font-bold">{OFFER_LABEL[offer]}</p>
-                          <p className="text-xs text-muted-foreground">{OFFER_PRICE[offer]} zł</p>
-                        </div>
-                        {/* Stage 4 wires this up to actually create a
-                            transaction and show the payment stub — this
-                            stage only presents the offers. */}
-                        <Button size="sm" disabled title="Wkrótce dostępne">
-                          Zgłoś się
-                        </Button>
-                      </div>
+                        offer={offer}
+                        existing={existingTransactionFor(offer)}
+                        disabledReason={disabledReasonFor()}
+                        isPending={createMutation.isPending && createMutation.variables === offer}
+                        onApply={(o) => createMutation.mutate(o)}
+                        onGoToPayment={(offerType, transaction) =>
+                          setActivePayment({ offerType, transaction })
+                        }
+                      />
                     ))}
                   </div>
                 </div>

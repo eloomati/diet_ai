@@ -28,7 +28,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 3 (Transactions
                                               module): DONE
                                             Etap 4 (Marketplace &
-                                              reviews): Stage 3/5
+                                              reviews): Stage 4/5
                                             Etaps 5-6: not started
 ```
 
@@ -1466,11 +1466,79 @@ about to build this etap, same spirit as Etap 3's own pre-Stage-1 revision):
   visibly does nothing (disabled, no request fired) — all while never
   logging in, confirming the whole flow (listing → profile) is genuinely
   public. `docker compose down` after.
-- **Stage 4 — Offer selection → payment stub**: selecting an offer
-  creates an `UNPAID` transaction (Etap 3 Stage 2) and shows a stand-in
-  payment screen — a single "Zapłać" action that's honest about being a
-  placeholder (no card form, no gateway redirect) — admin flips it to
-  paid from the panel (Etap 3 Stage 3).
+- **Stage 4 — Offer selection → payment stub — DONE**: selecting an
+  offer creates an `UNPAID` transaction (Etap 3 Stage 2) and shows a
+  stand-in payment screen — a single "Zapłać" action that's honest about
+  being a placeholder (no card form, no gateway redirect) — admin flips
+  it to paid from the panel (Etap 3 Stage 3).
+
+  **No new backend work this stage** — `POST /transactions` (Etap 3
+  Stage 2) and `GET /transactions/me/purchases` (Etap 4 Stage 2) already
+  cover everything this stage needed; purely frontend wiring.
+
+  **Design decisions**:
+  - **Per-offer state, computed from the buyer's own purchase history**
+    — each offer independently renders one of four states by matching
+    `getMyPurchases()` against `(dietitianId, offerType)`: no existing
+    transaction → real "Zgłoś się" button; an `UNPAID` one → "Przejdź do
+    płatności" (reopens the same payment stub without a new `POST`); a
+    `PAID` one → "Opłacone ✓", no button at all (nothing invites a
+    duplicate purchase through the UI, even though the backend itself
+    doesn't block it). This also means revisiting a dietitian's profile
+    after leaving mid-checkout picks up exactly where you left off.
+  - **"Zgłoś się" disabled with a tooltip in two cases**: logged out
+    ("Zaloguj się, aby się zgłosić") and viewing your own public profile
+    as its own dietitian ("Nie możesz zgłosić się do własnej oferty") —
+    the backend already rejects the guest case with 401 and the
+    self-purchase case with 400 (`Transaction.create()`'s own guard from
+    Etap 3), but pre-empting both in the UI is a cheap, already-known
+    check (`isAuthenticated`/`user.user_id === dietitianId`) that avoids
+    a round-trip to learn something already knowable client-side.
+  - **"Zapłać" is honestly inert, not a fake success** — clicking it
+    shows a toast ("Dziękujemy! Administrator potwierdzi płatność
+    ręcznie.") and returns to the profile view, but calls no endpoint and
+    never touches the transaction's status — there is no user-facing
+    "mark paid" action anywhere in this system by design (Etap 3's own
+    scope decision: only `ADMIN`/`SUPER_ADMIN` can flip that flag). A
+    button that silently did nothing would be a dead click; one that
+    pretended to charge a card would misrepresent a project that
+    deliberately has no payment gateway. Confirmed live that the
+    transaction's `PAID` state only ever changes via the real admin
+    endpoint, never via this button.
+  - **`OFFER_LABEL`/`OFFER_PRICE` centralized** in `api/transactions.ts`
+    (moved out of `TransakcjeTab.tsx`, which already had its own copy) —
+    two call sites needing the same offer→label/price mapping is exactly
+    the point where de-duplicating stops being premature.
+  - **New `notifyInfo` toast helper** alongside the existing
+    `notifyError`, in the same `lib/toast.ts` — this stage's first
+    non-error toast, same one-function-per-tone shape.
+
+  Exit criteria met: no backend tests needed (no backend changes).
+  Frontend — `DietitianProfileModal.test.tsx` rewritten to wrap renders
+  in `AuthProvider` (the component now calls `useAuth()`) with 4 new
+  tests (disabled + tooltip for a guest, disabled + tooltip for your own
+  profile, full apply→payment-stub→pay flow with `notifyInfo` asserted,
+  and the three-way existing-transaction states in one profile) — 8
+  tests total in that file, up from 4. Main frontend now at 120 tests,
+  all passing. Both `npx tsc --noEmit` and `npm run build` clean.
+
+  Live-verified against the real Docker backend and a real browser
+  (Claude-in-Chrome stayed connected): registered a fresh buyer, clicked
+  "Zgłoś się" on a real dietitian's "Ocena wygenerowanego planu" offer,
+  confirmed the payment stub appeared with the real `49.00 zł` amount
+  and the transaction existed in Postgres (`SELECT ... FROM
+  transactions`) as `UNPAID`; confirmed the right rail's "Twoi
+  dietetycy" pinning updated live in the background (the `['my-purchases']`
+  cache invalidation reaching `RightRail` too, not just this modal);
+  clicked "Zapłać" and confirmed the toast fired and no transaction
+  field changed; reopened via "Przejdź do płatności" and confirmed it's
+  the same transaction, no duplicate created; bootstrapped a real
+  `SUPER_ADMIN` and called the actual `POST
+  /admin/transactions/{id}/mark-paid` endpoint via `curl`; reloaded and
+  confirmed the offer now shows "Opłacone ✓" while the *other* offer
+  (`Indywidualny plan`) independently still showed "Zgłoś się" — proving
+  the per-offer state is tracked correctly, not per-dietitian.
+  `docker compose down` after.
 - **Stage 5 — Tests + docs sync**.
 
 ---

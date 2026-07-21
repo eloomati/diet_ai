@@ -33,3 +33,12 @@ export function getMyTransactionsAsDietitian(): Promise<Transaction[]> {
 export function getMyPurchases(): Promise<Transaction[]> {
   return apiFetch('/transactions/me/purchases')
 }
+
+export interface CreateTransactionRequest {
+  dietitian_id: string
+  offer_type: OfferType
+}
+
+export function createTransaction(payload: CreateTransactionRequest): Promise<Transaction> {
+  return apiFetch('/transactions', { method: 'POST', body: payload })
+}
