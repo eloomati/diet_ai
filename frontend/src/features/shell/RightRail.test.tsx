@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useRef } from 'react'
 import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
@@ -7,8 +7,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AuthProvider, useAuth } from '@/lib/auth'
 import { clearTokens } from '@/lib/auth/tokenStore'
+import { notifyInfo } from '@/lib/toast'
 
 import { RightRail } from './RightRail'
+
+vi.mock('@/lib/toast', () => ({ notifyInfo: vi.fn() }))
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -51,6 +54,7 @@ function renderRightRail({ loggedIn = false }: { loggedIn?: boolean } = {}) {
       </MemoryRouter>
     </QueryClientProvider>,
   )
+  return queryClient
 }
 
 const DIETITIAN_A = {
@@ -144,6 +148,9 @@ describe('RightRail marketplace listing (Etap 4 Stage 2)', () => {
           ]),
         )
       }
+      if (url.endsWith('/notifications')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -223,6 +230,9 @@ describe('RightRail marketplace listing (Etap 4 Stage 2)', () => {
           ]),
         )
       }
+      if (url.endsWith('/notifications')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -250,5 +260,112 @@ describe('RightRail marketplace listing (Etap 4 Stage 2)', () => {
     await screen.findByText('Brak dostępnych dietetyków.')
 
     expect(screen.queryByText('Wiadomości')).not.toBeInTheDocument()
+  })
+})
+
+const NEW_MESSAGE_NOTIFICATION = {
+  id: 'n1',
+  type: 'NEW_MESSAGE',
+  reference_id: 'thread-1',
+  created_at: '2026-07-22T00:00:00Z',
+  read_at: null,
+}
+
+function loggedInFetchMock(notifications: unknown[]) {
+  return vi.fn().mockImplementation((url: string) => {
+    if (url.includes('/auth/me')) {
+      return Promise.resolve(
+        jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true }),
+      )
+    }
+    if (url.includes('/auth/login')) {
+      return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+    }
+    if (url.endsWith('/dietitian')) return Promise.resolve(jsonResponse(200, []))
+    if (url.endsWith('/transactions/me/purchases')) return Promise.resolve(jsonResponse(200, []))
+    if (url.endsWith('/messaging/threads')) return Promise.resolve(jsonResponse(200, []))
+    if (url.endsWith('/notifications/mark-all-read')) {
+      return Promise.resolve(
+        jsonResponse(
+          200,
+          notifications.map((n) => ({ ...(n as object), read_at: '2026-07-22T00:05:00Z' })),
+        ),
+      )
+    }
+    if (url.endsWith('/notifications')) return Promise.resolve(jsonResponse(200, notifications))
+    return Promise.resolve(jsonResponse(200, {}))
+  })
+}
+
+describe('RightRail notification badge (Etap 5 Stage 4)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearTokens()
+    vi.mocked(notifyInfo).mockClear()
+  })
+
+  it('shows the unread notification count on the bell', async () => {
+    vi.stubGlobal('fetch', loggedInFetchMock([NEW_MESSAGE_NOTIFICATION]))
+
+    renderRightRail({ loggedIn: true })
+
+    await waitFor(() => expect(screen.getByLabelText('Powiadomienia')).toHaveTextContent('1'))
+  })
+
+  it('does not show a badge when there are no unread notifications', async () => {
+    vi.stubGlobal('fetch', loggedInFetchMock([]))
+
+    renderRightRail({ loggedIn: true })
+
+    await screen.findByLabelText('Powiadomienia')
+    expect(screen.getByLabelText('Powiadomienia')).not.toHaveTextContent(/\d/)
+  })
+
+  it('opens the popover, lists notifications, and marks them all read', async () => {
+    const user = userEvent.setup()
+    const fetchMock = loggedInFetchMock([NEW_MESSAGE_NOTIFICATION])
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRightRail({ loggedIn: true })
+    await screen.findByLabelText('Powiadomienia')
+
+    await user.click(screen.getByLabelText('Powiadomienia'))
+
+    expect(await screen.findByText('Nowa wiadomość')).toBeInTheDocument()
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/notifications/mark-all-read'),
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('does not toast for a notification already present when the badge first loads', async () => {
+    vi.stubGlobal(
+      'fetch',
+      loggedInFetchMock([{ ...NEW_MESSAGE_NOTIFICATION, type: 'TRANSACTION_PAID' }]),
+    )
+
+    renderRightRail({ loggedIn: true })
+
+    await waitFor(() => expect(screen.getByLabelText('Powiadomienia')).toHaveTextContent('1'))
+    expect(notifyInfo).not.toHaveBeenCalled()
+  })
+
+  it('toasts once when a new TRANSACTION_PAID notification arrives on a later poll', async () => {
+    vi.stubGlobal('fetch', loggedInFetchMock([]))
+
+    const queryClient = renderRightRail({ loggedIn: true })
+    await waitFor(() =>
+      expect(queryClient.getQueryData(['my-notifications'])).toEqual([]),
+    )
+    expect(notifyInfo).not.toHaveBeenCalled()
+
+    queryClient.setQueryData(
+      ['my-notifications'],
+      [{ ...NEW_MESSAGE_NOTIFICATION, id: 'n2', type: 'TRANSACTION_PAID' }],
+    )
+
+    await waitFor(() => expect(screen.getByLabelText('Powiadomienia')).toHaveTextContent('1'))
+    expect(notifyInfo).toHaveBeenCalledTimes(1)
+    expect(notifyInfo).toHaveBeenCalledWith('Klient opłacił transakcję.')
   })
 })

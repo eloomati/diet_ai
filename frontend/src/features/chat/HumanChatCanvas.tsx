@@ -12,6 +12,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { MyceloNotificationBadge } from '@/components/MyceloNotificationBadge'
+import { useUnreadNotificationsCount } from '@/hooks/useUnreadNotificationsCount'
 import { getDietPlan, listDietPlans } from '@/api/dietPlans'
 import { listMyDietitianThreads, listThreadMessages, sendDietitianMessage } from '@/api/messaging'
 import type { DietitianMessage } from '@/api/messaging'
@@ -87,6 +89,7 @@ export function HumanChatCanvas({
   threadId,
 }: HumanChatCanvasProps) {
   const { isAuthenticated, user } = useAuth()
+  const unreadNotificationsCount = useUnreadNotificationsCount(isAuthenticated)
   const queryClient = useQueryClient()
   const [message, setMessage] = useState('')
   const [planPickerOpen, setPlanPickerOpen] = useState(false)
@@ -163,15 +166,17 @@ export function HumanChatCanvas({
           {thread?.other_participant_email ?? 'Rozmowa z dietetykiem'}
         </span>
         {rightCollapsed && (
-          <Button
-            variant="outline"
-            size="icon"
-            className="absolute top-2 right-3.5"
-            onClick={onExpandRight}
-            aria-label="Rozwiń panel"
-          >
-            <Sparkles className="size-3.5" />
-          </Button>
+          <div className="absolute top-2 right-3.5 flex items-center gap-1.5">
+            <MyceloNotificationBadge unreadCount={unreadNotificationsCount} onClick={onExpandRight} />
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onExpandRight}
+              aria-label="Rozwiń panel"
+            >
+              <Sparkles className="size-3.5" />
+            </Button>
+          </div>
         )}
       </header>
 

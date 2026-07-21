@@ -66,7 +66,11 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, CONVERSATIONS))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -93,7 +97,11 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -136,7 +144,11 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -178,7 +190,11 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -234,7 +250,11 @@ describe('AppShell conversations (Etap 3 Stage 3 — archive & delete)', () => {
         conversationsListCalls += 1
         return Promise.resolve(jsonResponse(200, conversationsListCalls === 1 ? CONVERSATIONS : []))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -289,7 +309,11 @@ describe('AppShell responsiveness (Etap 5 Stage 2)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -375,7 +399,11 @@ describe('AppShell human-chat routing (Etap 5 Stage 3)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       if (url.endsWith('/messaging/threads')) {

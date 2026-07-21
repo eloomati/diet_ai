@@ -31,7 +31,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                               reviews): DONE
                                             Etap 5 (Kafka notifications
                                               + human-dietitian chat):
-                                              Stage 3/5
+                                              Stage 4/5
                                             Etap 6: not started
 ```
 
@@ -1997,6 +1997,137 @@ pre-Stage-1 revision):
   Polling-driven per the confirmed decision — a `useQuery` with a short
   `refetchInterval` against a `GET /notifications` endpoint, not a push
   channel.
+
+  Design decisions settled right before building this stage:
+
+  - **`notifications` gets its first API surface** — Stage 1 only ever
+    needed the entity + a consumer writing to it; this stage adds `GET
+    /notifications` (the caller's own, most recent first) and `POST
+    /notifications/mark-all-read`. One bulk action, not per-notification
+    mark-read — "small badge," not a full notification center, and a
+    demo-scope user has few enough notifications that "mark everything
+    I can currently see as read" is the only action that makes sense.
+  - **Sending a message now also creates a `NEW_MESSAGE` notification
+    for the *other* participant — a direct, synchronous call from
+    `SendDietitianMessageUseCase` to `notifications`' own
+    `CreateNotificationUseCase`, not a second Kafka round-trip.** Kafka
+    was for cross-cutting distribution of an event a whole different
+    module (two, as of Etap 5 Stage 2) needs to react to independently;
+    a message being sent and its recipient being notified happen in the
+    same request, same module boundary crossing `messaging` already
+    makes routinely (this is the same "reuse the other module's already-
+    exported unit directly" pattern used everywhere in this phase, only
+    the exported unit is a use case instead of a repository this time —
+    the two use cases were already going to run back-to-back regardless).
+  - **One unified badge (total unread count), plus a *separate* one-shot
+    toast specifically for a newly-arrived `TRANSACTION_PAID`
+    notification** — matches the sketch's own two mentions: an ordinary
+    running badge count covers "unread dietitian message" as the everyday
+    case, while a rarer, more significant event (money changing hands)
+    earns an explicit toast, not just a quieter count increment. The
+    toast fires at most once per notification — a ref tracks
+    already-seen notification ids across polls so it isn't re-fired
+    every `refetchInterval`.
+  - **The badge lives in the right rail's own header row** (next to
+    "Dietetycy" + the collapse button) — not also duplicated onto the
+    collapsed-rail's expand button in `ChatCanvas`/`HumanChatCanvas`.
+    That would mean lifting unread state up through `AppShell` into
+    three separate components for a demo-scope detail the sketch itself
+    doesn't ask for — a deliberate scope trim, not an oversight.
+  - **The badge reuses `MyceloIcon`'s own `alert` prop** (Etap 5's own
+    branding work, back before this etap started) — red mushroom-cap
+    exactly when there's something unread, idle brown otherwise. This is
+    the component's first real usage outside the favicon, exactly as
+    planned when it was built.
+
+  Built exactly per the design decisions above: `notifications` gained
+  its first API surface (`GET /notifications`, `POST
+  /notifications/mark-all-read`, both any-authenticated-user, no role
+  gate — `NotificationResponse` deliberately omits `recipient_user_id`
+  since it's always the caller), backed by two new use cases
+  (`ListMyNotificationsUseCase`, `MarkAllNotificationsReadUseCase`, the
+  latter's bulk mark-read idempotent via `Notification.mark_read()`).
+  `SendDietitianMessageUseCase` took a third constructor argument
+  (`CreateNotificationUseCase`, injected the same way its two
+  repositories already are) and now calls it directly — a plain
+  synchronous use-case-to-use-case call, not a second Kafka topic. On
+  the frontend, a new `api/notifications.ts` client backs a
+  `NotificationsBell` component living in `RightRail`'s own header:
+  `useQuery` on a 4-second `refetchInterval` (matching the human-chat
+  poll cadence), a `Popover` (a new shadcn/Base UI component added this
+  stage, since nothing existing covered an anchored dropdown) showing
+  each notification with a small unread dot, marking everything read the
+  moment it opens, and a `MyceloIcon` trigger whose `alert` prop and red
+  count pill both derive from the same unread count. A `useEffect`
+  keyed on the query's data compares incoming ids against a `seenIds`
+  ref — seeded silently from whatever's already there on first mount, so
+  the toast only ever fires for a notification that arrived *after* the
+  component was already watching, never retroactively for one that
+  existed before it mounted.
+
+  Exit criteria met: backend added 41 tests total across
+  `backend/modules/notifications/tests/` and
+  `backend/modules/messaging/tests/` (double-checked via
+  `--collect-only`) — new coverage for both use cases, the two new API
+  endpoints, and a `SendDietitianMessageUseCase` case asserting the
+  right recipient gets notified with the right `reference_id`; the
+  three pre-existing `SendDietitianMessageUseCase` tests were updated
+  for the use case's new third constructor argument, not left broken.
+  Frontend added to `RightRail.test.tsx` (12 tests total, including 5 new
+  ones for the badge/popover/mark-all-read/toast-suppression/toast-firing
+  behavior) and touched `AppShell.test.tsx` (9 tests total) only to teach
+  its existing fetch mocks about the new `/notifications` call every
+  logged-in render now makes — no assertions in that file changed. `npx
+  tsc -b` and `npm run build` both clean; `oxlint` shows only
+  pre-existing warnings.
+
+  Live-verified against the real Docker stack (Kafka included) in two
+  separate Claude-in-Chrome browser sessions. Backend first, via `curl`:
+  registered a buyer, a dietitian (promoted via direct SQL, same as
+  every prior stage), and an admin; created a transaction and marked it
+  paid — confirmed the dietitian's `GET /notifications` showed a fresh
+  `TRANSACTION_PAID` notification (the same live Kafka round-trip proven
+  in Stage 1, now actually surfacing through this stage's own endpoint);
+  called `POST /notifications/mark-all-read` and confirmed `read_at` came
+  back set and stayed set on a follow-up `GET`; sent a message on the
+  auto-created thread and confirmed a `NEW_MESSAGE` notification appeared
+  for the dietitian only, never for the sender. Then in the browser:
+  logged in as the dietitian in one tab and the buyer in a second, and
+  watched the dietitian's badge go from idle brown with no count to a red
+  "1" the moment a `curl`-created payment landed, without any manual
+  refresh; opened the popover, saw "Nowa wiadomość" / "Nowa płatność od
+  klienta" listed, and confirmed via the network log that opening it
+  fired `POST /notifications/mark-all-read` and the badge cleared back
+  to idle; then, from the buyer's tab, sent a real message through the
+  UI and watched the dietitian's badge light back up on its own within
+  one poll cycle — no refresh, no manual action on the dietitian's side.
+  Finally, triggered one more real payment via `curl` and caught the
+  one-shot "Klient opłacił transakcję." toast rendering live bottom-right
+  on the dietitian's screen alongside the badge incrementing to match —
+  confirming the badge/toast split behaves exactly as designed. `docker
+  compose down` after.
+
+  Follow-up within this same stage: the collapsed-rail expand button
+  (the floating `Sparkles` button shown in both `ChatCanvas` and
+  `HumanChatCanvas` when the right rail is hidden) now also shows the
+  same mushroom + count badge next to it, so an unread notification
+  stays visible even while the rail is collapsed — reversing this
+  stage's earlier "deliberate scope trim" once the user asked for it. A
+  shared `useUnreadNotificationsCount` hook (`frontend/src/hooks/`) reads
+  the same `['my-notifications']` query key `NotificationsBell` already
+  polls (React Query dedupes by key, so this doesn't add a second
+  network call), and a small `MyceloNotificationBadge` component renders
+  the icon/count pill; clicking it calls the same `onExpandRight` the
+  `Sparkles` button already uses. Per the user's own direction to stop
+  testing this broadly for small in-stage additions, no new tests were
+  written for this — only the two existing test files
+  (`ChatCanvas.test.tsx`, `HumanChatCanvas.test.tsx`) that broke as a
+  mechanical consequence (the former needed an `AuthProvider` wrapper it
+  never required before; the latter's shared fetch mock needed one more
+  `/notifications` branch) were fixed. Live-verified visually in the
+  browser: collapsed the dietitian's right rail and confirmed the badge
+  appears showing the correct unread count next to the expand button,
+  and clicking it re-expands the rail.
 - **Stage 5 — Tests + docs sync**: this etap's tests need a
   docker-compose.test.yml Kafka service too (the existing ephemeral
   Postgres/Mongo test-stack pattern in `conftest.py` extends to Kafka).

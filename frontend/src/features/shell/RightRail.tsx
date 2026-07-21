@@ -1,22 +1,125 @@
-import { useQuery } from '@tanstack/react-query'
-import { ChevronRight, Star, Users } from 'lucide-react'
-import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Bell, ChevronRight, Star, Users } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/EmptyState'
+import { MyceloIcon } from '@/components/MyceloIcon'
 import { listDietitians } from '@/api/dietitian'
 import type { DietitianListingItem } from '@/api/dietitian'
 import { listMyDietitianThreads } from '@/api/messaging'
 import type { DietitianThread } from '@/api/messaging'
+import { listNotifications, markAllNotificationsRead } from '@/api/notifications'
+import type { Notification } from '@/api/notifications'
 import { getMyPurchases } from '@/api/transactions'
 import { useAuth } from '@/lib/auth'
 import { resolveStaticUrl } from '@/lib/apiFetch'
+import { notifyInfo } from '@/lib/toast'
 
 import { DietitianProfileModal } from './DietitianProfileModal'
+
+// Same "polling not push" decision as the human-chat message list.
+const NOTIFICATIONS_POLL_INTERVAL_MS = 4000
+
+const NOTIFICATION_LABELS: Record<Notification['type'], string> = {
+  TRANSACTION_PAID: 'Nowa płatność od klienta',
+  NEW_MESSAGE: 'Nowa wiadomość',
+}
+
+function NotificationRow({ notification }: { notification: Notification }) {
+  return (
+    <div className="flex items-start gap-2 rounded-lg px-2 py-1.5 text-left">
+      <span
+        className={`mt-1.5 size-1.5 shrink-0 rounded-full ${
+          notification.read_at ? 'bg-transparent' : 'bg-destructive'
+        }`}
+      />
+      <p className="text-[12.5px] leading-snug text-foreground">
+        {NOTIFICATION_LABELS[notification.type]}
+      </p>
+    </div>
+  )
+}
+
+/** One unified unread-count badge for the everyday case (new messages),
+ * plus a separate one-shot toast reserved for the rarer, higher-signal
+ * TRANSACTION_PAID event — a seen-ids ref keeps the toast from re-firing
+ * on every poll, and doesn't fire retroactively for notifications that
+ * already existed the moment this component first mounted. */
+function NotificationsBell() {
+  const queryClient = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const seenIds = useRef<Set<string> | null>(null)
+
+  const notificationsQuery = useQuery({
+    queryKey: ['my-notifications'],
+    queryFn: listNotifications,
+    refetchInterval: NOTIFICATIONS_POLL_INTERVAL_MS,
+  })
+  const notifications = notificationsQuery.data ?? []
+  const unreadCount = notifications.filter((n) => !n.read_at).length
+
+  useEffect(() => {
+    if (!notificationsQuery.data) return
+    if (seenIds.current === null) {
+      seenIds.current = new Set(notificationsQuery.data.map((n) => n.id))
+      return
+    }
+    for (const notification of notificationsQuery.data) {
+      if (seenIds.current.has(notification.id)) continue
+      seenIds.current.add(notification.id)
+      if (notification.type === 'TRANSACTION_PAID') {
+        notifyInfo('Klient opłacił transakcję.')
+      }
+    }
+  }, [notificationsQuery.data])
+
+  const markReadMutation = useMutation({
+    mutationFn: markAllNotificationsRead,
+    onSuccess: (updated) => queryClient.setQueryData(['my-notifications'], updated),
+  })
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        if (nextOpen && unreadCount > 0) markReadMutation.mutate()
+      }}
+    >
+      <PopoverTrigger
+        aria-label="Powiadomienia"
+        className="relative inline-flex size-8 items-center justify-center rounded-md hover:bg-accent/60"
+      >
+        <MyceloIcon alert={unreadCount > 0} className="size-4.5" />
+        {unreadCount > 0 && (
+          <Badge
+            variant="destructive"
+            className="absolute -top-1 -right-1 h-4 min-w-4 justify-center rounded-full bg-destructive px-1 text-[10px] text-white"
+          >
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </Badge>
+        )}
+      </PopoverTrigger>
+      <PopoverContent align="end" className="max-h-80 overflow-y-auto">
+        {notifications.length === 0 ? (
+          <EmptyState icon={Bell} message="Brak powiadomień." className="py-4" />
+        ) : (
+          <div className="flex flex-col gap-0.5">
+            {notifications.map((notification) => (
+              <NotificationRow key={notification.id} notification={notification} />
+            ))}
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  )
+}
 
 interface RightRailProps {
   onCollapse: () => void
@@ -140,9 +243,12 @@ export function RightRail({ onCollapse }: RightRailProps) {
           <span className="text-xs font-bold tracking-wide text-muted-foreground uppercase">
             Dietetycy
           </span>
-          <Button variant="ghost" size="icon" onClick={onCollapse} aria-label="Zwiń panel">
-            <ChevronRight className="size-4" />
-          </Button>
+          <div className="flex items-center gap-0.5">
+            {isAuthenticated && <NotificationsBell />}
+            <Button variant="ghost" size="icon" onClick={onCollapse} aria-label="Zwiń panel">
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-3.5 pb-3.5">

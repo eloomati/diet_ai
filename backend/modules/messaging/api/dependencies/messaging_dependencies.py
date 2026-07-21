@@ -26,6 +26,13 @@ from backend.modules.messaging.infrastructure.persistence.repository.sqlalchemy_
 from backend.modules.messaging.infrastructure.persistence.repository.sqlalchemy_dietitian_thread_repository import (
     SqlAlchemyDietitianThreadRepository,
 )
+from backend.modules.notifications.api.dependencies import get_notification_repository
+from backend.modules.notifications.application.use_cases.create_notification_use_case import (
+    CreateNotificationUseCase,
+)
+from backend.modules.notifications.domain.repositories.notification_repository import (
+    NotificationRepository,
+)
 from backend.shared.database import get_db_session
 
 
@@ -61,8 +68,19 @@ def get_list_thread_messages_use_case(
     return ListThreadMessagesUseCase(thread_repository, message_repository)
 
 
+def get_create_notification_use_case_for_messaging(
+    notification_repository: NotificationRepository = Depends(get_notification_repository),
+) -> CreateNotificationUseCase:
+    return CreateNotificationUseCase(notification_repository)
+
+
 def get_send_dietitian_message_use_case(
     thread_repository: DietitianThreadRepository = Depends(get_dietitian_thread_repository),
     message_repository: DietitianMessageRepository = Depends(get_dietitian_message_repository),
+    create_notification_use_case: CreateNotificationUseCase = Depends(
+        get_create_notification_use_case_for_messaging
+    ),
 ) -> SendDietitianMessageUseCase:
-    return SendDietitianMessageUseCase(thread_repository, message_repository)
+    return SendDietitianMessageUseCase(
+        thread_repository, message_repository, create_notification_use_case
+    )

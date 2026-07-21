@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { AuthProvider } from '@/lib/auth'
 import { notifyError } from '@/lib/toast'
 
 import { ChatCanvas } from './ChatCanvas'
@@ -24,13 +25,15 @@ function renderCanvas(conversationId?: string) {
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
-        <ChatCanvas
-          leftCollapsed={false}
-          rightCollapsed={false}
-          onExpandLeft={noop}
-          onExpandRight={noop}
-          conversationId={conversationId}
-        />
+        <AuthProvider>
+          <ChatCanvas
+            leftCollapsed={false}
+            rightCollapsed={false}
+            onExpandLeft={noop}
+            onExpandRight={noop}
+            conversationId={conversationId}
+          />
+        </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>,
   )

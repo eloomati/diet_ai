@@ -74,6 +74,9 @@ function stubAuthAndThread(extra: (url: string, init?: RequestInit) => Response 
     if (url.endsWith('/diet-plans')) {
       return Promise.resolve(jsonResponse(200, []))
     }
+    if (url.endsWith('/notifications')) {
+      return Promise.resolve(jsonResponse(200, []))
+    }
     const override = extra(url, init)
     if (override) return Promise.resolve(override)
     return Promise.resolve(jsonResponse(200, {}))
