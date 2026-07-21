@@ -28,7 +28,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 3 (Transactions
                                               module): DONE
                                             Etap 4 (Marketplace &
-                                              reviews): Stage 1/5
+                                              reviews): Stage 2/5
                                             Etaps 5-6: not started
 ```
 
@@ -1329,13 +1329,93 @@ about to build this etap, same spirit as Etap 3's own pre-Stage-1 revision):
   updated correctly on the next profile fetch), and confirmed the
   dietitian attempting to review themselves gets a real `400`.
   `docker compose down` after.
-- **Stage 2 — Right rail becomes the marketplace listing**: replaces
-  today's static "Co nowego" placeholder (which Etap 5 of Phase 10
-  explicitly described as "reserved for future roadmap items" — this is
-  that future). Shows dietitian cards (photo thumbnail, name, experience
-  abbreviated e.g. "5 lat", average rating) — dietitians the user has an
-  active/paid engagement with pinned at the top, the rest of the roster
-  below.
+- **Stage 2 — Right rail becomes the marketplace listing — DONE**:
+  replaces today's static "Co nowego" placeholder (which Etap 5 of
+  Phase 10 explicitly described as "reserved for future roadmap items" —
+  this is that future). Shows dietitian cards (photo thumbnail, name,
+  experience, average rating) — dietitians the user has an active/paid
+  engagement with pinned at the top ("Twoi dietetycy"), the rest of the
+  roster below ("Wszyscy dietetycy" — heading only shown once there's a
+  pinned group to distinguish it from).
+
+  **Design decisions settled right before building this stage** (a small
+  backend gap found while scoping the frontend work, same spirit as every
+  prior "revised once actually about to build this" note):
+  - **"Pinned at the top" needs the buyer's own purchase history, which
+    no endpoint exposes yet** — `GET /transactions/me` is dietitian-only
+    (`require_role(DIET_USER)`, returns transactions where the caller is
+    the *seller*). A plain buyer has no way to ask "which dietitians have
+    I already engaged?". Adds one small, symmetric endpoint to the
+    `transactions` module: `GET /transactions/me/purchases` (any
+    authenticated user, `get_current_user` — mirrors `POST /transactions`
+    itself), backed by a new `GetMyPurchasesUseCase` that's a one-line
+    twin of `GetMyTransactionsAsDietitianUseCase` (`list_by_user_id`
+    instead of `list_by_dietitian_id` — the repository already exposed
+    both, only the dietitian side had a route). "Active/paid" is read
+    loosely as "any transaction exists with this dietitian, regardless of
+    `UNPAID`/`PAID`" — pinning a card the moment you've expressed
+    interest (created an `UNPAID` transaction) rather than only after an
+    admin flips it, which better matches "dietitians I'm already talking
+    to" than a strict paid-only reading would.
+  - **Cards are not clickable yet** — Stage 3 is explicitly "click a card
+    → full profile"; wiring navigation before that view exists would be a
+    dead link. This stage only renders the listing.
+  - **"Experience abbreviated e.g. '5 lat'" is a CSS truncation, not a
+    text-parsing extraction** — `experience` is free-text (some existing
+    seeded profiles read like a full sentence, not a bare "5 lat"), so
+    there's no reliable way to mechanically extract a short form from
+    arbitrary prose. Cards `truncate`/`line-clamp` the real field instead
+    of inventing a parser for something the backend never structured as a
+    number.
+
+  Built: `RightRail.tsx` rewritten from Etap 0's static placeholder to a
+  real listing — `useQuery(['dietitian-listing'], listDietitians)` (no
+  `isAuthenticated` gate — genuinely public, matching the backend) plus
+  `useQuery(['my-purchases'], getMyPurchases, { enabled: isAuthenticated
+  })` to compute the pinned set. Each `DietitianCard` shows an `Avatar`
+  (real photo via `resolveStaticUrl` when present, initials fallback
+  otherwise — same pattern `LeftRail`'s profile avatar already uses), the
+  email as the display name (still the only identifier `User` has, same
+  call made throughout `admin`/`frontend-admin`), the truncated
+  experience text, and either a star rating badge or "Brak ocen" when
+  `average_rating` is `null`. Loading (skeleton cards), error, and empty
+  states mirror `LeftRail`'s own conversation-history states for visual
+  consistency. `frontend/src/api/dietitian.ts` gained `listDietitians()`
+  (called with `skipAuth: true` — this endpoint never needs a token and
+  should never trigger a refresh attempt); `frontend/src/api/
+  transactions.ts` gained `getMyPurchases()`.
+
+  Also shipped, since it was this stage's own prerequisite: the backend
+  `GET /transactions/me/purchases` endpoint + `GetMyPurchasesUseCase`
+  (`transactions` module).
+
+  Exit criteria met: backend — 5 new tests (2 `GetMyPurchasesUseCase`
+  unit tests, 3 API tests: 401 without auth, 200 with an empty list for
+  a buyer with no purchases, returns only the calling buyer's own
+  transactions) — `transactions` module now at 26 tests (up from 21);
+  frontend — 4 new `RightRail.test.tsx` tests (empty state
+  without requiring login, card rendering with rating/"Brak ocen",
+  error state, pinning a dietitian the logged-in user has a transaction
+  with) plus 6 existing `AppShell.test.tsx` fetch-mock bodies updated to
+  return `[]` for the two new endpoints instead of falling through to
+  `{}` (which would have thrown inside `RightRail`'s `.filter()` calls)
+  and its 4 "Co nowego" assertions renamed to "Dietetycy" — main frontend
+  now at 111 tests, all passing. Both `npx tsc --noEmit` and
+  `npm run build` clean.
+
+  Live-verified against the real Docker backend and a real browser (this
+  stage's Claude-in-Chrome session stayed connected throughout, unlike
+  several recent stages): registered a buyer and a dietitian, promoted
+  the dietitian via direct SQL, created a real `UNPAID` transaction and a
+  real review via `curl`, then opened the actual app. Confirmed the
+  marketplace listing renders with real photos/ratings/truncated
+  experience text for every previously-seeded dietitian across this
+  session's whole history (a good incidental full-regression check on
+  `list_all()` + email resolution), confirmed it's visible while logged
+  out (genuinely public browsing), and — logged in as the seeded buyer —
+  confirmed the exact dietitian with the open transaction appeared under
+  a "Twoi dietetycy" section while the rest stayed under "Wszyscy
+  dietetycy". `docker compose down` after.
 - **Stage 3 — Public dietitian profile view**: click a card → full
   profile (experience, diplomas, description, photos, reviews, the two
   offers). "Zgłoś się" per offer.

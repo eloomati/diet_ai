@@ -17,3 +17,7 @@ export interface Transaction {
 export function getMyTransactionsAsDietitian(): Promise<Transaction[]> {
   return apiFetch('/transactions/me')
 }
+
+export function getMyPurchases(): Promise<Transaction[]> {
+  return apiFetch('/transactions/me/purchases')
+}

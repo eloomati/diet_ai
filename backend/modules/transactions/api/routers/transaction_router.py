@@ -4,6 +4,7 @@ from backend.modules.identity.api.dependencies import get_current_user, require_
 from backend.modules.identity.domain import Role, User
 from backend.modules.transactions.api.dependencies import (
     get_create_transaction_use_case,
+    get_my_purchases_use_case,
     get_my_transactions_as_dietitian_use_case,
 )
 from backend.modules.transactions.api.schemas import CreateTransactionRequest, TransactionResponse
@@ -13,6 +14,9 @@ from backend.modules.transactions.application.use_cases.create_transaction_use_c
 )
 from backend.modules.transactions.application.use_cases.exceptions import (
     DietitianNotFoundError,
+)
+from backend.modules.transactions.application.use_cases.get_my_purchases_use_case import (
+    GetMyPurchasesUseCase,
 )
 from backend.modules.transactions.application.use_cases.get_my_transactions_as_dietitian_use_case import (
     GetMyTransactionsAsDietitianUseCase,
@@ -57,6 +61,17 @@ async def get_my_transactions_as_dietitian(
     use_case: GetMyTransactionsAsDietitianUseCase = Depends(
         get_my_transactions_as_dietitian_use_case
     ),
+) -> list[TransactionResponse]:
+    results = await use_case.execute(current_user.id)
+    return [TransactionResponse.from_result(result) for result in results]
+
+
+@router.get(
+    "/me/purchases", response_model=list[TransactionResponse], status_code=status.HTTP_200_OK
+)
+async def get_my_purchases(
+    current_user: User = Depends(get_current_user),
+    use_case: GetMyPurchasesUseCase = Depends(get_my_purchases_use_case),
 ) -> list[TransactionResponse]:
     results = await use_case.execute(current_user.id)
     return [TransactionResponse.from_result(result) for result in results]

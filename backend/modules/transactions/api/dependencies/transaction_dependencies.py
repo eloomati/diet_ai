@@ -11,6 +11,9 @@ from backend.modules.transactions.application.ports.transaction_event_publisher 
 from backend.modules.transactions.application.use_cases.create_transaction_use_case import (
     CreateTransactionUseCase,
 )
+from backend.modules.transactions.application.use_cases.get_my_purchases_use_case import (
+    GetMyPurchasesUseCase,
+)
 from backend.modules.transactions.application.use_cases.get_my_transactions_as_dietitian_use_case import (
     GetMyTransactionsAsDietitianUseCase,
 )
@@ -55,3 +58,9 @@ def get_my_transactions_as_dietitian_use_case(
     transaction_repository: TransactionRepository = Depends(get_transaction_repository),
 ) -> GetMyTransactionsAsDietitianUseCase:
     return GetMyTransactionsAsDietitianUseCase(transaction_repository)
+
+
+def get_my_purchases_use_case(
+    transaction_repository: TransactionRepository = Depends(get_transaction_repository),
+) -> GetMyPurchasesUseCase:
+    return GetMyPurchasesUseCase(transaction_repository)
