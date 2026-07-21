@@ -25,7 +25,9 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                               & profile): DONE
                                             Etap 2 (Admin module +
                                               frontend-admin): DONE
-                                            Etaps 3-6: not started
+                                            Etap 3 (Transactions
+                                              module): DONE
+                                            Etaps 4-6: not started
 ```
 
 ---
@@ -919,24 +921,283 @@ status, no real payment gateway (per the user's explicit demo-scope
 call, same spirit as this project's existing Mock AI provider / Mailhog
 / local SFTP stand-ins for real external services).
 
+Design decisions settled before Stage 1 (revised 2026-07-20, once actually
+about to build this etap, from the looser sketch above):
+
+- **Status is a 2-state toggle, not a one-way state machine**:
+  `TransactionStatus`: `UNPAID` (initial) / `PAID`. The admin action is
+  literally "mark paid" / "mark unpaid" — a reversible toggle, unlike
+  `DietitianApplication`'s one-way `PENDING → APPROVED|REJECTED`. No
+  `PENDING`/`CANCELLED` states — nothing in the spec calls for them, and
+  adding a richer state machine than the two real actions need would be
+  speculative. `mark_paid()` sets `status=PAID` + `paid_at=now()`;
+  `mark_unpaid()` sets `status=UNPAID` + `paid_at=None` — both idempotent,
+  neither raises on a redundant call (unlike approve/reject, this isn't
+  guarding an invariant, just flipping a flag).
+- **`amount` is server-computed, not client-supplied**: a small fixed
+  price table keyed by `offer_type` (`PLAN_REVIEW` / `INDIVIDUAL_PLAN`)
+  lives in the domain layer — the create-transaction request only ever
+  sends `dietitian_id` + `offer_type`; letting a client set its own price
+  would be a real integrity hole for a module whose entire job is
+  tracking money. Stored as `Numeric(10, 2)` / `Decimal`, not `float`.
+- **FK behavior**: `user_id` (buyer) is `ON DELETE CASCADE` (same as
+  `dietitian_applications`/`dietitian_profiles` — owned data disappears
+  with its owner, and this needs zero changes to Etap 2's
+  `DeleteUserUseCase`). `dietitian_id` is `ON DELETE SET NULL` (mirrors
+  `dietitian_applications.reviewed_by` — deleting the dietitian shouldn't
+  erase the *buyer's* transaction history).
+- **Kafka doesn't exist yet — a port stands in for it, not a stub
+  string of TODOs**: Stage 3 needs to react to a transaction turning
+  `PAID`, but Etap 5 is what actually adds Kafka. Same shape as
+  `EmailSender`/`SftpClient`/`FileStorage` elsewhere in this codebase: a
+  `TransactionEventPublisher` port, `NoOpTransactionEventPublisher` as
+  the only implementation for now. Etap 5 Stage 1 adds a
+  `KafkaTransactionEventPublisher` and wires it in — the mark-paid use
+  case itself doesn't change.
+
 - **Stage 1 — New `backend/modules/transactions/` module, Postgres
-  schema**: `transactions` table — id, `user_id` (buyer), `dietitian_id`
-  (nullable-safe FK to the dietitian's user), `offer_type` (plan-review
-  vs individual-plan), `amount`, `status` (`PENDING`/`PAID`/`UNPAID`/
-  `CANCELLED` — exact states firmed up during implementation),
+  schema — DONE**: `Transaction` entity + `transactions` table — `id`,
+  `user_id` (buyer), `dietitian_id`, `offer_type`, `amount`, `status`,
   `created_at`, `paid_at`. Postgres, not Mongo — this is the one new
   module that's genuinely transactional/relational, matching Identity's
-  existing choice of Postgres for the same reason.
-- **Stage 2 — Create-transaction use case**: fired when a user selects
-  a dietitian's offer (Etap 4 wires the actual UI trigger) — creates a
-  `PENDING` transaction, no payment gateway call.
-- **Stage 3 — Admin mark paid/unpaid**: `POST /admin/transactions/{id}/mark-paid`
-  / `.../mark-unpaid` (admin-only) — marking paid publishes the Kafka
-  `TransactionPaid` event Etap 5 consumes.
-- **Stage 4 — Transakcje tabs wired**: both the admin panel's Transakcje
-  tab (all transactions) and the dietitian's own Transakcje tab from
-  Etap 1 Stage 4 (only transactions routed to them) now show real data.
-- **Stage 5 — Tests + docs sync**.
+  existing choice of Postgres for the same reason. Domain + repository
+  port + SQLAlchemy model/mapper/migration only — no API surface yet
+  (mirrors Etap 1 Stage 1's own scoping: schema first, endpoints next).
+  Built exactly per the design decisions settled above: `amount` is
+  `Numeric(10, 2)`/`Decimal`, resolved server-side from the
+  `OFFER_PRICES` table keyed by `OfferType`, never accepted from a
+  caller; `TransactionStatus` is the 2-state `UNPAID`/`PAID` toggle,
+  `mark_paid()`/`mark_unpaid()` both idempotent; `Transaction.create()`
+  itself rejects `user_id == dietitian_id` (a pure data invariant, no
+  repository lookup needed, so it lives in the entity — checking that
+  the dietitian side is an actual `DIET_USER` does need a lookup and is
+  deferred to Stage 2's use case). `dietitian_id` is modeled as
+  `UUID | None` in the domain entity, not just nullable at the DB
+  level — it can legitimately become `None` for an existing row once
+  the dietitian account is deleted (`ON DELETE SET NULL`), so the
+  domain type has to allow that even though `create()` never produces
+  it. New migration `20260720_09_transactions.py`, chained after
+  Etap 1's `20260719_08_dietitian_photos`.
+
+  Exit criteria met (scoped — new, fully isolated module): 6 new entity
+  unit tests (`create()` defaults, price lookup, self-purchase
+  rejection, `mark_paid`/`mark_unpaid`, idempotent re-marking).
+  `pytest.ini` and `alembic/env.py` both gained the new module.
+
+  Live-verified against the real Docker backend: confirmed the
+  migration applied via `docker compose logs`, confirmed the exact
+  schema/FKs/indexes via `psql \d transactions`, then proved both FK
+  behaviors concretely rather than just trusting the DDL — inserted a
+  real transaction row, deleted the *dietitian's* user row directly and
+  confirmed the transaction survived with `dietitian_id` now `NULL`,
+  then deleted the *buyer's* user row and confirmed the transaction row
+  was gone (cascade). `docker compose down` after.
+- **Stage 2 — Create-transaction use case + endpoint — DONE**:
+  `POST /transactions` (`{dietitian_id, offer_type}`, buyer = caller,
+  any authenticated user — not role-gated, since anyone might want to
+  hire a dietitian) — creates an `UNPAID` transaction with the
+  server-computed amount. `CreateTransactionUseCase` checks order
+  matters: it loads `dietitian_id` via `UserRepository` and confirms
+  `role == DIET_USER` *first* (404 `DietitianNotFoundError` if missing
+  or not a dietitian) — only then calls `Transaction.create()`, whose
+  own self-purchase guard (Stage 1) fires second. Consequence, caught
+  live rather than assumed: a non-dietitian trying to "buy from
+  themselves" gets **404, not 400** — the dietitian-existence check
+  fails before the self-purchase check is ever reached, since they
+  aren't a real dietitian target either way. Confirmed correct by
+  testing both shapes separately: a plain user targeting their own id →
+  404; an actual `DIET_USER` targeting their own id → 400 from the
+  entity's guard.
+
+  Fired from Etap 4's offer-selection UI once that exists; until then,
+  exercised directly — same "verify via curl ahead of the real UI
+  trigger" pattern Etap 2's dietitian-approval flow used before Etap 4's
+  marketplace existed. Cross-module reuse follows the established
+  shape: `CreateTransactionUseCase` takes `identity`'s `UserRepository`
+  as a constructor dependency (via a locally-defined
+  `get_user_repository_for_transactions` provider — not a shared
+  export, mirroring how `admin`'s own equivalent provider is also
+  module-local, not something other modules import).
+
+  Exit criteria met (scoped — new, still-isolated module; no shared
+  repository interfaces changed this time, so no full-suite run):
+  4 new use-case unit tests (success; unknown dietitian id; target
+  exists but isn't a `DIET_USER`; self-purchase) using
+  `InMemoryTransactionRepository` (new `tests/fakes.py`) +
+  `identity`'s own `InMemoryUserRepository`, plus 6 new
+  `test_create_transaction_api.py` tests (201, 401, both 404 shapes,
+  400 self-purchase, 422 invalid `offer_type`) — 16 tests total in the
+  module (up from 6 after Stage 1).
+
+  Live-verified against the real Docker backend via `curl`: created a
+  real `PLAN_REVIEW` (49.00) and `INDIVIDUAL_PLAN` (149.00) transaction
+  between a real buyer and a real `DIET_USER`, confirmed both amounts
+  came back server-computed and exactly right; confirmed unauthenticated
+  → 401; confirmed a genuine `DIET_USER` targeting their own id → 400
+  (the scenario above, tested for real, not just in the suite);
+  cross-checked both persisted rows directly via
+  `psql SELECT offer_type, amount, status FROM transactions`.
+  `docker compose down` after.
+- **Stage 3 — Admin mark paid/unpaid — DONE**: `POST /admin/transactions/{id}/mark-paid`
+  / `.../mark-unpaid`, both admin-only, both living in the existing
+  `admin` module (`MarkTransactionPaidUseCase`/`MarkTransactionUnpaidUseCase`)
+  — same reuse-the-owning-module's-repository-port pattern as every
+  other admin action, this time reusing `transactions`' own exported
+  `get_transaction_repository` dependency exactly the way `admin`
+  already reuses `dietitian`'s. New `TransactionEventPublisher` port
+  (`application/ports/`) + `NoOpTransactionEventPublisher`
+  (`infrastructure/events/`) — same "swappable port, mock/no-op default"
+  shape as `EmailSender`/`SftpClient`/`FileStorage`, right down to
+  keeping a `published: list[Transaction]` for tests to assert against,
+  mirroring `MockEmailSender.sent`. `mark_paid()` calls
+  `publish_transaction_paid()` after saving; `mark_unpaid()` doesn't
+  publish anything — only a transaction *becoming* paid is a
+  meaningful event (Etap 5's dietitian-contact-reveal trigger), not the
+  reverse. A new `TransactionNotFoundError` was added to `transactions`'
+  own `application/use_cases/exceptions.py` (not `admin`'s) — same
+  precedent as `DietitianApplicationNotFoundError` living in `dietitian`
+  even though `admin`'s approve/reject use cases are the ones raising it.
+
+  Exit criteria met (scoped — only `admin` and `transactions`, the two
+  already-isolated modules touched; no full suite): 4 new use-case unit
+  tests (mark-paid updates status + publishes exactly one event;
+  mark-paid on an unknown id raises without publishing; mark-unpaid
+  clears `paid_at`; mark-unpaid on an unknown id raises) using
+  `InMemoryTransactionRepository` reused directly from `transactions/tests/fakes.py`
+  (cross-module fake reuse, same precedent as `admin`'s
+  `delete_user_use_case` test importing nutrition/conversation fakes),
+  plus 4 new API tests (403 for a non-admin, the full paid→unpaid
+  round-trip via a transaction created through the real Stage 2
+  endpoint, and both 404 shapes) — 51 tests total across the two
+  modules (16 + 35, up from 16 + 27).
+
+  Live-verified against the real Docker backend via `curl`: registered
+  an admin/buyer/dietitian trio, created a real transaction, marked it
+  paid (`paid_at` populated in the response), marked it unpaid again
+  (`paid_at` cleared), confirmed a non-admin caller gets 403, and
+  cross-checked the final `UNPAID`/`NULL` state directly via
+  `psql SELECT status, paid_at FROM transactions`. `docker compose down`
+  after.
+- **Stage 4 — Transakcje tabs wired — DONE**: two new `GET` endpoints,
+  each living in the module that actually owns the data (not `admin`
+  for the dietitian-facing one): `GET /transactions/me`
+  (`transactions` module, `DIET_USER`-gated, `list_by_dietitian_id(caller)`)
+  and `GET /admin/transactions` (`admin` module, `ADMIN`/`SUPER_ADMIN`-gated,
+  `list_all()`) — same "self-service view lives in the owning module,
+  cross-cutting oversight view lives in `admin`" split already used for
+  `GET /dietitian/applications/me` vs `GET /admin/dietitian-applications`.
+
+  **A deliberate scope decision, not an oversight**: the dietitian's own
+  Transakcje tab shows offer type, amount, status, and date — **not**
+  the buyer's identity. Etap 5 Stage 1's own design explicitly frames
+  "making the paying user's contact visible to the dietitian" as *the*
+  event `TransactionPaid` triggers — meaning buyer contact is meant to
+  stay hidden from the dietitian until that reveal exists. Building the
+  contact-hiding logic now (before Etap 5 exists) would mean redoing it
+  once the real reveal flow lands, so this stage just never surfaces
+  `user_id` in the dietitian-facing UI at all (the API response still
+  includes it — enforcing that server-side wasn't judged necessary yet,
+  since no endpoint available to a `DIET_USER` can resolve a bare UUID
+  into anything identifying anyway). The **admin** panel's Transakcje
+  tab, by contrast, legitimately needs to see everyone involved — it
+  resolves both `user_id` and `dietitian_id` against the already-cached
+  `['admin-users']` query, the identical client-side email-resolution
+  trick `DietetycyTab` already used in Etap 2 Stage 4.
+
+  Frontend: `frontend/src/api/transactions.ts` (new, main app) +
+  `TransakcjeTab.tsx` rewritten from Etap 1 Stage 4's placeholder to a
+  real list; `frontend-admin/src/api/admin.ts` gained
+  `getTransactions`/`markTransactionPaid`/`markTransactionUnpaid`, and
+  its own `TransakcjeTab.tsx` rewritten from Etap 2 Stage 5's
+  `EmptyState` placeholder to a real table with inline mark-paid/unpaid
+  toggle buttons per row.
+
+  Exit criteria met: backend — 2 new use-case tests
+  (`GetMyTransactionsAsDietitianUseCase`: filters correctly, empty when
+  none) + 3 new API tests (403/401/own-only) in `transactions`
+  (21 tests, up from 16), and 2 new `ListTransactionsUseCase` tests +
+  2 new API tests in `admin` (39 tests, up from 35) — no full suite
+  (still fully within the two already-isolated modules). Frontend:
+  main app gained 4 new `TransakcjeTab.test.tsx` tests (empty state,
+  offer/amount/status rendering — including a word-boundary regex fix
+  once `/49.00/` ambiguously matched `149.00` too — and an explicit
+  assertion that the buyer's UUID never appears in the DOM) plus 2
+  existing `ProfileModal.test.tsx` assertions updated for the new
+  content — 107/107 passing. `frontend-admin` gained 5 new
+  `TransakcjeTab.test.tsx` tests (empty state, resolved emails,
+  mark-paid, mark-unpaid, UUID fallback) — 28/28 passing. Both
+  `npx tsc --noEmit` and both `npm run build` clean.
+
+  Live-verified against the real Docker backend: created a real
+  transaction between a buyer and a `DIET_USER`, confirmed
+  `GET /transactions/me` (as the dietitian) returns exactly that one
+  transaction, confirmed `GET /admin/transactions` (as `SUPER_ADMIN`)
+  lists it among all transactions, and confirmed both frontend dev
+  servers respond `200`. **Browser click-through could not be
+  completed this stage** — the Claude-in-Chrome extension reported
+  fully disconnected (not just the intermittent flake from the last
+  three stages), so the UI-level verification rests on the `curl`
+  checks above plus the two frontends' full test suites, which
+  directly exercise the email-resolution and mark-paid/unpaid logic
+  under test. `docker compose down` after.
+- **Stage 5 — Tests + docs sync — DONE**: closing stage for Etap 3 —
+  documentation sync across all four docs plus the closing full-suite
+  gate, no new application code.
+
+  **`docs/api.md`**: added the two new admin transaction-oversight
+  endpoints (`GET /admin/transactions`,
+  `POST /admin/transactions/{id}/mark-paid`,
+  `POST /admin/transactions/{id}/mark-unpaid`) to the existing Admin API
+  section, and a brand-new `# Transactions API` module section
+  (`POST /transactions`, `GET /transactions/me`) between Admin API and
+  Conversation Categories.
+
+  **`docs/domain-model.md`**: new `## Transactions Context` bounded
+  context and a new `# 8. Transactions Domain` section (the entity, the
+  2-state toggle rule, the self-purchase guard, "no domain events
+  emitted" — matching the port/no-op pattern rather than raising real
+  events yet). Every subsequent top-level section renumbered (AI Domain
+  8→9 through Future Extensions 14→15 — verified sequential via
+  `grep -n "^# [0-9]"` afterward). Aggregates list, Persistence Mapping
+  (new `transactions` table entry), and Relationships (new note: User is
+  the only entity playing two different roles — buyer and dietitian — in
+  the same relationship, each with a different delete behavior) all
+  updated to match.
+
+  **`docs/architecture.md`**: Admin Module section updated for the new
+  `/admin/transactions` route group and its reuse of `transactions`'s own
+  `TransactionRepository`; new `## Transactions Module (Phase 12)`
+  section (responsibilities, the no-payment-gateway demo-scope decision,
+  the `TransactionEventPublisher` port with its code snippet, the FK
+  asymmetry explanation noting both directions were verified by real
+  deletion, not just read off the DDL); Data Ownership Rules gained a
+  short addendum that `transactions`' own `CreateTransactionUseCase` also
+  reuses `identity`'s `UserRepository` directly, the same
+  not-actually-an-exception pattern `admin` already established.
+
+  **`README.md`**: checked, needed no change — it tracks Phase 12 only at
+  the whole-phase level ("🚧 in progress"), not per-etap.
+
+  **`docs/openapi.json`**: regenerated via
+  `PYTHONPATH=. python scripts/export_openapi.py`; confirmed all three
+  new transaction paths present (`/api/v1/transactions`,
+  `/api/v1/transactions/me`, `/api/v1/admin/transactions`).
+
+  Exit criteria met — closing-gate full suites, not just the touched
+  modules: backend **479 passed, 0 failed** (the timezone flake flagged
+  in Etap 1 Stage 5 and re-flagged in Etap 2 Stage 5's retrospectives was
+  actually fixed for good back in Etap 2 Stage 6 — this is the first
+  closing stage all Phase 12 with a fully clean backend run). Main
+  frontend: **107 passed** (18 files). `frontend-admin`: **28 passed** (6
+  files). Both `npm run build`s clean (only the pre-existing, harmless
+  "chunks larger than 500 kB" warning on the main app).
+
+  No new bugs found this stage — this was a pure docs-and-verification
+  close-out.
+- **Etap 3 (Transactions module): DONE** — all 5 stages complete (domain
+  entity + schema + migration, create-transaction endpoint, admin
+  mark-paid/unpaid, both apps' Transakcje tabs wired to real data, this
+  docs/tests sync).
 
 ---
 
@@ -960,7 +1221,7 @@ Goal: users can actually discover and hire a dietitian.
   profile (experience, diplomas, description, photos, reviews, the two
   offers). "Zgłoś się" per offer.
 - **Stage 4 — Offer selection → payment stub**: selecting an offer
-  creates a `PENDING` transaction (Etap 3 Stage 2) and shows a stand-in
+  creates an `UNPAID` transaction (Etap 3 Stage 2) and shows a stand-in
   payment screen — a single "Zapłać" action that's honest about being a
   placeholder (no card form, no gateway redirect) — admin flips it to
   paid from the panel (Etap 3 Stage 3).
@@ -979,7 +1240,10 @@ scratch, plus a second chat surface distinct from the AI one.
   `docker-compose.yml`, plus a thin producer/consumer wrapper started
   from `backend/app/main.py`'s lifespan (same place the existing
   email-retry background loop lives). First real event:
-  `TransactionPaid` (published by Etap 3 Stage 3) → a consumer creates
+  `TransactionPaid` — Etap 3 Stage 3 already defines the
+  `TransactionEventPublisher` port and calls it on every mark-paid; this
+  stage swaps in a real `KafkaTransactionEventPublisher`, no change to
+  that use case itself — a consumer creates
   a `Notification` row (new small table/collection — landing spot
   TBD during implementation, likely Postgres alongside `transactions`
   since notifications are per-user transactional state) and — this is

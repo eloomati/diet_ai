@@ -38,6 +38,9 @@ function stubLoggedInFetch(role: string = 'USER') {
     if (url.includes('/dietitian/applications')) {
       return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no application yet' }))
     }
+    if (url.includes('/transactions/me')) {
+      return Promise.resolve(jsonResponse(200, []))
+    }
     if (url.includes('/dietitian/profile')) {
       return Promise.resolve(
         jsonResponse(200, {
@@ -173,7 +176,7 @@ describe('ProfileModal', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Transakcje' }))
     expect(
-      await screen.findByText('Transakcje pojawią się tutaj, gdy moduł płatności zostanie wdrożony.'),
+      await screen.findByText('Nie masz jeszcze żadnych transakcji.'),
     ).toBeInTheDocument()
   })
 })

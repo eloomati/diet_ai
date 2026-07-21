@@ -62,3 +62,29 @@ export function approveDietitianApplication(applicationId: string): Promise<Diet
 export function rejectDietitianApplication(applicationId: string): Promise<DietitianApplication> {
   return apiFetch(`/admin/dietitian-applications/${applicationId}/reject`, { method: 'POST' })
 }
+
+export type OfferType = 'PLAN_REVIEW' | 'INDIVIDUAL_PLAN'
+export type TransactionStatus = 'UNPAID' | 'PAID'
+
+export interface Transaction {
+  id: string
+  user_id: string
+  dietitian_id: string | null
+  offer_type: OfferType
+  amount: string
+  status: TransactionStatus
+  created_at: string
+  paid_at: string | null
+}
+
+export function getTransactions(): Promise<Transaction[]> {
+  return apiFetch('/admin/transactions')
+}
+
+export function markTransactionPaid(transactionId: string): Promise<Transaction> {
+  return apiFetch(`/admin/transactions/${transactionId}/mark-paid`, { method: 'POST' })
+}
+
+export function markTransactionUnpaid(transactionId: string): Promise<Transaction> {
+  return apiFetch(`/admin/transactions/${transactionId}/mark-unpaid`, { method: 'POST' })
+}

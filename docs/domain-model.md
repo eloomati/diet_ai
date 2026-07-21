@@ -168,12 +168,40 @@ DietitianProfile
 Responsible for:
 
 - user account management (list/activate/ban/delete),
-- dietitian-application review (approve/reject).
+- dietitian-application review (approve/reject),
+- marking a transaction paid/unpaid, and listing every transaction.
 
 Database: **none.** This context has no domain entities or persistence
-of its own — it's pure orchestration over the Identity and Dietitian
-contexts' own repositories. Deliberately absent from the Aggregates and
-Persistence Mapping sections below for that reason, not by omission.
+of its own — it's pure orchestration over the Identity, Dietitian, and
+Transactions contexts' own repositories. Deliberately absent from the
+Aggregates and Persistence Mapping sections below for that reason, not
+by omission.
+
+---
+
+## Transactions Context
+
+Responsible for:
+
+- a user purchasing one of a dietitian's two fixed offers,
+- tracking whether that purchase has been paid.
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+Transaction
+```
+
+No real payment gateway — an explicit demo-scope decision, the same
+spirit as this project's Mock AI provider / Mailhog / local SFTP
+stand-ins elsewhere. An admin manually marks a transaction paid/unpaid
+(Admin Context, above).
 
 ---
 
@@ -839,7 +867,61 @@ Rules:
 
 ---
 
-# 8. AI Domain
+# 8. Transactions Domain
+
+## Transaction
+
+Aggregate Root.
+
+A user's purchase of one of a dietitian's two fixed offers.
+
+Example:
+
+```
+Transaction
+
+id
+
+userId          — the buyer
+
+dietitianId     — nullable: SET NULL if the dietitian account is later
+                   deleted, so the buyer's own transaction history
+                   survives (unlike userId, which is CASCADE — the
+                   transaction disappears with its buyer)
+
+offerType       — PLAN_REVIEW | INDIVIDUAL_PLAN
+
+amount          — Decimal, server-computed from offerType, never
+                   client-supplied
+
+status          — UNPAID (default) | PAID
+
+createdAt
+
+paidAt          — set on mark_paid(), cleared on mark_unpaid()
+```
+
+Rules:
+
+- `status` is a 2-state, admin-reversible **toggle**, not a one-way
+  approval state machine like `DietitianApplication`'s
+  `PENDING → APPROVED|REJECTED` — `mark_paid()`/`mark_unpaid()` are both
+  idempotent, neither raises on a redundant call,
+- `create()` rejects `userId == dietitianId` (a user cannot buy their
+  own offer) — a pure data invariant, checked in the entity itself since
+  it needs no repository lookup; confirming the *dietitian* side is
+  actually a `DIET_USER` does need one and lives in the application
+  layer instead,
+- neither `mark_paid()` nor `mark_unpaid()` emits a domain event — the
+  business event that matters (`TransactionPaid`, for Phase 12 Etap 5's
+  Kafka consumer) is published through a separate
+  `TransactionEventPublisher` port, not the domain-events list below,
+  since it's cross-context (Admin context calls it, not this one) and
+  currently a no-op (see docs/architecture.md).
+
+---
+
+# 9. AI Domain
 
 The AI context provides abstraction over external AI systems.
 
@@ -921,7 +1003,7 @@ executionTime
 
 ---
 
-# 9. Aggregates
+# 10. Aggregates
 
 Current aggregate roots:
 
@@ -937,6 +1019,8 @@ DietPlan
 DietitianApplication
 
 DietitianProfile
+
+Transaction
 ```
 
 Rules:
@@ -946,7 +1030,7 @@ Rules:
 
 ---
 
-# 10. Domain Events
+# 11. Domain Events
 
 Possible domain events:
 
@@ -976,7 +1060,7 @@ Domain events represent important business facts.
 
 ---
 
-# 11. Relationships
+# 12. Relationships
 
 High-level relationship diagram:
 
@@ -1021,9 +1105,15 @@ Meal
 `userId`), omitted from the diagram above to keep it to the original
 chat/nutrition flow — see the Dietitian Domain section for their shape.
 
+`User` also has a **many** relationship to `Transaction` on both sides —
+once as a buyer (`userId`, `ON DELETE CASCADE`) and once as a dietitian
+(`dietitianId`, `ON DELETE SET NULL`) — the only relationship in this
+model where the same entity plays two different roles with two
+different delete behaviors. See the Transactions Domain section above.
+
 ---
 
-# 12. Persistence Mapping
+# 13. Persistence Mapping
 
 ## PostgreSQL
 
@@ -1049,6 +1139,12 @@ dietitian_applications
 dietitian_profiles
 ```
 
+Transactions context:
+
+```
+transactions
+```
+
 ---
 
 ## MongoDB
@@ -1071,7 +1167,7 @@ diet_plan_exports   — Phase 9; metadata only, files live on SFTP
 
 ---
 
-# 13. Domain Rules
+# 14. Domain Rules
 
 The following rules must always be respected:
 
@@ -1089,7 +1185,7 @@ The following rules must always be respected:
 
 ---
 
-# 14. Future Extensions
+# 15. Future Extensions
 
 Possible future domain extensions:
 
@@ -1110,9 +1206,10 @@ AllergyProfile
 ```
 
 Already in progress (Phase 12, see `docs/implementation-roadmap.md`):
-admin panel + roles (roles themselves are done — Etap 0), dietitian
-applications and profile management (this domain — Etap 1, done through
-Stage 4), transactions, reviews, and a Kafka-backed human chat with
-dietitians (Etaps 2-6, not yet started).
+admin panel + roles (Etap 0, done), dietitian applications and profile
+management (Etap 1, done), the admin backend module + `frontend-admin`
+app (Etap 2, done), fixed-price dietitian-offer transactions (this
+domain — Etap 3, done through Stage 4), reviews, marketplace, and a
+Kafka-backed human chat with dietitians (Etaps 4-6, not yet started).
 
 These should be introduced only when supported by real business requirements.

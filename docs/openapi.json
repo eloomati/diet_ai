@@ -1723,6 +1723,208 @@
           }
         }
       }
+    },
+    "/api/v1/admin/transactions": {
+      "get": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "List Transactions",
+        "operationId": "list_transactions_api_v1_admin_transactions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Transactions Api V1 Admin Transactions Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/admin/transactions/{transaction_id}/mark-paid": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Mark Transaction Paid",
+        "operationId": "mark_transaction_paid_api_v1_admin_transactions__transaction_id__mark_paid_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/transactions/{transaction_id}/mark-unpaid": {
+      "post": {
+        "tags": [
+          "admin"
+        ],
+        "summary": "Mark Transaction Unpaid",
+        "operationId": "mark_transaction_unpaid_api_v1_admin_transactions__transaction_id__mark_unpaid_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "transaction_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Transaction Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/transactions": {
+      "post": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "Create Transaction",
+        "operationId": "create_transaction_api_v1_transactions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTransactionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/transactions/me": {
+      "get": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "Get My Transactions As Dietitian",
+        "operationId": "get_my_transactions_as_dietitian_api_v1_transactions_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get My Transactions As Dietitian Api V1 Transactions Me Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -2019,6 +2221,24 @@
           "diet_type"
         ],
         "title": "CreateNutritionProfileRequest"
+      },
+      "CreateTransactionRequest": {
+        "properties": {
+          "dietitian_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Dietitian Id"
+          },
+          "offer_type": {
+            "$ref": "#/components/schemas/OfferType"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dietitian_id",
+          "offer_type"
+        ],
+        "title": "CreateTransactionRequest"
       },
       "DayOfWeek": {
         "type": "string",
@@ -2591,6 +2811,14 @@
         ],
         "title": "NutritionProfileResponse"
       },
+      "OfferType": {
+        "type": "string",
+        "enum": [
+          "PLAN_REVIEW",
+          "INDIVIDUAL_PLAN"
+        ],
+        "title": "OfferType"
+      },
       "PasswordResetConfirmedResponse": {
         "properties": {
           "message": {
@@ -2820,6 +3048,80 @@
           "description"
         ],
         "title": "SubmitDietitianApplicationRequest"
+      },
+      "TransactionResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "dietitian_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dietitian Id"
+          },
+          "offer_type": {
+            "$ref": "#/components/schemas/OfferType"
+          },
+          "amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TransactionStatus"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paid At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "dietitian_id",
+          "offer_type",
+          "amount",
+          "status",
+          "created_at",
+          "paid_at"
+        ],
+        "title": "TransactionResponse"
+      },
+      "TransactionStatus": {
+        "type": "string",
+        "enum": [
+          "UNPAID",
+          "PAID"
+        ],
+        "title": "TransactionStatus"
       },
       "UpdateDietitianProfileRequest": {
         "properties": {

@@ -416,19 +416,20 @@ below) — a separate app from the main `frontend`, gated to
 Responsibilities:
 
 - listing/activating/banning/deleting user accounts,
-- listing dietitian applications and approving/rejecting them.
+- listing dietitian applications and approving/rejecting them,
+- listing every transaction and marking one paid/unpaid.
 
 Database: **none of its own.** This module's use cases call the
-`identity`, `dietitian`, `nutrition`, and `conversation` modules'
-existing repository *ports* directly (`UserRepository`,
+`identity`, `dietitian`, `nutrition`, `conversation`, and `transactions`
+modules' existing repository *ports* directly (`UserRepository`,
 `DietitianApplicationRepository`, `DietitianProfileRepository`,
 `ConversationRepository`, `NutritionProfileRepository`,
-`DietPlanRepository`, `DietPlanExportRepository`) rather than defining
-any persistence model or repository of its own. This is not an
-exception to "modules don't access each other's persistence directly"
-(see Data Ownership Rules below) — it goes through the exact same
-abstraction each owning module's own use cases go through, never a raw
-query against another module's tables/documents.
+`DietPlanRepository`, `DietPlanExportRepository`, `TransactionRepository`)
+rather than defining any persistence model or repository of its own.
+This is not an exception to "modules don't access each other's
+persistence directly" (see Data Ownership Rules below) — it goes
+through the exact same abstraction each owning module's own use cases
+go through, never a raw query against another module's tables/documents.
 
 Two route groups, both gated by `require_role(ADMIN, SUPER_ADMIN)`:
 
@@ -450,6 +451,86 @@ Two route groups, both gated by `require_role(ADMIN, SUPER_ADMIN)`:
   specifically to back the separate `SUPER_ADMIN`-only role-change
   endpoint) and creates the profile from the application's own
   experience/diplomas/description.
+- `/admin/transactions` — list every transaction, mark one paid/unpaid.
+  Marking paid also calls `transactions`' `TransactionEventPublisher`
+  port (see the Transactions Module below) — a no-op today, a real
+  Kafka publish once Phase 12 Etap 5 exists; marking unpaid doesn't
+  publish anything, since only a transaction *becoming* paid is a
+  meaningful business event.
+
+---
+
+## Transactions Module (Phase 12)
+
+Responsible for a user purchasing one of a dietitian's two fixed
+offers, and tracking whether that purchase has been paid.
+
+Responsibilities:
+
+- creating a transaction for a `{dietitian_id, offer_type}` pair,
+- letting a dietitian list transactions where they're the seller.
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+Transaction
+```
+
+No real payment gateway — an explicit demo-scope decision, the same
+spirit as this project's Mock AI provider / Mailhog / local SFTP
+stand-ins for other real external services elsewhere in this codebase.
+`amount` is a fixed price per `offer_type`, resolved server-side in the
+entity's own `create()` — never accepted from the client, since letting
+a caller set their own price would be a real integrity hole for the one
+module whose entire job is tracking money.
+
+`status` is a 2-state, admin-reversible toggle (`UNPAID`/`PAID`), not a
+one-way approval state machine like `DietitianApplication`'s
+`PENDING → APPROVED|REJECTED` — see the Admin Module above for the
+actual mark-paid/unpaid endpoints (this module owns the data and the
+buyer-facing `POST /transactions`, but the admin actions on it live in
+`admin`, same split as everywhere else).
+
+### `TransactionEventPublisher` — a port with no real implementation yet
+
+A transaction becoming `PAID` is meant to trigger a Kafka
+`TransactionPaid` event once Phase 12 Etap 5 adds Kafka infrastructure
+— but that infrastructure doesn't exist yet, and Stage 3 of Etap 3
+still needed *something* to call. Same "swappable port, mock/no-op
+default" shape as `EmailSender`/`SftpClient`/`FileStorage` elsewhere in
+this codebase:
+
+```python
+class TransactionEventPublisher(ABC):
+    async def publish_transaction_paid(self, transaction: Transaction) -> None: ...
+```
+
+`NoOpTransactionEventPublisher` is the only implementation today —
+it just records what it would have published (`published: list[Transaction]`,
+mirroring `MockEmailSender.sent`) so tests can assert against it without
+a real broker. Etap 5 adds a `KafkaTransactionEventPublisher` and wires
+it in; the use case that calls `publish_transaction_paid()`
+(`MarkTransactionPaidUseCase`, in the Admin module) doesn't change when
+that happens.
+
+### FK behavior — the one relationship in this codebase where the same
+### entity plays two different roles with two different delete behaviors
+
+`user_id` (the buyer) is `ON DELETE CASCADE` — same as
+`dietitian_applications`/`dietitian_profiles`, owned data disappears
+with its owner, and this needed zero changes to the Admin module's
+`DeleteUserUseCase`. `dietitian_id` is `ON DELETE SET NULL` (mirrors
+`dietitian_applications.reviewed_by`) — deleting the dietitian's
+account shouldn't erase the *buyer's* transaction history, so the row
+survives with `dietitian_id = NULL`. Both behaviors were verified for
+real (not just trusted from the migration DDL) by deleting each side's
+user row directly and checking the transaction row's resulting state.
 
 ---
 
@@ -867,6 +948,11 @@ use cases depend on — never a raw query against another module's
 Postgres tables or Mongo documents. It has no persistence layer of its
 own to enforce this against; it's pure orchestration over ports that
 already exist. See "Admin Module" above.
+
+`transactions` (Phase 12) does the same thing on a smaller scale:
+`CreateTransactionUseCase` calls `identity`'s `UserRepository` directly
+(to confirm the `dietitian_id` given actually belongs to a `DIET_USER`)
+— same port, same pattern, not a new exception.
 
 ---
 
