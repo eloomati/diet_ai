@@ -28,7 +28,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 3 (Transactions
                                               module): DONE
                                             Etap 4 (Marketplace &
-                                              reviews): Stage 2/5
+                                              reviews): Stage 3/5
                                             Etaps 5-6: not started
 ```
 
@@ -1416,9 +1416,56 @@ about to build this etap, same spirit as Etap 3's own pre-Stage-1 revision):
   confirmed the exact dietitian with the open transaction appeared under
   a "Twoi dietetycy" section while the rest stayed under "Wszyscy
   dietetycy". `docker compose down` after.
-- **Stage 3 — Public dietitian profile view**: click a card → full
+- **Stage 3 — Public dietitian profile view — DONE**: click a card → full
   profile (experience, diplomas, description, photos, reviews, the two
   offers). "Zgłoś się" per offer.
+
+  **Design decision**: a `Dialog` modal (`DietitianProfileModal.tsx`),
+  not a new route — same choice already made for `ProfileModal`/
+  `AuthPopup`, and the existing router only knows `/` and
+  `/:conversationId` (Etap 0's own scoping); adding a `/dietitian/:id`
+  route for one view would be new routing infrastructure the plan never
+  asked for. Selection state (`selectedDietitianId`) lives in `RightRail`
+  itself, which already owns the cards.
+
+  **"Zgłoś się" renders but is inert this stage** — both offer buttons
+  are `disabled` with a `title="Wkrótce dostępne"` tooltip rather than
+  silently doing nothing on click; Stage 4 is explicitly "selecting an
+  offer creates an `UNPAID` transaction", so wiring that here would jump
+  the stage. A disabled, honestly-labeled button beats either a dead
+  click handler or hiding the offers entirely — the marketplace's whole
+  point is showing what's for sale, even before checkout exists.
+
+  Built: `DietitianCard` (in `RightRail.tsx`) is now a real `<button>`
+  calling `onSelect(dietitian.user_id)`; `DietitianProfileModal.tsx` (new)
+  fetches `GET /dietitian/{id}` via `useQuery(['dietitian-profile',
+  dietitianId], ..., { enabled: dietitianId !== null })` and renders
+  avatar/rating header, experience, diplomas (hidden when empty — most
+  seeded profiles from earlier stages have none), description, a photo
+  gallery (hidden when empty), the two offers (`OFFER_LABEL`/
+  `OFFER_PRICE` — pulled out of `TransakcjeTab.tsx` into a shared export
+  in `api/transactions.ts` rather than duplicated, since two call sites
+  now need the same label/price mapping), and the reviews list (rating,
+  comment, date — no reviewer identity, matching the backend's own
+  public-review shape from Stage 1).
+
+  Exit criteria met: no backend changes this stage. Frontend — 4 new
+  `DietitianProfileModal.test.tsx` tests (closed/no-fetch when nothing
+  selected, full render with diplomas/photos/offers/reviews, "Brak
+  ocen"/"Brak opinii." for an empty profile, error state) + 1 new
+  `RightRail.test.tsx` test (clicking a card opens the modal with that
+  exact dietitian's data) — main frontend now at 116 tests, all passing.
+  Both `npx tsc --noEmit` and `npm run build` clean.
+
+  Live-verified in a real browser against the real Docker backend
+  (Claude-in-Chrome stayed connected): browsed the marketplace as a
+  guest, clicked a real seeded dietitian's card, confirmed the modal
+  showed their real experience/description/9.0 rating/the one real
+  review left in an earlier stage, confirmed both offer prices (49.00 zł
+  / 149.00 zł) render correctly, and confirmed clicking "Zgłoś się"
+  visibly does nothing (disabled, no request fired) — all while never
+  logging in, confirming the whole flow (listing → profile) is genuinely
+  public. `docker compose down` after.
 - **Stage 4 — Offer selection → payment stub**: selecting an offer
   creates an `UNPAID` transaction (Etap 3 Stage 2) and shows a stand-in
   payment screen — a single "Zapłać" action that's honest about being a

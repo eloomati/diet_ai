@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -139,5 +140,40 @@ describe('RightRail marketplace listing (Etap 4 Stage 2)', () => {
     expect(pinnedSection).toHaveTextContent('dietitian.b@example.com')
     expect(pinnedSection).not.toHaveTextContent('dietitian.a@example.com')
     expect(screen.getByText('Wszyscy dietetycy')).toBeInTheDocument()
+  })
+
+  it('opens the public profile modal for the clicked dietitian', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.endsWith('/dietitian')) {
+          return Promise.resolve(jsonResponse(200, [DIETITIAN_A, DIETITIAN_B]))
+        }
+        if (url.endsWith('/dietitian/d1')) {
+          return Promise.resolve(
+            jsonResponse(200, {
+              user_id: 'd1',
+              email: 'dietitian.a@example.com',
+              experience: DIETITIAN_A.experience,
+              diplomas: ['MSc Dietetics'],
+              description: 'Pełny opis dietetyka A.',
+              photos: [],
+              created_at: '2026-07-19T00:00:00Z',
+              average_rating: 8.5,
+              review_count: 4,
+              reviews: [],
+            }),
+          )
+        }
+        return Promise.resolve(jsonResponse(200, {}))
+      }),
+    )
+
+    renderRightRail()
+    await user.click(await screen.findByText('dietitian.a@example.com'))
+
+    expect(await screen.findByText('Pełny opis dietetyka A.')).toBeInTheDocument()
+    expect(screen.getByText('MSc Dietetics')).toBeInTheDocument()
   })
 })

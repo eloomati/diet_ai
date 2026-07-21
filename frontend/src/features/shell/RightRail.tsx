@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, Star, Users } from 'lucide-react'
+import { useState } from 'react'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -12,19 +13,28 @@ import { getMyPurchases } from '@/api/transactions'
 import { useAuth } from '@/lib/auth'
 import { resolveStaticUrl } from '@/lib/apiFetch'
 
+import { DietitianProfileModal } from './DietitianProfileModal'
+
 interface RightRailProps {
   onCollapse: () => void
 }
 
-function DietitianCard({ dietitian }: { dietitian: DietitianListingItem }) {
+function DietitianCard({
+  dietitian,
+  onSelect,
+}: {
+  dietitian: DietitianListingItem
+  onSelect: (dietitianId: string) => void
+}) {
   const initials = dietitian.email.slice(0, 2).toUpperCase()
   const photo = dietitian.photos[0]
 
   return (
-    // Not clickable yet — Stage 3 adds the public profile view this card
-    // will navigate to; wiring navigation before that view exists would
-    // be a dead link.
-    <div className="rounded-2xl border border-border bg-background p-3">
+    <button
+      type="button"
+      onClick={() => onSelect(dietitian.user_id)}
+      className="w-full rounded-2xl border border-border bg-background p-3 text-left hover:bg-accent/40"
+    >
       <div className="flex items-start gap-2.5">
         <Avatar className="size-9 border border-border">
           {photo && <AvatarImage src={resolveStaticUrl(photo)} alt="" />}
@@ -50,12 +60,13 @@ function DietitianCard({ dietitian }: { dietitian: DietitianListingItem }) {
           <span className="text-[11px] text-muted-foreground">Brak ocen</span>
         )}
       </div>
-    </div>
+    </button>
   )
 }
 
 export function RightRail({ onCollapse }: RightRailProps) {
   const { isAuthenticated } = useAuth()
+  const [selectedDietitianId, setSelectedDietitianId] = useState<string | null>(null)
 
   const dietitiansQuery = useQuery({
     queryKey: ['dietitian-listing'],
@@ -110,7 +121,11 @@ export function RightRail({ onCollapse }: RightRailProps) {
                     Twoi dietetycy
                   </span>
                   {pinned.map((dietitian) => (
-                    <DietitianCard key={dietitian.user_id} dietitian={dietitian} />
+                    <DietitianCard
+                      key={dietitian.user_id}
+                      dietitian={dietitian}
+                      onSelect={setSelectedDietitianId}
+                    />
                   ))}
                 </div>
               )}
@@ -121,13 +136,24 @@ export function RightRail({ onCollapse }: RightRailProps) {
                   </span>
                 )}
                 {rest.map((dietitian) => (
-                  <DietitianCard key={dietitian.user_id} dietitian={dietitian} />
+                  <DietitianCard
+                    key={dietitian.user_id}
+                    dietitian={dietitian}
+                    onSelect={setSelectedDietitianId}
+                  />
                 ))}
               </div>
             </div>
           )}
         </div>
       </aside>
+
+      <DietitianProfileModal
+        dietitianId={selectedDietitianId}
+        onOpenChange={(open) => {
+          if (!open) setSelectedDietitianId(null)
+        }}
+      />
     </>
   )
 }
