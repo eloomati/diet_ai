@@ -269,7 +269,7 @@ export function ChatCanvas({
         {showHero ? (
           <div className="mx-auto mt-[6%] max-w-xl text-center">
             <p className="mb-3.5 inline-block rounded-full bg-accent px-3 py-1 text-xs font-bold text-accent-foreground uppercase">
-              Diet AI
+              Mycelo
             </p>
             <h1 className="mb-2.5 font-[family-name:var(--font-heading)] text-[27px] leading-tight text-balance">
               Cześć! W czym mogę Ci dziś pomóc?
@@ -306,7 +306,7 @@ export function ChatCanvas({
               <MessageBubble key={msg.id} message={msg} />
             ))}
             {sendMessageMutation.isPending && (
-              <p className="text-[13px] text-muted-foreground">Diet AI pisze odpowiedź…</p>
+              <p className="text-[13px] text-muted-foreground">Mycelo pisze odpowiedź…</p>
             )}
           </div>
         )}

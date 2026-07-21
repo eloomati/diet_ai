@@ -52,7 +52,7 @@ class RequestPasswordResetUseCase:
 
         await self._email_sender.send(
             to=user.email.value,
-            subject="Reset your Diet AI password",
+            subject="Reset your Mycelo password",
             body=(
                 "We received a request to reset your password.\n\n"
                 f"Reset token: {raw_token}\n\n"

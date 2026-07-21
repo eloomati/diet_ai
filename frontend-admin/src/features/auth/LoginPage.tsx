@@ -37,7 +37,7 @@ export function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center px-4">
       <div className="w-full max-w-sm rounded-xl border border-border bg-card p-6">
-        <p className="mb-1 font-heading text-lg font-extrabold">Diet AI</p>
+        <p className="mb-1 font-heading text-lg font-extrabold">Mycelo</p>
         <p className="mb-6 text-sm text-muted-foreground">Panel administracyjny</p>
 
         <form className="flex flex-col gap-3" onSubmit={handleSubmit}>

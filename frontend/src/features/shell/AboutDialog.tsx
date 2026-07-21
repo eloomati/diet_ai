@@ -13,7 +13,7 @@ export function AboutDialog({ open, onOpenChange }: AboutDialogProps) {
           <DialogTitle>O nas</DialogTitle>
         </DialogHeader>
         <p className="text-sm text-muted-foreground">
-          Diet AI to asystent żywieniowy oparty o AI — czat, profil żywieniowy i generowanie planów
+          Mycelo to asystent żywieniowy oparty o AI — czat, profil żywieniowy i generowanie planów
           dietetycznych w jednym miejscu. Ta sekcja będzie rozbudowana w kolejnych wersjach.
         </p>
       </DialogContent>

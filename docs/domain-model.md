@@ -1,8 +1,8 @@
-# Diet AI - Domain Model
+# Mycelo - Domain Model
 
 ## 1. Purpose
 
-This document describes the business domain model of Diet AI.
+This document describes the business domain model of Mycelo.
 
 The goal is to define:
 

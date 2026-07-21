@@ -1,8 +1,8 @@
-# Diet AI - API Contract
+# Mycelo - API Contract
 
 ## Overview
 
-This document defines the REST API contract for the Diet AI application.
+This document defines the REST API contract for the Mycelo application.
 It's a hand-written, narrative companion to the machine-generated
 OpenAPI/Swagger schema — see **Machine-readable schema** below for where
 that lives and how the two relate.

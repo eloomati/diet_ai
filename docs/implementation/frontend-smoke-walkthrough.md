@@ -47,7 +47,7 @@ itself, which register alone doesn't.
 
 - From the hero, type a message and send it (or click one of the
   chip prompts first to prefill).
-- **Expected**: the message appears, "Diet AI pisze odpowiedź…" shows
+- **Expected**: the message appears, "Mycelo pisze odpowiedź…" shows
   while pending, then a real assistant reply renders.
 
 ### 5) Generate a diet plan

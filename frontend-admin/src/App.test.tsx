@@ -68,7 +68,7 @@ describe('App', () => {
     await user.type(screen.getByLabelText('Hasło'), 'StrongPass123')
     await user.click(screen.getByRole('button', { name: 'Zaloguj się' }))
 
-    expect(await screen.findByText('Diet AI — Panel administracyjny')).toBeInTheDocument()
+    expect(await screen.findByText('Mycelo — Panel administracyjny')).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Raporty' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Użytkownicy' })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Dietetycy' })).toBeInTheDocument()
@@ -104,7 +104,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Zaloguj się' }))
 
     expect(await screen.findByText(/nie ma uprawnień administratora/)).toBeInTheDocument()
-    expect(screen.queryByText('Diet AI — Panel administracyjny')).not.toBeInTheDocument()
+    expect(screen.queryByText('Mycelo — Panel administracyjny')).not.toBeInTheDocument()
   })
 
   it('logs out back to the login page', async () => {
@@ -130,7 +130,7 @@ describe('App', () => {
     await user.type(await screen.findByLabelText('E-mail'), 'admin@example.com')
     await user.type(screen.getByLabelText('Hasło'), 'StrongPass123')
     await user.click(screen.getByRole('button', { name: 'Zaloguj się' }))
-    await screen.findByText('Diet AI — Panel administracyjny')
+    await screen.findByText('Mycelo — Panel administracyjny')
 
     await user.click(screen.getByRole('button', { name: 'Wyloguj się' }))
 

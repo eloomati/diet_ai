@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Diet AI"
+    app_name: str = "Mycelo"
     app_env: str = "dev"
     app_debug: bool = True
     api_prefix: str = "/api/v1"

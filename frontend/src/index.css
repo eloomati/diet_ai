@@ -26,6 +26,7 @@
     --color-accent: var(--accent);
     --color-muted-foreground: var(--muted-foreground);
     --color-muted: var(--muted);
+    --color-mycelo-idle: var(--mycelo-idle);
     --color-secondary-foreground: var(--secondary-foreground);
     --color-secondary: var(--secondary);
     --color-primary-foreground: var(--primary-foreground);
@@ -45,7 +46,7 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* Diet AI palette — beige + gold accent + sage green, ported 1:1 from the
+/* Mycelo palette — beige + gold accent + sage green, ported 1:1 from the
    user-approved mockup (see the Artifact's "Do akceptacji" swatches). */
 :root {
     --background: #F6EFE2;
@@ -63,6 +64,7 @@
     --accent: #FBEBC9;
     --accent-foreground: #5C3D0B;
     --destructive: #B4523D;
+    --mycelo-idle: #A9754C;
     --border: #E7DAC0;
     --input: #E7DAC0;
     --ring: #C98A1F;
@@ -97,6 +99,7 @@
     --accent: #4A3B1E;
     --accent-foreground: #F6DFA8;
     --destructive: #D97561;
+    --mycelo-idle: #C98A5F;
     --border: #3D3323;
     --input: #3D3323;
     --ring: #E8AE3D;

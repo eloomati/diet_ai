@@ -175,7 +175,7 @@ describe('ChatCanvas', () => {
     await user.type(screen.getByPlaceholderText('Napisz wiadomość…'), 'Cześć')
     await user.click(screen.getByRole('button', { name: 'Wyślij' }))
 
-    expect(await screen.findByText('Diet AI pisze odpowiedź…')).toBeInTheDocument()
+    expect(await screen.findByText('Mycelo pisze odpowiedź…')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Napisz wiadomość…')).toBeDisabled()
 
     resolveSend(
@@ -186,7 +186,7 @@ describe('ChatCanvas', () => {
         assistant_content: 'Odpowiedź',
       }),
     )
-    await waitFor(() => expect(screen.queryByText('Diet AI pisze odpowiedź…')).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('Mycelo pisze odpowiedź…')).not.toBeInTheDocument())
   })
 
   it('archives the conversation and disables the composer', async () => {

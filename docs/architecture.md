@@ -1,8 +1,8 @@
-# Diet AI - Architecture
+# Mycelo - Architecture
 
 ## 1. Overview
 
-Diet AI is an AI-powered nutrition assistant that allows users to communicate with an AI model and receive personalized dietary recommendations.
+Mycelo is an AI-powered nutrition assistant that allows users to communicate with an AI model and receive personalized dietary recommendations.
 
 The system allows users to:
 
@@ -47,7 +47,7 @@ The project uses a **Modular Monolith** architecture.
 The application is a single deployable backend, but internally consists of independent business modules.
 
 ```
-Diet AI Backend
+Mycelo Backend
 
 +--------------------------------+
 
@@ -1214,7 +1214,7 @@ The following rules should always be respected:
 
 # 15. Summary
 
-Diet AI is designed as a modular backend application using:
+Mycelo is designed as a modular backend application using:
 
 - Python,
 - FastAPI,

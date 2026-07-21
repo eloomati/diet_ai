@@ -16,7 +16,7 @@ export function AdminShell() {
     <div className="flex min-h-screen flex-col">
       <header className="flex items-center justify-between border-b border-border px-6 py-3">
         <div>
-          <p className="font-heading text-base font-extrabold">Diet AI — Panel administracyjny</p>
+          <p className="font-heading text-base font-extrabold">Mycelo — Panel administracyjny</p>
           {user && <p className="text-xs text-muted-foreground">{user.email}</p>}
         </div>
         <div className="flex items-center gap-3">

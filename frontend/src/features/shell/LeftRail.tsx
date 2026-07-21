@@ -162,7 +162,7 @@ export function LeftRail({
           <Info className="size-3.5" />
           <span className="text-[12.5px] font-bold">O nas</span>
         </Button>
-        <p className="mt-0.5 px-1 text-[11px] text-muted-foreground/70">Diet AI · wersja beta</p>
+        <p className="mt-0.5 px-1 text-[11px] text-muted-foreground/70">Mycelo · wersja beta</p>
       </div>
 
       <AboutDialog open={aboutOpen} onOpenChange={setAboutOpen} />

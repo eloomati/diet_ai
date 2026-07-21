@@ -1,4 +1,4 @@
-# Diet AI
+# Mycelo
 
 > AI-powered nutrition assistant built with Python, FastAPI, Domain-Driven Design and Hexagonal Architecture.
 
@@ -6,7 +6,7 @@
 
 # Overview
 
-Diet AI is an AI-powered nutrition assistant that allows authenticated users to chat with a Large Language Model (LLM), maintain a nutrition profile, and generate personalized structured diet plans.
+Mycelo is an AI-powered nutrition assistant that allows authenticated users to chat with a Large Language Model (LLM), maintain a nutrition profile, and generate personalized structured diet plans.
 
 The application combines modern backend architecture with AI integration while following enterprise software engineering practices inspired by Java/Spring Boot development.
 

@@ -1,8 +1,8 @@
-# Diet AI - Implementation Roadmap
+# Mycelo - Implementation Roadmap
 
 ## Purpose
 
-This document defines the implementation order of the Diet AI project.
+This document defines the implementation order of the Mycelo project.
 
 The goal is to build the system incrementally while keeping architecture clean.
 
@@ -1616,6 +1616,54 @@ about to build this etap, same spirit as Etap 3's own pre-Stage-1 revision):
   listing wired to real data with purchase-based pinning, public
   dietitian profile view with reviews, offer selection → real
   transaction + honest payment stub, this docs/tests sync).
+
+---
+
+### Branding — Mycelo (decided before Etap 5, applies to everything after)
+
+The product is renamed **Mycelo** (was "Diet AI") — a full rebrand, not
+just a new logo: `Settings.app_name`, both frontends' `<title>`, the AI's
+own system-prompt self-introduction, transactional email subject/body
+text, README.md, and every doc's title header were all updated in one
+pass (see the git history around this note for the exact diff — not
+re-derived here since it's plain mechanical text replacement, not a
+design decision worth re-explaining).
+
+**What *is* a lasting decision, and does need to be remembered**: the
+brand mark is a mushroom, chosen from six proposed line-art/geometric/
+mascot variants — "Wariant C" (a line-art silhouette: stroke-only dome
+cap + rounded stem, no fill) is the one picked. Two colors carry the
+whole brand:
+
+- idle / everyday: a warm earthy brown (`--mycelo-idle` token, added to
+  `frontend/src/index.css` — `#A9754C` light / `#C98A5F` dark),
+- **notification / something-new state: the cap turns red** — reuses
+  the existing `--destructive` token rather than a new color, since a
+  notification-red and an error-red are the same semantic "pay
+  attention" signal. This imitates a fly agaric (*muchomor*/*Amanita
+  muscaria*) turning up red-capped once there's something to see —
+  the whole reason a mushroom was chosen as the mark in the first place.
+
+Implemented now, ready for later:
+
+- `frontend/public/favicon.svg` and `frontend-admin/public/favicon.svg`
+  — both replaced with the idle-state mark (Vite's unrelated default
+  logo was still in place before this, never customized since Etap 0),
+- `frontend/src/components/MyceloIcon.tsx` — a reusable component with
+  an `alert` boolean prop that flips stroke color and adds a small spore
+  dot; **Etap 5 Stage 4's notification badge should use this component**
+  rather than inventing a separate bell/badge icon, so the "cap turns
+  red" rule stays a single implementation, not one look on the favicon
+  and a different one on the actual notification UI.
+
+No infrastructure identifiers were touched — `docker-compose.yml`/
+`docker-compose.test.yml` container names, the Postgres/Mongo database
+name (`diet_ai`/`diet_ai_test`), and the dev SFTP/SMTP credentials all
+still say `diet_ai`/`dietai`. Renaming those has zero brand benefit (no
+user ever sees a container name) and real risk (existing local dev
+volumes/data live under the `diet_ai` database name) — a deliberate
+scope boundary, not an oversight, confirmed with the user before
+starting this rebrand.
 
 ---
 
