@@ -74,7 +74,11 @@ class Settings(BaseSettings):
     kafka_provider: str = "mock"
     kafka_bootstrap_servers: str = "localhost:9092"
     kafka_transaction_paid_topic: str = "transaction-paid"
-    kafka_consumer_group_id: str = "mycelo-notifications"
+    # Two independent consumer groups on the same topic (Etap 5 Stage 2) —
+    # notifications and messaging each react to TransactionPaid on their
+    # own terms, standard Kafka fan-out, not one consumer doing both.
+    kafka_notifications_consumer_group_id: str = "mycelo-notifications"
+    kafka_messaging_consumer_group_id: str = "mycelo-messaging"
 
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"

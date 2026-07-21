@@ -19,6 +19,10 @@ from backend.modules.identity.infrastructure.persistence.models import (
     RefreshTokenModel,
     UserModel,
 )
+from backend.modules.messaging.infrastructure.persistence.models import (
+    DietitianMessageModel,
+    DietitianThreadModel,
+)
 from backend.modules.notifications.infrastructure.persistence.models import NotificationModel
 from backend.modules.transactions.infrastructure.persistence.models import TransactionModel
 

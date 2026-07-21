@@ -13,6 +13,7 @@ from backend.app.api_router import api_router
 from backend.modules.ai.infrastructure import close_llm_provider, init_llm_provider
 from backend.modules.conversation.infrastructure.documents import ConversationDocument
 from backend.modules.identity.infrastructure.email.email_retry_scheduler import run_email_retry_loop
+from backend.modules.messaging.infrastructure.consumers import run_transaction_paid_thread_consumer
 from backend.modules.notifications.infrastructure.consumers import run_transaction_paid_consumer
 from backend.modules.nutrition.infrastructure.documents import (
     DietPlanDocument,
@@ -53,12 +54,18 @@ async def lifespan(app: FastAPI):
 
     # Real broker only when kafka_provider=kafka (Settings) — same
     # mock/real split as ai_provider/email_provider/sftp_provider. Nothing
-    # to consume if nothing real is publishing, so the consumer simply
-    # doesn't start in mock mode either.
-    notification_consumer_task = None
+    # to consume if nothing real is publishing, so neither consumer
+    # starts in mock mode either. Two independent consumer groups react
+    # to the same TransactionPaid topic (notifications' own badge,
+    # messaging's own thread-creation) — standard Kafka fan-out, not one
+    # consumer doing both.
+    kafka_consumer_tasks: list[asyncio.Task] = []
     if settings.kafka_provider == "kafka":
         await init_kafka_producer(settings.kafka_bootstrap_servers)
-        notification_consumer_task = asyncio.create_task(run_transaction_paid_consumer(settings))
+        kafka_consumer_tasks = [
+            asyncio.create_task(run_transaction_paid_consumer(settings)),
+            asyncio.create_task(run_transaction_paid_thread_consumer(settings)),
+        ]
 
     yield
 
@@ -66,10 +73,12 @@ async def lifespan(app: FastAPI):
     with contextlib.suppress(asyncio.CancelledError):
         await email_retry_task
 
-    if notification_consumer_task is not None:
-        notification_consumer_task.cancel()
+    for task in kafka_consumer_tasks:
+        task.cancel()
+    for task in kafka_consumer_tasks:
         with contextlib.suppress(asyncio.CancelledError):
-            await notification_consumer_task
+            await task
+    if kafka_consumer_tasks:
         await close_kafka_producer()
 
     await close_postgres()

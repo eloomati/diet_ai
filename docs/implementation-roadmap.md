@@ -31,7 +31,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                               reviews): DONE
                                             Etap 5 (Kafka notifications
                                               + human-dietitian chat):
-                                              Stage 1/5
+                                              Stage 2/5
                                             Etap 6: not started
 ```
 
@@ -1801,13 +1801,108 @@ pre-Stage-1 revision):
   reverted to `null` on the next fetch, proving the reveal is correctly
   reversible and doesn't depend on the notification that already fired.
   `docker compose down` after.
-- **Stage 2 — New `backend/modules/messaging/` module** (kept separate
-  from the AI `conversation` module, per the Grounding section above):
+
+  Design decisions settled before Stage 2 (revised 2026-07-22, once
+  actually about to build this stage):
+
+  - **One `DietitianThread` per `(user_id, dietitian_id)` pair, not one
+    per transaction.** "Tied to a paid transaction" (the original sketch)
+    is about what *creates* the thread, not a permanent 1:1 link kept
+    forever — if the same buyer purchases both offers from the same
+    dietitian, that's still one conversation, not two. Same "one row per
+    ordered pair" shape as `Review` (Etap 4), including a matching
+    `UNIQUE` index.
+  - **Threads are created automatically by a Kafka consumer reacting to
+    `TransactionPaid` — no "create thread" endpoint exists.** This etap's
+    own Stage 1 already built the whole publish→consume pipeline for
+    exactly this event; `messaging` gets its **own** consumer and
+    consumer group (`mycelo-messaging`, alongside notifications' own
+    `mycelo-notifications`) independently subscribed to the same
+    `transaction-paid` topic, rather than teaching the `notifications`
+    module about threads or vice versa — each interested module reacts
+    to the shared event on its own terms, the standard Kafka fan-out
+    shape, and keeps the two modules decoupled from each other. Both
+    consumers now share one small generic runner
+    (`backend/shared/messaging/consumer.py`) — extracted from Stage 1's
+    own consumer once a second, near-identical one appeared, the same
+    "de-duplicate once a real second case shows up" call already made
+    for `OFFER_LABEL` in Etap 4.
+  - **Thread existence *is* the access gate — not re-checked against
+    live transaction status on every message request.** Once a thread
+    exists, both participants can keep messaging even if an admin later
+    reverses that specific transaction back to `UNPAID` (Etap 3's own
+    reversible toggle) — there's no stated requirement to revoke an
+    already-started conversation retroactively, and doing so would be
+    inventing a punitive rule nobody asked for. `sender` (`USER` |
+    `DIETITIAN`) is derived from which participant the caller is, never
+    accepted from the client.
+  - **`diet_plan_id` carries no FK and is never validated against
+    Mongo** — `DietPlan` lives in the `nutrition` module's Mongo
+    collection; this is the same "plain UUID, no cross-database
+    referential integrity" pattern already established everywhere a
+    Postgres row points at Mongo-held data (e.g. admin's
+    `DeleteUserUseCase` cleanup). Stage 3's frontend is what actually
+    attaches a real one; Stage 2's endpoint just accepts the field.
+  - **Postgres, not Mongo** — `DietitianThread`/`DietitianMessage` are
+    structured relational data with clear ownership (foreign keys to
+    `users`), matching every other new Phase 12 module's choice over
+    the AI `conversation` module's own Mongo pick (free-form message
+    documents there, not this).
+  - **Both FKs are `ON DELETE CASCADE`, not `Transaction`'s asymmetric
+    pair** — a one-sided orphaned thread (say, the dietitian's side
+    deleted but the buyer's messages survive) serves no purpose the way
+    a buyer's purchase-history record does; same reasoning `Review`
+    already used for its own two FKs, not `Transaction`'s reason to
+    keep one side alive via `SET NULL`.
+
+- **Stage 2 — New `backend/modules/messaging/` module — DONE** (kept
+  separate from the AI `conversation` module, per the Grounding section
+  above):
   `DietitianThread` (paired user + dietitian, tied to a paid
   transaction), `DietitianMessage` (sender USER or DIETITIAN, content,
   optional attached `diet_plan_id`, `created_at`). REST endpoints for
   listing a thread's messages and posting a new one — plain
   request/response, no WebSocket, per the confirmed polling decision.
+  This stage is backend-only (no frontend changes) — Stage 3 wires the
+  UI to what this stage exposes, same "schema/logic first, UI next"
+  split as every prior etap.
+
+  Built exactly per the design decisions settled above: `GET
+  /messaging/threads` (any authenticated user — lists the caller's own
+  threads, whichever side they're on, resolving the *other*
+  participant's email for display), `GET
+  /messaging/threads/{id}/messages` and `POST
+  /messaging/threads/{id}/messages` (thread existence + participant
+  membership is the whole access check — `sender` is derived from which
+  participant the caller is, never accepted from the client). No
+  "create thread" endpoint exists at all — threads are get-or-created
+  automatically by `messaging`'s own new Kafka consumer
+  (`run_transaction_paid_thread_consumer`, consumer group
+  `mycelo-messaging`), independent of `notifications`' own consumer on
+  the exact same `transaction-paid` topic — confirmed live that both
+  groups get assigned the same topic partition and react independently
+  to one publish.
+
+  Exit criteria met: no real Kafka container needed for `pytest` (same
+  `kafka_provider=mock` rule as Stage 1) — full backend suite **550
+  passed, up from 523**. New: 27 tests in the brand-new `messaging`
+  module (6 entity, 13 use-case — including the get-or-create
+  idempotency check and both directions of `sender` derivation, 8 API —
+  including the 403-for-a-non-participant and 400-for-blank-content
+  cases). Frontend untouched this stage, nothing to re-run there.
+
+  Live-verified against the real Docker stack: confirmed the
+  `20260722_12_messaging` migration applies cleanly; registered a buyer,
+  a dietitian, and a `SUPER_ADMIN`, paid a real transaction, and
+  confirmed — from that single `mark-paid` call — **both** a
+  `notifications` row **and** a `dietitian_threads` row landed
+  independently (the two-consumer-groups-on-one-topic fan-out actually
+  works, not just in theory); fetched the buyer's own thread list
+  (correctly resolved the dietitian's email), sent a message as the
+  buyer, replied as the dietitian, confirmed both messages appear in
+  order from either side, and confirmed a third, unrelated registered
+  user gets a real `403` trying to read that thread. `docker compose
+  down` after.
 - **Stage 3 — Human-chat UI**: once a transaction is paid, a contact
   card appears above the marketplace roster (Etap 4 Stage 2's rail).
   Opening it swaps `ChatCanvas` into a **human-chat variant** — same

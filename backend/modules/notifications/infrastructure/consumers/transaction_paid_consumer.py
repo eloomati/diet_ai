@@ -1,9 +1,4 @@
-import asyncio
-import json
-import logging
 from uuid import UUID
-
-from aiokafka import AIOKafkaConsumer
 
 from backend.modules.notifications.application.use_cases.create_notification_use_case import (
     CreateNotificationUseCase,
@@ -16,8 +11,7 @@ from backend.modules.notifications.infrastructure.persistence.repository.sqlalch
 )
 from backend.shared.config.settings import Settings
 from backend.shared.database.postgres import get_postgres_session
-
-logger = logging.getLogger(__name__)
+from backend.shared.messaging import run_kafka_consumer_loop
 
 
 async def _handle_transaction_paid_message(payload: dict) -> None:
@@ -42,29 +36,19 @@ async def _handle_transaction_paid_message(payload: dict) -> None:
 async def run_transaction_paid_consumer(settings: Settings) -> None:
     """Background task: consumes TransactionPaid events published by
     `KafkaTransactionEventPublisher` and creates the dietitian-facing
-    Notification row. Runs as an asyncio task for the app's lifetime,
-    same shape as `run_email_retry_loop` — started only when
-    `kafka_provider=kafka` (see main.py's lifespan). Note this consumer
-    is *not* what reveals the buyer's contact to the dietitian — that's a
-    synchronous property of `transaction.status == PAID`
-    (`GetMyTransactionsAsDietitianUseCase`), so a slow or briefly-down
-    consumer never blocks that reveal; this loop only produces the badge.
-    """
-    consumer = AIOKafkaConsumer(
-        settings.kafka_transaction_paid_topic,
+    Notification row. Started only when `kafka_provider=kafka` (see
+    main.py's lifespan) — its own consumer group
+    (`kafka_notifications_consumer_group_id`), independent of
+    `messaging`'s own consumer on the same topic (Etap 5 Stage 2) — each
+    interested module reacts to the shared event on its own terms. Note
+    this consumer is *not* what reveals the buyer's contact to the
+    dietitian — that's a synchronous property of `transaction.status ==
+    PAID` (`GetMyTransactionsAsDietitianUseCase`), so a slow or briefly-
+    down consumer never blocks that reveal; this loop only produces the
+    badge."""
+    await run_kafka_consumer_loop(
+        topics=[settings.kafka_transaction_paid_topic],
         bootstrap_servers=settings.kafka_bootstrap_servers,
-        group_id=settings.kafka_consumer_group_id,
-        auto_offset_reset="earliest",
+        group_id=settings.kafka_notifications_consumer_group_id,
+        handle_message=_handle_transaction_paid_message,
     )
-    await consumer.start()
-    try:
-        async for message in consumer:
-            try:
-                payload = json.loads(message.value.decode("utf-8"))
-                await _handle_transaction_paid_message(payload)
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("Failed to process TransactionPaid message.")
-    finally:
-        await consumer.stop()
