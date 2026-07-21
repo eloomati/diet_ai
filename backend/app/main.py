@@ -13,6 +13,7 @@ from backend.app.api_router import api_router
 from backend.modules.ai.infrastructure import close_llm_provider, init_llm_provider
 from backend.modules.conversation.infrastructure.documents import ConversationDocument
 from backend.modules.identity.infrastructure.email.email_retry_scheduler import run_email_retry_loop
+from backend.modules.notifications.infrastructure.consumers import run_transaction_paid_consumer
 from backend.modules.nutrition.infrastructure.documents import (
     DietPlanDocument,
     DietPlanExportDocument,
@@ -28,6 +29,7 @@ from backend.shared.database import (
 )
 from backend.shared.exceptions import register_exception_handlers
 from backend.shared.logging import setup_logging
+from backend.shared.messaging import close_kafka_producer, init_kafka_producer
 from backend.shared.middleware import RequestIdMiddleware
 
 
@@ -49,11 +51,26 @@ async def lifespan(app: FastAPI):
 
     email_retry_task = asyncio.create_task(run_email_retry_loop(settings))
 
+    # Real broker only when kafka_provider=kafka (Settings) — same
+    # mock/real split as ai_provider/email_provider/sftp_provider. Nothing
+    # to consume if nothing real is publishing, so the consumer simply
+    # doesn't start in mock mode either.
+    notification_consumer_task = None
+    if settings.kafka_provider == "kafka":
+        await init_kafka_producer(settings.kafka_bootstrap_servers)
+        notification_consumer_task = asyncio.create_task(run_transaction_paid_consumer(settings))
+
     yield
 
     email_retry_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await email_retry_task
+
+    if notification_consumer_task is not None:
+        notification_consumer_task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await notification_consumer_task
+        await close_kafka_producer()
 
     await close_postgres()
     await close_mongo()

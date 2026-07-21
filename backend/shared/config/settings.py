@@ -66,6 +66,16 @@ class Settings(BaseSettings):
     dietitian_photos_storage_dir: str = "./data/dietitian_photos"
     dietitian_photos_base_url: str = "/static/dietitian-photos"
 
+    # Kafka — provider selection: "mock" | "kafka". Mirrors ai_provider/
+    # email_provider/sftp_provider: pytest never spins up a real broker
+    # either, so the mock (NoOpTransactionEventPublisher) stays the
+    # default, and the notification consumer simply doesn't start in
+    # that mode — nothing to consume if nothing real is publishing.
+    kafka_provider: str = "mock"
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_transaction_paid_topic: str = "transaction-paid"
+    kafka_consumer_group_id: str = "mycelo-notifications"
+
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"
     jwt_access_ttl_minutes: int = 15

@@ -57,6 +57,11 @@ export function TransakcjeTab() {
             <p className="text-xs text-muted-foreground">
               {new Date(transaction.created_at).toLocaleDateString('pl-PL')} · {transaction.amount} zł
             </p>
+            {transaction.buyer_email && (
+              <p className="mt-0.5 text-xs font-bold text-secondary-foreground">
+                Kontakt: {transaction.buyer_email}
+              </p>
+            )}
           </div>
           <Badge variant={STATUS_VARIANT[transaction.status]}>
             {STATUS_LABEL[transaction.status]}

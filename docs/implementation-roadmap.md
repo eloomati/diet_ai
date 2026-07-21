@@ -15,7 +15,7 @@ Phase 12.
 
 ---
 
-## Status (as of 2026-07-20)
+## Status (as of 2026-07-22)
 
 ```
 Phase 0-11  - Foundation through Testing   DONE — see the archived roadmap
@@ -29,7 +29,10 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                               module): DONE
                                             Etap 4 (Marketplace &
                                               reviews): DONE
-                                            Etaps 5-6: not started
+                                            Etap 5 (Kafka notifications
+                                              + human-dietitian chat):
+                                              Stage 1/5
+                                            Etap 6: not started
 ```
 
 ---
@@ -1672,21 +1675,132 @@ starting this rebrand.
 Goal: the highest-infrastructure-risk etap — introduces Kafka from
 scratch, plus a second chat surface distinct from the AI one.
 
-- **Stage 1 — Kafka infrastructure**: single-broker Kafka in KRaft mode
-  (no separate Zookeeper — the modern minimal setup, appropriate for a
-  demo rather than a multi-broker production cluster) added to
-  `docker-compose.yml`, plus a thin producer/consumer wrapper started
-  from `backend/app/main.py`'s lifespan (same place the existing
-  email-retry background loop lives). First real event:
-  `TransactionPaid` — Etap 3 Stage 3 already defines the
-  `TransactionEventPublisher` port and calls it on every mark-paid; this
-  stage swaps in a real `KafkaTransactionEventPublisher`, no change to
-  that use case itself — a consumer creates
-  a `Notification` row (new small table/collection — landing spot
-  TBD during implementation, likely Postgres alongside `transactions`
-  since notifications are per-user transactional state) and — this is
-  the dietitian-facing contact reveal — makes the paying user's contact
-  visible to the dietitian.
+Design decisions settled before Stage 1 (revised 2026-07-22, once actually
+about to build this etap, same spirit as every prior etap's own
+pre-Stage-1 revision):
+
+- **Kafka image & mode**: `apache/kafka` (official image, KRaft combined
+  broker+controller in one process — no separate Zookeeper container),
+  single node — the "modern minimal setup, appropriate for a demo" the
+  original sketch already called for, not a multi-broker cluster.
+- **Client library**: `aiokafka==0.14.0` — async, matching this
+  codebase's async-everywhere style (the same reasoning that picked
+  `asyncpg`/`beanie` over sync alternatives elsewhere).
+- **`kafka_provider` setting (`mock` | `kafka`), same exact shape as
+  `ai_provider`/`email_provider`/`sftp_provider`/`captcha_provider`
+  elsewhere in `Settings`** — `NoOpTransactionEventPublisher` (Etap 3)
+  stays the `mock` default. This matters for a concrete reason: `pytest`
+  today never spins up ollama/mailhog/sftp containers either — those
+  modules' own tests run against mocks by default, and only
+  `docker-compose.yml`'s dev stack sets the real provider. Kafka follows
+  the identical rule so the full backend suite keeps passing with zero
+  Docker services running, exactly as it does today. The consumer
+  background task also simply doesn't start when `kafka_provider=mock` —
+  nothing to consume if nothing real is publishing.
+- **`Notification` gets its own new module** (`backend/modules/
+  notifications/`), not folded into `transactions` or the
+  not-yet-built `messaging` module — it's genuinely cross-cutting: this
+  stage needs it for `TRANSACTION_PAID`, and Etap 5's own Stage 2/4 will
+  need the identical entity for `NEW_MESSAGE`. One small Postgres-backed
+  entity (`recipient_user_id`, `type`, `reference_id`, `created_at`,
+  `read_at`) reused by both, rather than two near-duplicate tables.
+- **Contact reveal is a derived property of `transaction.status ==
+  PAID`, computed synchronously — not gated on whether the Kafka
+  consumer has actually processed the event yet.** The original sketch
+  reads as if the *event* is what reveals contact; on reflection that
+  would make the reveal fragile (a slow or briefly-down consumer means a
+  paid transaction's buyer stays hidden from the dietitian for no good
+  reason) and, worse, irreversible in the wrong direction — `mark_unpaid`
+  (Etap 3's own reversible 2-state toggle) should hide the contact again,
+  which a one-time event-triggered flag can't express cleanly. So:
+  `GetMyTransactionsAsDietitianUseCase` resolves `buyer_email` via
+  `UserRepository` directly whenever `status == PAID`, full stop. The
+  Kafka round-trip's only job is producing the `Notification` row (the
+  actual badge Stage 4 will show) — a real, live-verified side effect,
+  just not the source of truth for what the dietitian can see.
+- **A real ephemeral Kafka test container is Stage 5's job, not this
+  one** — same split the original sketch already called for. This
+  stage's own tests use the existing fakes (`InMemoryTransactionRepository`
+  etc.) plus a fake `aiokafka` producer double for
+  `KafkaTransactionEventPublisher`'s own unit test; the actual
+  broker round-trip is verified live against the real Docker stack
+  instead, same as every other infrastructure integration this whole
+  project.
+
+- **Stage 1 — Kafka infrastructure — DONE**: single-broker Kafka in
+  KRaft mode (no separate Zookeeper — the modern minimal setup,
+  appropriate for a demo rather than a multi-broker production cluster)
+  added to `docker-compose.yml` (`apache/kafka:3.8.0`, broker+controller
+  combined), plus a thin producer wrapper (`backend/shared/messaging/
+  kafka.py`, mirroring `backend/shared/database/postgres.py`'s
+  init/close singleton) and a consumer background task started from
+  `backend/app/main.py`'s lifespan (same place the existing email-retry
+  loop lives) — both only when `kafka_provider=kafka` (see design
+  decisions above). First real event: `TransactionPaid` —
+  `KafkaTransactionEventPublisher` implements the port Etap 3 Stage 3
+  already defined, no change to `MarkTransactionPaidUseCase` itself,
+  exactly as that stand-in was designed for. The consumer
+  (`run_transaction_paid_consumer`) creates a `Notification` row in the
+  new `backend/modules/notifications/` module — skips silently if
+  `dietitian_id` is `null` (the dietitian's account was already deleted
+  by the time the message is consumed, nothing left to notify).
+
+  **Contact reveal, built as settled above**:
+  `GetMyTransactionsAsDietitianUseCase` now takes a `UserRepository` too
+  and resolves `buyer_email` via it whenever `transaction.status ==
+  PAID` — a synchronous check, never gated on the Kafka round-trip.
+  `TransactionResult`/`TransactionResponse` both gained an optional
+  `buyer_email` field (`None` everywhere except this one view). The
+  frontend's `TransakcjeTab.tsx` (dietitian's own sales list, hidden
+  behind Etap 3's own deliberate scope decision) now renders a "Kontakt:
+  {email}" line whenever `buyer_email` is present — the exact reveal
+  Etap 3 deferred to this stage.
+
+  **`KafkaTransactionEventPublisher` takes its producer via constructor
+  injection**, not a reach into the shared singleton itself — same
+  convention every `SqlAlchemyXRepository` already follows for its
+  session. Made the class trivially testable with a fake producer
+  double, no real broker needed for its own unit test.
+
+  **Two small pre-existing gaps found and fixed while touching
+  `backend/alembic/env.py`**: `ReviewModel` (added back in Etap 4 Stage
+  1) was never added to the autogenerate-metadata import list there —
+  harmless today since every migration here is hand-written, not
+  autogenerated, but would have made `alembic revision --autogenerate`
+  try to drop the `reviews` table if anyone ever ran it. Fixed alongside
+  adding the new `NotificationModel`, rather than repeating the gap a
+  third time.
+
+  Exit criteria met: no real Kafka container needed for `pytest` — the
+  full backend suite (523 passed, up from 513) runs exactly as before,
+  confirming `kafka_provider=mock` keeps this etap's own tests exactly
+  as fast/dependency-free as every other module's. New tests: 4
+  `Notification` entity/use-case tests (new `notifications` module,
+  first tests in it), 2 `KafkaTransactionEventPublisher` unit tests
+  (fake producer double — payload shape, and the null-`dietitian_id`
+  skip case), 4 new tests in `transactions` (2 use-case, 2 API) for the
+  contact-reveal/reversibility behavior — `transactions` module now at
+  32 tests. Frontend: 2 new `TransakcjeTab.test.tsx` tests (reveals
+  contact once paid, hides it while unpaid) — main frontend now at 122
+  tests. `npx tsc --noEmit` and `npm run build` both clean.
+
+  Live-verified against the real Docker stack (this is the first etap
+  to genuinely need Docker's Kafka service, not just Postgres/Mongo):
+  confirmed the `20260722_11_notifications` migration applies cleanly;
+  confirmed the consumer joins its consumer group and gets assigned the
+  `transaction-paid` partition on startup; registered a buyer, a
+  dietitian, and a `SUPER_ADMIN`, created a real transaction, confirmed
+  `buyer_email` is `null` before payment; called the real `POST
+  /admin/transactions/{id}/mark-paid` endpoint and confirmed, within
+  seconds, both that `GET /transactions/me` now reveals the buyer's real
+  email **and** that a real row landed in the `notifications` table
+  (`recipient_user_id` = the dietitian, `type=TRANSACTION_PAID`,
+  `reference_id` = the transaction, `read_at` still null) — the full
+  producer → broker → consumer → Postgres round-trip, not just the
+  publish half. Then called `mark-unpaid` and confirmed `buyer_email`
+  reverted to `null` on the next fetch, proving the reveal is correctly
+  reversible and doesn't depend on the notification that already fired.
+  `docker compose down` after.
 - **Stage 2 — New `backend/modules/messaging/` module** (kept separate
   from the AI `conversation` module, per the Grounding section above):
   `DietitianThread` (paired user + dietitian, tied to a paid

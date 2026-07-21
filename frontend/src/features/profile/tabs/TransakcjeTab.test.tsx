@@ -97,4 +97,55 @@ describe('TransakcjeTab', () => {
 
     expect(screen.queryByText('buyer-uuid-should-not-appear')).not.toBeInTheDocument()
   })
+
+  it('reveals the buyer contact once a transaction is paid (Etap 5 Stage 1)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, [
+          {
+            id: 't1',
+            user_id: 'u1',
+            dietitian_id: 'd1',
+            offer_type: 'PLAN_REVIEW',
+            amount: '49.00',
+            status: 'PAID',
+            created_at: '2026-07-19T00:00:00Z',
+            paid_at: '2026-07-19T01:00:00Z',
+            buyer_email: 'buyer@example.com',
+          },
+        ]),
+      ),
+    )
+
+    renderTab()
+
+    expect(await screen.findByText('Kontakt: buyer@example.com')).toBeInTheDocument()
+  })
+
+  it('does not show a contact line for an unpaid transaction', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        jsonResponse(200, [
+          {
+            id: 't1',
+            user_id: 'u1',
+            dietitian_id: 'd1',
+            offer_type: 'PLAN_REVIEW',
+            amount: '49.00',
+            status: 'UNPAID',
+            created_at: '2026-07-19T00:00:00Z',
+            paid_at: null,
+            buyer_email: null,
+          },
+        ]),
+      ),
+    )
+
+    renderTab()
+    await screen.findByText('Ocena wygenerowanego planu')
+
+    expect(screen.queryByText(/Kontakt:/)).not.toBeInTheDocument()
+  })
 })
