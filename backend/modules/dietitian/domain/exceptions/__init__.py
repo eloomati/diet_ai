@@ -3,7 +3,9 @@ from .dietitian_domain_errors import (
     DietitianDomainError,
     InvalidDietitianApplicationError,
     InvalidDietitianProfileError,
+    InvalidReviewError,
     PhotoLimitExceededError,
+    SelfReviewError,
 )
 
 __all__ = [
@@ -12,4 +14,6 @@ __all__ = [
     "InvalidDietitianProfileError",
     "ApplicationAlreadyReviewedError",
     "PhotoLimitExceededError",
+    "InvalidReviewError",
+    "SelfReviewError",
 ]

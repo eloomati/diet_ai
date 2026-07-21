@@ -66,6 +66,9 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, CONVERSATIONS))
       }
+      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -88,6 +91,9 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
         return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
       }
       if (url.endsWith('/conversations')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -130,6 +136,9 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
+      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -167,6 +176,9 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
         return Promise.resolve(jsonResponse(500, { code: 'INTERNAL_ERROR', message: 'boom' }))
       }
       if (url.endsWith('/conversations')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -222,6 +234,9 @@ describe('AppShell conversations (Etap 3 Stage 3 — archive & delete)', () => {
         conversationsListCalls += 1
         return Promise.resolve(jsonResponse(200, conversationsListCalls === 1 ? CONVERSATIONS : []))
       }
+      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -274,6 +289,9 @@ describe('AppShell responsiveness (Etap 5 Stage 2)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
+      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -288,19 +306,19 @@ describe('AppShell responsiveness (Etap 5 Stage 2)', () => {
     await loginViaPopup(user)
 
     expect(await screen.findByLabelText('Profil')).toBeInTheDocument()
-    expect(screen.getByText('Co nowego')).toBeInTheDocument()
+    expect(screen.getByText('Dietetycy')).toBeInTheDocument()
 
     const [collapseLeft] = screen.getAllByRole('button', { name: 'Zwiń panel' })
     await user.click(collapseLeft)
     expect(screen.queryByLabelText('Profil')).not.toBeInTheDocument()
-    expect(screen.getByText('Co nowego')).toBeInTheDocument()
+    expect(screen.getByText('Dietetycy')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Rozwiń panel' }))
     expect(await screen.findByLabelText('Profil')).toBeInTheDocument()
 
     const [, collapseRight] = screen.getAllByRole('button', { name: 'Zwiń panel' })
     await user.click(collapseRight)
-    expect(screen.queryByText('Co nowego')).not.toBeInTheDocument()
+    expect(screen.queryByText('Dietetycy')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Profil')).toBeInTheDocument()
   })
 
@@ -313,7 +331,7 @@ describe('AppShell responsiveness (Etap 5 Stage 2)', () => {
     await loginViaPopup(user)
 
     expect(screen.queryByLabelText('Profil')).not.toBeInTheDocument()
-    expect(screen.queryByText('Co nowego')).not.toBeInTheDocument()
+    expect(screen.queryByText('Dietetycy')).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Rozwiń panel' })).toHaveLength(2)
     expect(screen.queryByTestId('rail-backdrop')).not.toBeInTheDocument()
   })

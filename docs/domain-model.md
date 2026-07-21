@@ -145,7 +145,9 @@ Meal
 Responsible for:
 
 - dietitian applications,
-- dietitian profiles, including uploaded photos.
+- dietitian profiles, including uploaded photos,
+- reviews of a dietitian, and the public marketplace listing/profile
+  views built on top of them (Phase 12 Etap 4).
 
 Database:
 
@@ -159,6 +161,8 @@ Main entities:
 DietitianApplication
 
 DietitianProfile
+
+Review
 ```
 
 ---
@@ -825,9 +829,9 @@ Rules:
 
 Aggregate Root.
 
-A dietitian's public-facing profile — created once an application is
-approved (not yet automated; see `docs/implementation-roadmap.md`
-Etap 2).
+A dietitian's public-facing profile — created automatically by
+`ApproveDietitianApplicationUseCase` (Admin Context, Phase 12 Etap 2)
+once an application is approved.
 
 Example:
 
@@ -860,10 +864,64 @@ Rules:
 - `update_details()` changes only the given fields (same partial-update
   shape as `NutritionProfile.update_details()`),
 - `experience`/`description` cannot be blanked out via `update_details()`,
-- neither entity in this domain currently emits domain events (unlike
-  `User.change_role()` → `UserRoleChanged`) — their state transitions
-  are plain mutations for now; add events here if a future consumer
-  (e.g. a notification on approval) needs to react to them.
+- none of the entities in this domain currently emit domain events
+  (unlike `User.change_role()` → `UserRoleChanged`) — their state
+  transitions are plain mutations for now; add events here if a future
+  consumer (e.g. a notification on approval) needs to react to them.
+
+---
+
+## Review
+
+Aggregate Root.
+
+A reviewer's rating and comment about a dietitian — one per
+`(reviewerId, dietitianId)` pair, editable by its own author. Added in
+Phase 12 Etap 4 Stage 1, alongside the public marketplace listing/
+profile views it feeds an aggregated rating into.
+
+Example:
+
+```
+Review
+
+id
+
+reviewerId
+
+dietitianId
+
+rating
+
+comment
+
+createdAt
+
+updatedAt
+```
+
+Rules:
+
+- one review per `(reviewerId, dietitianId)` pair (`UNIQUE` constraint
+  on the pair, backing the same invariant the application layer already
+  enforces) — a second `submit` for the same pair edits the existing
+  review (`update_content()`) rather than creating a second one,
+- `reviewerId == dietitianId` is rejected by `create()` itself
+  (`SelfReviewError`) — a pure data invariant needing no repository
+  lookup, same reasoning as `Transaction.create()`'s self-purchase guard,
+- `rating` must be between 1 and 10 inclusive; `comment` cannot be blank
+  — both enforced by `create()` and `update_content()` alike
+  (`InvalidReviewError`),
+- both FKs (`reviewerId`, `dietitianId`) are `ON DELETE CASCADE` — unlike
+  `Transaction`'s asymmetric FKs, a review has no reason to survive the
+  deletion of either party; it's not a record either side needs to keep,
+- **no gate on having a prior paid transaction with the dietitian** — a
+  deliberate scope decision (nothing in this etap's own goal calls for
+  tying reviews to completed engagements), not an oversight,
+- reviews returned by the public profile endpoint omit the reviewer's
+  identity entirely (`rating`/`comment`/`createdAt` only) — that
+  endpoint needs no authentication to view, so this protects any
+  visitor, not just the dietitian, from being identified as a reviewer.
 
 ---
 
@@ -1020,6 +1078,8 @@ DietitianApplication
 
 DietitianProfile
 
+Review
+
 Transaction
 ```
 
@@ -1111,6 +1171,14 @@ once as a buyer (`userId`, `ON DELETE CASCADE`) and once as a dietitian
 model where the same entity plays two different roles with two
 different delete behaviors. See the Transactions Domain section above.
 
+`User` also has a **many** relationship to `Review` on both sides — once
+as a reviewer (`reviewerId`) and once as a dietitian being reviewed
+(`dietitianId`) — the second entity, after `Transaction`, where the same
+`User` plays two different roles in the same relationship, but here both
+sides are `ON DELETE CASCADE` (a review has no reason to outlive either
+party, unlike a transaction's asymmetric buyer/dietitian delete rules).
+See the Dietitian Domain section above.
+
 ---
 
 # 13. Persistence Mapping
@@ -1137,6 +1205,8 @@ Dietitian context:
 dietitian_applications
 
 dietitian_profiles
+
+reviews
 ```
 
 Transactions context:
@@ -1208,8 +1278,9 @@ AllergyProfile
 Already in progress (Phase 12, see `docs/implementation-roadmap.md`):
 admin panel + roles (Etap 0, done), dietitian applications and profile
 management (Etap 1, done), the admin backend module + `frontend-admin`
-app (Etap 2, done), fixed-price dietitian-offer transactions (this
-domain — Etap 3, done through Stage 4), reviews, marketplace, and a
-Kafka-backed human chat with dietitians (Etaps 4-6, not yet started).
+app (Etap 2, done), fixed-price dietitian-offer transactions (Etap 3,
+done), reviews + marketplace listing/profile (this domain — Etap 4,
+done through Stage 4), a Kafka-backed human chat with dietitians
+(Etaps 5-6, not yet started).
 
 These should be introduced only when supported by real business requirements.

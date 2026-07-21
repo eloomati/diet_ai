@@ -27,7 +27,9 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                               frontend-admin): DONE
                                             Etap 3 (Transactions
                                               module): DONE
-                                            Etaps 4-6: not started
+                                            Etap 4 (Marketplace &
+                                              reviews): DONE
+                                            Etaps 5-6: not started
 ```
 
 ---
@@ -1205,27 +1207,415 @@ about to build this etap, from the looser sketch above):
 
 Goal: users can actually discover and hire a dietitian.
 
-- **Stage 1 — Review domain**: `Review` entity (reviewer user id,
-  dietitian id, rating 1-10, comment, created_at) in the `dietitian`
-  module — one review per (user, dietitian) pair, editable by its
-  author. `POST /dietitian/{id}/reviews`, aggregated average rating
-  exposed on the dietitian's public profile/listing.
-- **Stage 2 — Right rail becomes the marketplace listing**: replaces
-  today's static "Co nowego" placeholder (which Etap 5 of Phase 10
-  explicitly described as "reserved for future roadmap items" — this is
-  that future). Shows dietitian cards (photo thumbnail, name, experience
-  abbreviated e.g. "5 lat", average rating) — dietitians the user has an
-  active/paid engagement with pinned at the top, the rest of the roster
-  below.
-- **Stage 3 — Public dietitian profile view**: click a card → full
+Design decisions settled before Stage 1 (revised 2026-07-20, once actually
+about to build this etap, same spirit as Etap 3's own pre-Stage-1 revision):
+
+- **`Review` lives in the `dietitian` module, not a new module** — it's
+  data about a dietitian's public standing, same bounded context as
+  `DietitianProfile`. `id, reviewer_id, dietitian_id (both plain `UUID`s
+  pointing at `users.id`, same cross-referencing style as
+  `DietitianApplication.reviewed_by`/`Transaction.dietitian_id`), rating:
+  int (1-10 per the sketch above), comment: str, created_at, updated_at`.
+  One review per `(reviewer_id, dietitian_id)` pair, **editable by its
+  author** — `SubmitReviewUseCase` upserts: loads any existing review for
+  that pair first, calls `review.update_content()` if found, else
+  `Review.create()`. A DB-level unique index on
+  `(reviewer_id, dietitian_id)` backs the same invariant the app layer
+  enforces, exactly the way `ix_dietitian_applications_user_id` already
+  backs "one application per user" — not a new pattern.
+- **Self-review guard lives in `Review.create()`**, same reasoning as
+  `Transaction.create()`'s self-purchase guard: `reviewer_id ==
+  dietitian_id` is a pure data invariant needing no repository lookup, so
+  it belongs in the entity, not the use case.
+- **No "must have a paid transaction to review" gate.** Nothing in this
+  etap's own goal or the earlier sketch calls for tying reviews to
+  completed engagements, and building that gate now would be inventing a
+  requirement rather than implementing one — any authenticated user may
+  review any real dietitian. Flagged here explicitly as a deliberate
+  scope decision, not an oversight.
+- **Public listing/profile reads are unauthenticated** — genuinely public
+  browsing (no login) for `GET /dietitian` (marketplace listing) and
+  `GET /dietitian/{dietitian_id}` (single public profile), matching how
+  any real marketplace lets you window-shop before signing up. Submitting
+  a review (`POST /dietitian/{dietitian_id}/reviews`) still requires
+  `get_current_user` — same "any authenticated user" dependency
+  `POST /transactions` already uses.
+- **Average rating is computed on read, not stored redundantly** on
+  `DietitianProfile` — a small `rating_summary_by_dietitian_id()`
+  repository method (SQL `AVG`/`COUNT`) called once per listed/viewed
+  dietitian. Demo-scope dietitian counts make the resulting N+1 pattern
+  (one query per card) an acceptable simplicity trade-off, same call
+  already made for admin's client-side email resolution.
+- **Public reviews omit the reviewer's identity** — the profile endpoint
+  returns `rating`, `comment`, `created_at` per review, never
+  `reviewer_id`/email. This mirrors Etap 3's own buyer-contact-hiding
+  decision in spirit (don't surface a user's identity to an audience the
+  spec never asked them to be exposed to) — here protecting *any*
+  visitor (not just the dietitian) from seeing who wrote a review, since
+  this endpoint needs no auth at all to view.
+- **Marketplace listing/profile filter to real, active dietitians only**:
+  a profile whose owning user is no longer `DIET_USER` (a `SUPER_ADMIN`
+  reversed the role) or is not `ACTIVE` (banned/deactivated) is excluded
+  — same `role`/`status` check `CreateTransactionUseCase` already applies
+  when validating a purchase target, reused here for the same reason (a
+  banned dietitian shouldn't be discoverable or hireable).
+- `DietitianProfileRepository` gains `list_all()` (mirrors
+  `UserRepository`/`TransactionRepository`'s own `list_all()`) — the
+  marketplace listing use case's data source, filtered down as above.
+
+- **Stage 1 — Review domain — DONE**: `Review` entity (`reviewer_id`,
+  `dietitian_id`, `rating` 1-10, `comment`, `created_at`, `updated_at`) +
+  `reviews` table in the `dietitian` module, built exactly per the design
+  decisions settled above — self-review guard in `Review.create()`,
+  DB-level unique index on `(reviewer_id, dietitian_id)` backing the
+  app-level upsert, both FKs `ON DELETE CASCADE` (reviews about a deleted
+  dietitian, or by a deleted reviewer, have no reason to survive — unlike
+  `transactions`' asymmetric FKs). `SubmitReviewUseCase` loads any
+  existing review for the pair first and calls `update_content()` if
+  found, else `Review.create()` — one `POST /dietitian/{id}/reviews` call
+  handles both create and edit. Validates the target is a real, active
+  `DIET_USER` via `UserRepository` (reused directly, same
+  not-actually-an-exception pattern `transactions`' own
+  `CreateTransactionUseCase` already established) before touching the
+  review itself.
+
+  Also shipped in this stage, since the plan calls for the average
+  rating to be "exposed on the dietitian's public profile/listing" and
+  that listing/profile don't exist as a *frontend* yet, the **backend**
+  side of both: `GET /dietitian` (marketplace listing) and
+  `GET /dietitian/{dietitian_id}` (single public profile) — both
+  genuinely unauthenticated, matching real-marketplace browse-before-login
+  UX. `ListDietitiansUseCase`/`GetPublicDietitianProfileUseCase` join
+  `DietitianProfileRepository.list_all()` (new method, added this stage)
+  against `UserRepository` (for email + role/status filtering) and
+  `ReviewRepository.rating_summary_by_dietitian_id()` (a small SQL
+  `AVG`/`COUNT` query) per dietitian — an accepted N+1 pattern at this
+  data scale, same trade-off already made for admin's client-side email
+  resolution. Public reviews surface `rating`/`comment`/`created_at`
+  only, never the reviewer's identity — a deliberate, explicitly-recorded
+  scope decision, not an oversight. This stage is otherwise backend-only
+  — Stages 2/3 wire the frontend to what it exposes, same "schema/logic
+  first, UI next" split as every prior etap.
+
+  Exit criteria met: 29 new tests (7 `Review` entity — self-review guard,
+  rating boundaries, empty-comment rejection, `update_content()`; 6
+  `SubmitReviewUseCase` — create, upsert-on-repeat, unknown/non-dietitian
+  target, self-review, invalid rating; 4 `ListDietitiansUseCase` — active
+  dietitian with rating summary, excludes banned, excludes role-reversed,
+  empty; 3 `GetPublicDietitianProfileUseCase` — reviews without reviewer
+  identity, not-found, banned-excluded; 6 review API tests — 201, 401,
+  404 unknown dietitian, 400 self-review, 422 out-of-range rating,
+  upsert-via-API; 3 marketplace API tests — public listing, public
+  profile with a real review, 404 without a profile), dietitian module
+  now at 82 tests (up from 53). Because this stage added a new abstract
+  method to the shared `DietitianProfileRepository` port (`list_all()`,
+  also consumed by `admin`'s existing fakes), the **full** backend suite
+  was run rather than just the touched module's: 508 passed, 0 failed
+  (up from 479 at Etap 3's close — the 29 new tests here plus nothing
+  else changed).
+
+  Live-verified against the real Docker backend: confirmed the
+  `20260720_10_reviews` migration applies cleanly on top of
+  `20260720_09_transactions`; registered a buyer and a dietitian,
+  promoted the dietitian and seeded a profile via direct SQL (same
+  pattern as every prior stage's bootstrap), confirmed `GET /dietitian`
+  lists it — and, since this environment's Postgres volume carries
+  dietitian profiles seeded by earlier live-verification sessions all the
+  way back to Phase 12's start, the listing response came back with all
+  of them still present and correctly email-resolved, a good incidental
+  check that `list_all()` doesn't silently drop older rows. Confirmed
+  `GET /dietitian/{id}` 404s before any profile exists check applies,
+  submitted a real review as the buyer (`average_rating`/`review_count`
+  updated correctly on the next profile fetch), and confirmed the
+  dietitian attempting to review themselves gets a real `400`.
+  `docker compose down` after.
+- **Stage 2 — Right rail becomes the marketplace listing — DONE**:
+  replaces today's static "Co nowego" placeholder (which Etap 5 of
+  Phase 10 explicitly described as "reserved for future roadmap items" —
+  this is that future). Shows dietitian cards (photo thumbnail, name,
+  experience, average rating) — dietitians the user has an active/paid
+  engagement with pinned at the top ("Twoi dietetycy"), the rest of the
+  roster below ("Wszyscy dietetycy" — heading only shown once there's a
+  pinned group to distinguish it from).
+
+  **Design decisions settled right before building this stage** (a small
+  backend gap found while scoping the frontend work, same spirit as every
+  prior "revised once actually about to build this" note):
+  - **"Pinned at the top" needs the buyer's own purchase history, which
+    no endpoint exposes yet** — `GET /transactions/me` is dietitian-only
+    (`require_role(DIET_USER)`, returns transactions where the caller is
+    the *seller*). A plain buyer has no way to ask "which dietitians have
+    I already engaged?". Adds one small, symmetric endpoint to the
+    `transactions` module: `GET /transactions/me/purchases` (any
+    authenticated user, `get_current_user` — mirrors `POST /transactions`
+    itself), backed by a new `GetMyPurchasesUseCase` that's a one-line
+    twin of `GetMyTransactionsAsDietitianUseCase` (`list_by_user_id`
+    instead of `list_by_dietitian_id` — the repository already exposed
+    both, only the dietitian side had a route). "Active/paid" is read
+    loosely as "any transaction exists with this dietitian, regardless of
+    `UNPAID`/`PAID`" — pinning a card the moment you've expressed
+    interest (created an `UNPAID` transaction) rather than only after an
+    admin flips it, which better matches "dietitians I'm already talking
+    to" than a strict paid-only reading would.
+  - **Cards are not clickable yet** — Stage 3 is explicitly "click a card
+    → full profile"; wiring navigation before that view exists would be a
+    dead link. This stage only renders the listing.
+  - **"Experience abbreviated e.g. '5 lat'" is a CSS truncation, not a
+    text-parsing extraction** — `experience` is free-text (some existing
+    seeded profiles read like a full sentence, not a bare "5 lat"), so
+    there's no reliable way to mechanically extract a short form from
+    arbitrary prose. Cards `truncate`/`line-clamp` the real field instead
+    of inventing a parser for something the backend never structured as a
+    number.
+
+  Built: `RightRail.tsx` rewritten from Etap 0's static placeholder to a
+  real listing — `useQuery(['dietitian-listing'], listDietitians)` (no
+  `isAuthenticated` gate — genuinely public, matching the backend) plus
+  `useQuery(['my-purchases'], getMyPurchases, { enabled: isAuthenticated
+  })` to compute the pinned set. Each `DietitianCard` shows an `Avatar`
+  (real photo via `resolveStaticUrl` when present, initials fallback
+  otherwise — same pattern `LeftRail`'s profile avatar already uses), the
+  email as the display name (still the only identifier `User` has, same
+  call made throughout `admin`/`frontend-admin`), the truncated
+  experience text, and either a star rating badge or "Brak ocen" when
+  `average_rating` is `null`. Loading (skeleton cards), error, and empty
+  states mirror `LeftRail`'s own conversation-history states for visual
+  consistency. `frontend/src/api/dietitian.ts` gained `listDietitians()`
+  (called with `skipAuth: true` — this endpoint never needs a token and
+  should never trigger a refresh attempt); `frontend/src/api/
+  transactions.ts` gained `getMyPurchases()`.
+
+  Also shipped, since it was this stage's own prerequisite: the backend
+  `GET /transactions/me/purchases` endpoint + `GetMyPurchasesUseCase`
+  (`transactions` module).
+
+  Exit criteria met: backend — 5 new tests (2 `GetMyPurchasesUseCase`
+  unit tests, 3 API tests: 401 without auth, 200 with an empty list for
+  a buyer with no purchases, returns only the calling buyer's own
+  transactions) — `transactions` module now at 26 tests (up from 21);
+  frontend — 4 new `RightRail.test.tsx` tests (empty state
+  without requiring login, card rendering with rating/"Brak ocen",
+  error state, pinning a dietitian the logged-in user has a transaction
+  with) plus 6 existing `AppShell.test.tsx` fetch-mock bodies updated to
+  return `[]` for the two new endpoints instead of falling through to
+  `{}` (which would have thrown inside `RightRail`'s `.filter()` calls)
+  and its 4 "Co nowego" assertions renamed to "Dietetycy" — main frontend
+  now at 111 tests, all passing. Both `npx tsc --noEmit` and
+  `npm run build` clean.
+
+  Live-verified against the real Docker backend and a real browser (this
+  stage's Claude-in-Chrome session stayed connected throughout, unlike
+  several recent stages): registered a buyer and a dietitian, promoted
+  the dietitian via direct SQL, created a real `UNPAID` transaction and a
+  real review via `curl`, then opened the actual app. Confirmed the
+  marketplace listing renders with real photos/ratings/truncated
+  experience text for every previously-seeded dietitian across this
+  session's whole history (a good incidental full-regression check on
+  `list_all()` + email resolution), confirmed it's visible while logged
+  out (genuinely public browsing), and — logged in as the seeded buyer —
+  confirmed the exact dietitian with the open transaction appeared under
+  a "Twoi dietetycy" section while the rest stayed under "Wszyscy
+  dietetycy". `docker compose down` after.
+- **Stage 3 — Public dietitian profile view — DONE**: click a card → full
   profile (experience, diplomas, description, photos, reviews, the two
   offers). "Zgłoś się" per offer.
-- **Stage 4 — Offer selection → payment stub**: selecting an offer
-  creates an `UNPAID` transaction (Etap 3 Stage 2) and shows a stand-in
-  payment screen — a single "Zapłać" action that's honest about being a
-  placeholder (no card form, no gateway redirect) — admin flips it to
-  paid from the panel (Etap 3 Stage 3).
-- **Stage 5 — Tests + docs sync**.
+
+  **Design decision**: a `Dialog` modal (`DietitianProfileModal.tsx`),
+  not a new route — same choice already made for `ProfileModal`/
+  `AuthPopup`, and the existing router only knows `/` and
+  `/:conversationId` (Etap 0's own scoping); adding a `/dietitian/:id`
+  route for one view would be new routing infrastructure the plan never
+  asked for. Selection state (`selectedDietitianId`) lives in `RightRail`
+  itself, which already owns the cards.
+
+  **"Zgłoś się" renders but is inert this stage** — both offer buttons
+  are `disabled` with a `title="Wkrótce dostępne"` tooltip rather than
+  silently doing nothing on click; Stage 4 is explicitly "selecting an
+  offer creates an `UNPAID` transaction", so wiring that here would jump
+  the stage. A disabled, honestly-labeled button beats either a dead
+  click handler or hiding the offers entirely — the marketplace's whole
+  point is showing what's for sale, even before checkout exists.
+
+  Built: `DietitianCard` (in `RightRail.tsx`) is now a real `<button>`
+  calling `onSelect(dietitian.user_id)`; `DietitianProfileModal.tsx` (new)
+  fetches `GET /dietitian/{id}` via `useQuery(['dietitian-profile',
+  dietitianId], ..., { enabled: dietitianId !== null })` and renders
+  avatar/rating header, experience, diplomas (hidden when empty — most
+  seeded profiles from earlier stages have none), description, a photo
+  gallery (hidden when empty), the two offers (`OFFER_LABEL`/
+  `OFFER_PRICE` — pulled out of `TransakcjeTab.tsx` into a shared export
+  in `api/transactions.ts` rather than duplicated, since two call sites
+  now need the same label/price mapping), and the reviews list (rating,
+  comment, date — no reviewer identity, matching the backend's own
+  public-review shape from Stage 1).
+
+  Exit criteria met: no backend changes this stage. Frontend — 4 new
+  `DietitianProfileModal.test.tsx` tests (closed/no-fetch when nothing
+  selected, full render with diplomas/photos/offers/reviews, "Brak
+  ocen"/"Brak opinii." for an empty profile, error state) + 1 new
+  `RightRail.test.tsx` test (clicking a card opens the modal with that
+  exact dietitian's data) — main frontend now at 116 tests, all passing.
+  Both `npx tsc --noEmit` and `npm run build` clean.
+
+  Live-verified in a real browser against the real Docker backend
+  (Claude-in-Chrome stayed connected): browsed the marketplace as a
+  guest, clicked a real seeded dietitian's card, confirmed the modal
+  showed their real experience/description/9.0 rating/the one real
+  review left in an earlier stage, confirmed both offer prices (49.00 zł
+  / 149.00 zł) render correctly, and confirmed clicking "Zgłoś się"
+  visibly does nothing (disabled, no request fired) — all while never
+  logging in, confirming the whole flow (listing → profile) is genuinely
+  public. `docker compose down` after.
+- **Stage 4 — Offer selection → payment stub — DONE**: selecting an
+  offer creates an `UNPAID` transaction (Etap 3 Stage 2) and shows a
+  stand-in payment screen — a single "Zapłać" action that's honest about
+  being a placeholder (no card form, no gateway redirect) — admin flips
+  it to paid from the panel (Etap 3 Stage 3).
+
+  **No new backend work this stage** — `POST /transactions` (Etap 3
+  Stage 2) and `GET /transactions/me/purchases` (Etap 4 Stage 2) already
+  cover everything this stage needed; purely frontend wiring.
+
+  **Design decisions**:
+  - **Per-offer state, computed from the buyer's own purchase history**
+    — each offer independently renders one of four states by matching
+    `getMyPurchases()` against `(dietitianId, offerType)`: no existing
+    transaction → real "Zgłoś się" button; an `UNPAID` one → "Przejdź do
+    płatności" (reopens the same payment stub without a new `POST`); a
+    `PAID` one → "Opłacone ✓", no button at all (nothing invites a
+    duplicate purchase through the UI, even though the backend itself
+    doesn't block it). This also means revisiting a dietitian's profile
+    after leaving mid-checkout picks up exactly where you left off.
+  - **"Zgłoś się" disabled with a tooltip in two cases**: logged out
+    ("Zaloguj się, aby się zgłosić") and viewing your own public profile
+    as its own dietitian ("Nie możesz zgłosić się do własnej oferty") —
+    the backend already rejects the guest case with 401 and the
+    self-purchase case with 400 (`Transaction.create()`'s own guard from
+    Etap 3), but pre-empting both in the UI is a cheap, already-known
+    check (`isAuthenticated`/`user.user_id === dietitianId`) that avoids
+    a round-trip to learn something already knowable client-side.
+  - **"Zapłać" is honestly inert, not a fake success** — clicking it
+    shows a toast ("Dziękujemy! Administrator potwierdzi płatność
+    ręcznie.") and returns to the profile view, but calls no endpoint and
+    never touches the transaction's status — there is no user-facing
+    "mark paid" action anywhere in this system by design (Etap 3's own
+    scope decision: only `ADMIN`/`SUPER_ADMIN` can flip that flag). A
+    button that silently did nothing would be a dead click; one that
+    pretended to charge a card would misrepresent a project that
+    deliberately has no payment gateway. Confirmed live that the
+    transaction's `PAID` state only ever changes via the real admin
+    endpoint, never via this button.
+  - **`OFFER_LABEL`/`OFFER_PRICE` centralized** in `api/transactions.ts`
+    (moved out of `TransakcjeTab.tsx`, which already had its own copy) —
+    two call sites needing the same offer→label/price mapping is exactly
+    the point where de-duplicating stops being premature.
+  - **New `notifyInfo` toast helper** alongside the existing
+    `notifyError`, in the same `lib/toast.ts` — this stage's first
+    non-error toast, same one-function-per-tone shape.
+
+  Exit criteria met: no backend tests needed (no backend changes).
+  Frontend — `DietitianProfileModal.test.tsx` rewritten to wrap renders
+  in `AuthProvider` (the component now calls `useAuth()`) with 4 new
+  tests (disabled + tooltip for a guest, disabled + tooltip for your own
+  profile, full apply→payment-stub→pay flow with `notifyInfo` asserted,
+  and the three-way existing-transaction states in one profile) — 8
+  tests total in that file, up from 4. Main frontend now at 120 tests,
+  all passing. Both `npx tsc --noEmit` and `npm run build` clean.
+
+  Live-verified against the real Docker backend and a real browser
+  (Claude-in-Chrome stayed connected): registered a fresh buyer, clicked
+  "Zgłoś się" on a real dietitian's "Ocena wygenerowanego planu" offer,
+  confirmed the payment stub appeared with the real `49.00 zł` amount
+  and the transaction existed in Postgres (`SELECT ... FROM
+  transactions`) as `UNPAID`; confirmed the right rail's "Twoi
+  dietetycy" pinning updated live in the background (the `['my-purchases']`
+  cache invalidation reaching `RightRail` too, not just this modal);
+  clicked "Zapłać" and confirmed the toast fired and no transaction
+  field changed; reopened via "Przejdź do płatności" and confirmed it's
+  the same transaction, no duplicate created; bootstrapped a real
+  `SUPER_ADMIN` and called the actual `POST
+  /admin/transactions/{id}/mark-paid` endpoint via `curl`; reloaded and
+  confirmed the offer now shows "Opłacone ✓" while the *other* offer
+  (`Indywidualny plan`) independently still showed "Zgłoś się" — proving
+  the per-offer state is tracked correctly, not per-dietitian.
+  `docker compose down` after.
+- **Stage 5 — Tests + docs sync — DONE**: closing stage for Etap 4 —
+  documentation sync across all three docs plus the closing full-suite
+  gate, no new application code.
+
+  **`docs/api.md`**: added three new `# Dietitian API` sections (`GET
+  /dietitian` — the public marketplace listing, `GET
+  /dietitian/{dietitian_id}` — the public profile with reviews, `POST
+  /dietitian/{dietitian_id}/reviews`) and one new `# Transactions API`
+  section (`GET /transactions/me/purchases`); fixed two stale sentences
+  found while writing this — the module's own auth intro said "All
+  endpoints below require Authorization: Bearer" (no longer true, the
+  two marketplace reads are genuinely public) and `GET /transactions/me`
+  said "there is no buyer-facing purchases list yet" (Stage 2 built
+  exactly that) — both corrected rather than left to rot; updated the
+  Overview bullet list.
+
+  **`docs/domain-model.md`**: new `## Review` entity section in `# 7.
+  Dietitian Domain` (the upsert rule, self-review guard, rating/comment
+  validation, the CASCADE/CASCADE FK pair, the no-engagement-gate and
+  no-reviewer-identity scope decisions); `## Dietitian Context`
+  responsibilities extended; Aggregates/Persistence Mapping/Relationships
+  updated (+`Review`, the second entity — after `Transaction` — where
+  `User` plays two roles in one relationship, though here both sides are
+  `CASCADE` rather than asymmetric); found and fixed a second stale
+  sentence — `DietitianProfile`'s own doc still said profile creation on
+  approval was "not yet automated," true when written in Etap 1 but
+  false since Etap 2 actually built `ApproveDietitianApplicationUseCase`;
+  Future Extensions' Phase-12-progress note updated (Etap 3 now reads
+  simply "done" instead of the stale "done through Stage 4," Etap 4 now
+  the one "done through Stage 4," Etaps 5-6 not started).
+
+  **`docs/architecture.md`**: added a genuinely new, previously-missing
+  `## Dietitian Module (Phase 12)` section — this module had **no**
+  dedicated architecture write-up at all until now, a gap dating back to
+  Etap 1 that this closing stage's full read-through surfaced (Admin and
+  Transactions modules each got one when they were built; Dietitian
+  itself never had — only scattered mentions from those two). Documents
+  applications, profile management, the `FileStorage` port, and this
+  etap's own public-marketplace/review additions in one place. Also:
+  Transactions Module responsibilities gained the `GET
+  /transactions/me/purchases` bullet; Data Ownership Rules gained a
+  paragraph on `dietitian`'s three Etap-4 use cases reusing `identity`'s
+  `UserRepository` directly (same not-an-exception pattern already
+  established); the Docker section's `db` service description — stale
+  since Etap 3 ("PostgreSQL (Identity, Dietitian)", missing
+  Transactions) — corrected.
+
+  **`README.md`**: checked, needed no change — whole-phase granularity
+  only, same finding as every prior etap's closing stage.
+
+  **`docs/openapi.json`**: regenerated via
+  `PYTHONPATH=. python scripts/export_openapi.py`; confirmed via `grep`
+  that `/api/v1/dietitian`, `/api/v1/dietitian/{dietitian_id}`,
+  `/api/v1/dietitian/{dietitian_id}/reviews`, and
+  `/api/v1/transactions/me/purchases` are all present.
+
+  Exit criteria met — closing-gate full suites: backend **513 passed, 0
+  failed** (34 new tests across this etap: 29 from Stage 1's Review
+  domain + marketplace reads, 5 from Stage 2's `GetMyPurchasesUseCase` +
+  API — up from 479 at Etap 3's close; Stages 3/4 added no backend
+  code). Main frontend: **120 passed** (13 new across this etap — 4 from
+  Stage 2's `RightRail` marketplace tests, 5 from Stage 3's
+  `DietitianProfileModal`/click-through tests, 4 net from Stage 4's
+  offer-flow rewrite — up from 107 at Etap 3's close). `frontend-admin`:
+  **28 passed**, unchanged — this etap never touched the admin app.
+  `npx tsc --noEmit` and all three `npm run build`s clean (main app's
+  only warning is the same pre-existing, harmless "chunks larger than
+  500 kB" one).
+
+  No new bugs found this stage beyond the two doc staleness issues above
+  — this was a pure docs-and-verification close-out, consistent with
+  every prior etap's own Stage 5/6.
+- **Etap 4 (Marketplace & reviews): DONE** — all 5 stages complete
+  (review domain + public marketplace read endpoints, right-rail
+  listing wired to real data with purchase-based pinning, public
+  dietitian profile view with reviews, offer selection → real
+  transaction + honest payment stub, this docs/tests sync).
 
 ---
 

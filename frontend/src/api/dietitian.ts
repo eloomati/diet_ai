@@ -63,3 +63,42 @@ export function uploadDietitianProfilePhoto(file: File): Promise<DietitianProfil
 export function removeDietitianProfilePhoto(index: number): Promise<DietitianProfile> {
   return apiFetch(`/dietitian/profile/photos/${index}`, { method: 'DELETE' })
 }
+
+export interface DietitianListingItem {
+  user_id: string
+  email: string
+  experience: string
+  description: string
+  photos: string[]
+  average_rating: number | null
+  review_count: number
+}
+
+/** Public — no authentication required, real marketplace-style browsing. */
+export function listDietitians(): Promise<DietitianListingItem[]> {
+  return apiFetch('/dietitian', { skipAuth: true })
+}
+
+export interface PublicReview {
+  rating: number
+  comment: string
+  created_at: string
+}
+
+export interface PublicDietitianProfile {
+  user_id: string
+  email: string
+  experience: string
+  diplomas: string[]
+  description: string
+  photos: string[]
+  created_at: string
+  average_rating: number | null
+  review_count: number
+  reviews: PublicReview[]
+}
+
+/** Public — no authentication required, same as the listing it's reached from. */
+export function getPublicDietitianProfile(dietitianId: string): Promise<PublicDietitianProfile> {
+  return apiFetch(`/dietitian/${dietitianId}`, { skipAuth: true })
+}

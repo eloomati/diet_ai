@@ -16,3 +16,11 @@ class ApplicationAlreadyReviewedError(DietitianDomainError):
 
 class PhotoLimitExceededError(DietitianDomainError):
     pass
+
+
+class InvalidReviewError(DietitianDomainError):
+    pass
+
+
+class SelfReviewError(DietitianDomainError):
+    pass

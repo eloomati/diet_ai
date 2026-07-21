@@ -2,6 +2,7 @@ from uuid import UUID
 
 from backend.modules.dietitian.domain.entities.dietitian_application import DietitianApplication
 from backend.modules.dietitian.domain.entities.dietitian_profile import DietitianProfile
+from backend.modules.dietitian.domain.entities.review import Review
 
 
 class InMemoryDietitianApplicationRepository:
@@ -37,8 +38,37 @@ class InMemoryDietitianProfileRepository:
                 return profile
         return None
 
+    async def list_all(self) -> list[DietitianProfile]:
+        return sorted(self._by_id.values(), key=lambda p: p.created_at, reverse=True)
+
     async def save(self, profile: DietitianProfile) -> None:
         self._by_id[profile.id] = profile
+
+
+class InMemoryReviewRepository:
+    def __init__(self) -> None:
+        self._by_id: dict[UUID, Review] = {}
+
+    async def get_by_reviewer_and_dietitian(
+        self, reviewer_id: UUID, dietitian_id: UUID
+    ) -> Review | None:
+        for review in self._by_id.values():
+            if review.reviewer_id == reviewer_id and review.dietitian_id == dietitian_id:
+                return review
+        return None
+
+    async def list_by_dietitian_id(self, dietitian_id: UUID) -> list[Review]:
+        reviews = [r for r in self._by_id.values() if r.dietitian_id == dietitian_id]
+        return sorted(reviews, key=lambda r: r.created_at, reverse=True)
+
+    async def rating_summary_by_dietitian_id(self, dietitian_id: UUID) -> tuple[float | None, int]:
+        reviews = [r for r in self._by_id.values() if r.dietitian_id == dietitian_id]
+        if not reviews:
+            return (None, 0)
+        return (sum(r.rating for r in reviews) / len(reviews), len(reviews))
+
+    async def save(self, review: Review) -> None:
+        self._by_id[review.id] = review
 
 
 class FakeFileStorage:

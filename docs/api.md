@@ -17,6 +17,7 @@ The API provides functionality for:
 - diet plan generation, AI-suggested + user-editable meal scheduling,
 - diet plan CSV export (archived for later re-download) and date-range filtering of plan history,
 - dietitian applications and (once approved) dietitian profile management, including up to 3 photos,
+- public marketplace browsing (dietitian listing + profile, no authentication required) and reviews,
 - admin user management and dietitian-application review (ADMIN/SUPER_ADMIN-only),
 - purchasing a dietitian's offer and admin-toggled paid/unpaid transaction records (no real payment gateway).
 
@@ -1152,13 +1153,18 @@ Database:
 PostgreSQL
 ```
 
-All endpoints below require `Authorization: Bearer {access_token}`. The
+Most endpoints below require `Authorization: Bearer {access_token}`. The
 application endpoints (`POST`/`GET .../applications*`) are open to any
 authenticated `USER`. The profile endpoints (`.../profile*`) additionally
-require the caller's role to already be `DIET_USER` — there is currently
-no API path that grants `DIET_USER` or creates the `DietitianProfile` row
-(that's the admin-approval flow, not yet built); until it exists, both
-are set directly against Postgres out of band.
+require the caller's role to already be `DIET_USER` — granted via the
+admin dietitian-application-approval flow (see `POST
+/admin/dietitian-applications/{id}/approve` below), which also creates
+the `DietitianProfile` row. The marketplace read endpoints (bare `GET
+/dietitian` and `GET /dietitian/{dietitian_id}`, Phase 12 Etap 4) are the
+one exception — genuinely public, no token required, matching real
+marketplace browse-before-signup UX. Submitting a review (`POST
+/dietitian/{dietitian_id}/reviews`) is open to any authenticated user,
+same as the application endpoints.
 
 ---
 
@@ -1388,6 +1394,156 @@ from `photos`.
 403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
 404 Not Found code=NOT_FOUND — no profile exists for this user
 400 Bad Request code=BAD_REQUEST — index out of range
+```
+
+---
+
+## GET /dietitian
+
+The marketplace listing — every dietitian with a profile whose owning
+user is still `ACTIVE` and still `DIET_USER` (a banned account, or one a
+`SUPER_ADMIN` demoted, is excluded — not discoverable or hireable).
+**Public — no authentication required.**
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+[
+  {
+    "user_id": "uuid",
+    "email": "dietitian@example.com",
+    "experience": "5 years as a clinical dietitian",
+    "description": "I specialize in weight management and sports nutrition.",
+    "photos": ["/static/dietitian-photos/abc.jpg"],
+    "average_rating": 8.5,
+    "review_count": 4
+  }
+]
+```
+
+`average_rating` is `null` when `review_count` is `0`. `email` is the
+only display identifier — `User` has no separate display-name field.
+
+### Errors
+
+None — always `200`, with an empty array when no dietitian qualifies.
+
+---
+
+## GET /dietitian/{dietitian_id}
+
+The full public profile behind one marketplace card — same
+active/`DIET_USER` filter as `GET /dietitian`, and all three failure
+reasons (no profile, banned, role reversed) collapse into a single `404`
+so an unauthenticated caller can't distinguish them. **Public — no
+authentication required.**
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "user_id": "uuid",
+  "email": "dietitian@example.com",
+  "experience": "5 years as a clinical dietitian",
+  "diplomas": ["MSc Dietetics"],
+  "description": "I specialize in weight management and sports nutrition.",
+  "photos": ["/static/dietitian-photos/abc.jpg"],
+  "created_at": "2026-07-19T12:00:00+00:00",
+  "average_rating": 8.5,
+  "review_count": 1,
+  "reviews": [
+    {
+      "rating": 9,
+      "comment": "Very helpful, clear plan.",
+      "created_at": "2026-07-20T12:00:00+00:00"
+    }
+  ]
+}
+```
+
+Each entry in `reviews` deliberately omits the reviewer's identity — no
+`reviewer_id`/email — since this endpoint needs no auth at all to view,
+protecting any visitor (not just the dietitian) from seeing who wrote a
+review.
+
+### Errors
+
+```
+404 Not Found code=NOT_FOUND — no profile for this id, or the owning user isn't an active DIET_USER
+```
+
+---
+
+## POST /dietitian/{dietitian_id}/reviews
+
+Submits or edits the caller's own review of a dietitian — one review per
+`(reviewer, dietitian)` pair; a second call for the same pair updates the
+existing review's `rating`/`comment` instead of creating another one.
+Any authenticated user may call this (not role-gated, and nothing in
+this etap's scope requires a prior paid transaction with the dietitian
+first — a deliberate scope decision, not an oversight).
+
+### Request
+
+```json
+{
+  "rating": 9,
+  "comment": "Very helpful, clear plan."
+}
+```
+
+`rating`: integer, 1-10 inclusive.
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body:
+
+```json
+{
+  "id": "uuid",
+  "reviewer_id": "uuid",
+  "dietitian_id": "uuid",
+  "rating": 9,
+  "comment": "Very helpful, clear plan.",
+  "created_at": "2026-07-20T12:00:00+00:00",
+  "updated_at": "2026-07-20T12:00:00+00:00"
+}
+```
+
+Always `201`, even when this call updated an existing review rather
+than creating a new one — the response itself (an unchanged `id` versus
+one seen before) is how a caller would notice the difference, not the
+status code.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+404 Not Found code=NOT_FOUND — dietitian_id doesn't exist, or isn't a DIET_USER
+400 Bad Request code=BAD_REQUEST — dietitian_id is the caller's own id
+422 Unprocessable Entity code=VALIDATION_ERROR — rating out of 1-10 range, or comment blank
 ```
 
 ---
@@ -1774,8 +1930,8 @@ docs/architecture.md's Data Ownership Rules).
 ## GET /transactions/me
 
 Lists every transaction where the caller is the *dietitian* side —
-"my sales", not "my purchases" (there is no buyer-facing "my purchases"
-list yet). Requires the caller's role to be `DIET_USER`.
+"my sales". See `GET /transactions/me/purchases` below for the buyer
+side.
 
 Deliberately does **not** expose the buyer's identity beyond
 `user_id` — no endpoint available to a `DIET_USER` can resolve that UUID
@@ -1798,6 +1954,34 @@ Body: an array in the same shape as `POST /transactions`'s response.
 ```
 401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
 403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
+```
+
+---
+
+## GET /transactions/me/purchases
+
+Lists every transaction where the caller is the *buyer* side — "my
+purchases". Any authenticated user may call this (not role-gated — a
+plain `USER` is exactly who buys, not who sells). Added in Phase 12
+Etap 4 Stage 2 as this stage's own prerequisite — the marketplace right
+rail needs it to know which dietitians the current user already has an
+open or completed transaction with, so it can pin them above the rest of
+the roster.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: an array in the same shape as `POST /transactions`'s response.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
 ```
 
 ---

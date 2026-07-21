@@ -1,16 +1,11 @@
 import { Wallet } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 
-import { getMyTransactionsAsDietitian } from '@/api/transactions'
-import type { OfferType, TransactionStatus } from '@/api/transactions'
+import { OFFER_LABEL, getMyTransactionsAsDietitian } from '@/api/transactions'
+import type { TransactionStatus } from '@/api/transactions'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/EmptyState'
 import { ApiError } from '@/lib/apiFetch'
-
-const OFFER_LABEL: Record<OfferType, string> = {
-  PLAN_REVIEW: 'Ocena wygenerowanego planu',
-  INDIVIDUAL_PLAN: 'Indywidualny plan',
-}
 
 const STATUS_LABEL: Record<TransactionStatus, string> = {
   UNPAID: 'Nieopłacone',
