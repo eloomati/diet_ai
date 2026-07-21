@@ -406,6 +406,91 @@ duplicate row per attempt instead of tracking the original one.
 
 ---
 
+## Dietitian Module (Phase 12)
+
+Responsible for the dietitian's own side of the marketplace: applying
+to become one, managing the resulting public profile, and (once Etap 4
+added it) the public browsing surface and reviews built on top of that
+profile.
+
+Responsibilities:
+
+- submitting/reading a dietitian application (`dietitian_applications`),
+- managing an approved dietitian's own profile — experience, diplomas,
+  description, up to 3 photos (`dietitian_profiles`),
+- the public, unauthenticated marketplace listing and single-profile
+  view (`GET /dietitian`, `GET /dietitian/{id}`), and submitting/editing
+  a review (`POST /dietitian/{id}/reviews`).
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+DietitianApplication
+
+DietitianProfile
+
+Review
+```
+
+`DietitianApplication`/`DietitianProfile` themselves grant no role and
+create no profile — that's the Admin module's
+`ApproveDietitianApplicationUseCase` (see below), which promotes the
+user and creates the profile from the application's own data. This
+module's own endpoints only ever operate on an *already-existing*
+`DIET_USER`'s own profile (`require_role(DIET_USER)`).
+
+Photo uploads go through a `FileStorage` port
+(`LocalDiskFileStorage` today — a real object-storage adapter is a
+drop-in swap later, same shape as `EmailSender`/`SftpClient` elsewhere).
+
+### Marketplace listing/profile — public by design (Phase 12 Etap 4)
+
+`GET /dietitian` and `GET /dietitian/{dietitian_id}` carry no
+`require_role` (not even `get_current_user`) — a real marketplace lets
+you browse before signing up, and nothing about seeing a dietitian's
+public profile needs to be gated. Both filter to profiles whose owning
+user is still `ACTIVE` and still `DIET_USER` — the same role/status
+check `transactions`' `CreateTransactionUseCase` already applies when
+validating a purchase target, reused here so a banned dietitian, or one
+a `SUPER_ADMIN` demoted back to plain `USER`, is neither discoverable
+nor hireable. The single-profile endpoint collapses "no profile",
+"banned", and "role reversed" into one `404` — an unauthenticated caller
+has no reason to be able to tell those apart.
+
+Average rating is computed on read (`ReviewRepository
+.rating_summary_by_dietitian_id()`, a small SQL `AVG`/`COUNT`), not
+stored redundantly on `DietitianProfile` — one query per listed/viewed
+dietitian, an accepted N+1 pattern at this project's demo scale, the
+same trade-off already made for `frontend-admin`'s client-side email
+resolution.
+
+### Review — one per (reviewer, dietitian), editable, no engagement gate
+
+`SubmitReviewUseCase` upserts: loads any existing review for the
+`(reviewer_id, dietitian_id)` pair and calls `update_content()` if
+found, else `Review.create()` — one endpoint (`POST
+/dietitian/{id}/reviews`) handles both create and edit. `Review.create()`
+itself rejects `reviewer_id == dietitian_id` (`SelfReviewError`), the
+same "pure data invariant belongs in the entity" reasoning as
+`Transaction.create()`'s self-purchase guard. Deliberately **no
+requirement of a prior paid transaction** with the dietitian before
+reviewing — nothing in Etap 4's own scope calls for that gate, and
+adding it would be inventing a requirement, not implementing one.
+
+Reviews shown through the public profile endpoint omit the reviewer's
+identity (`rating`/`comment`/`created_at` only, never `reviewer_id` or
+an email) — mirrors `transactions`' own buyer-contact-hiding decision in
+spirit, but here protecting *any* visitor, not just the dietitian, since
+this endpoint needs no authentication at all to view.
+
+---
+
 ## Admin Module (Phase 12)
 
 Responsible for admin-facing orchestration: user management and
@@ -468,7 +553,13 @@ offers, and tracking whether that purchase has been paid.
 Responsibilities:
 
 - creating a transaction for a `{dietitian_id, offer_type}` pair,
-- letting a dietitian list transactions where they're the seller.
+- letting a dietitian list transactions where they're the seller
+  (`GET /transactions/me`),
+- letting a buyer list their own purchases (`GET
+  /transactions/me/purchases`, added Phase 12 Etap 4 Stage 2 — the
+  marketplace right rail's own prerequisite, to know which dietitians
+  the current user already has an open or completed transaction with
+  and pin them above the rest of the roster).
 
 Database:
 
@@ -954,6 +1045,13 @@ already exist. See "Admin Module" above.
 (to confirm the `dietitian_id` given actually belongs to a `DIET_USER`)
 — same port, same pattern, not a new exception.
 
+`dietitian`'s own `SubmitReviewUseCase`, `ListDietitiansUseCase`, and
+`GetPublicDietitianProfileUseCase` (Phase 12 Etap 4) do the same again —
+each calls `identity`'s `UserRepository` directly (to check
+role/status, and to resolve a dietitian's email — `User` has no separate
+display-name field) alongside its own module's `DietitianProfileRepository`
+and `ReviewRepository`. Same port, same pattern.
+
 ---
 
 # 10. AI Communication Flow
@@ -1047,7 +1145,7 @@ frontend-admin  — React + Vite dev server (Phase 12, in progress) — the
                   admin panel, a fully separate app on its own port;
                   login requires an ADMIN/SUPER_ADMIN account
 
-db          — PostgreSQL (Identity, Dietitian)
+db          — PostgreSQL (Identity, Dietitian, Transactions)
 
 mongo       — MongoDB (Conversation, Nutrition)
 

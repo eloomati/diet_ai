@@ -28,7 +28,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                             Etap 3 (Transactions
                                               module): DONE
                                             Etap 4 (Marketplace &
-                                              reviews): Stage 4/5
+                                              reviews): DONE
                                             Etaps 5-6: not started
 ```
 
@@ -1539,7 +1539,83 @@ about to build this etap, same spirit as Etap 3's own pre-Stage-1 revision):
   (`Indywidualny plan`) independently still showed "Zgłoś się" — proving
   the per-offer state is tracked correctly, not per-dietitian.
   `docker compose down` after.
-- **Stage 5 — Tests + docs sync**.
+- **Stage 5 — Tests + docs sync — DONE**: closing stage for Etap 4 —
+  documentation sync across all three docs plus the closing full-suite
+  gate, no new application code.
+
+  **`docs/api.md`**: added three new `# Dietitian API` sections (`GET
+  /dietitian` — the public marketplace listing, `GET
+  /dietitian/{dietitian_id}` — the public profile with reviews, `POST
+  /dietitian/{dietitian_id}/reviews`) and one new `# Transactions API`
+  section (`GET /transactions/me/purchases`); fixed two stale sentences
+  found while writing this — the module's own auth intro said "All
+  endpoints below require Authorization: Bearer" (no longer true, the
+  two marketplace reads are genuinely public) and `GET /transactions/me`
+  said "there is no buyer-facing purchases list yet" (Stage 2 built
+  exactly that) — both corrected rather than left to rot; updated the
+  Overview bullet list.
+
+  **`docs/domain-model.md`**: new `## Review` entity section in `# 7.
+  Dietitian Domain` (the upsert rule, self-review guard, rating/comment
+  validation, the CASCADE/CASCADE FK pair, the no-engagement-gate and
+  no-reviewer-identity scope decisions); `## Dietitian Context`
+  responsibilities extended; Aggregates/Persistence Mapping/Relationships
+  updated (+`Review`, the second entity — after `Transaction` — where
+  `User` plays two roles in one relationship, though here both sides are
+  `CASCADE` rather than asymmetric); found and fixed a second stale
+  sentence — `DietitianProfile`'s own doc still said profile creation on
+  approval was "not yet automated," true when written in Etap 1 but
+  false since Etap 2 actually built `ApproveDietitianApplicationUseCase`;
+  Future Extensions' Phase-12-progress note updated (Etap 3 now reads
+  simply "done" instead of the stale "done through Stage 4," Etap 4 now
+  the one "done through Stage 4," Etaps 5-6 not started).
+
+  **`docs/architecture.md`**: added a genuinely new, previously-missing
+  `## Dietitian Module (Phase 12)` section — this module had **no**
+  dedicated architecture write-up at all until now, a gap dating back to
+  Etap 1 that this closing stage's full read-through surfaced (Admin and
+  Transactions modules each got one when they were built; Dietitian
+  itself never had — only scattered mentions from those two). Documents
+  applications, profile management, the `FileStorage` port, and this
+  etap's own public-marketplace/review additions in one place. Also:
+  Transactions Module responsibilities gained the `GET
+  /transactions/me/purchases` bullet; Data Ownership Rules gained a
+  paragraph on `dietitian`'s three Etap-4 use cases reusing `identity`'s
+  `UserRepository` directly (same not-an-exception pattern already
+  established); the Docker section's `db` service description — stale
+  since Etap 3 ("PostgreSQL (Identity, Dietitian)", missing
+  Transactions) — corrected.
+
+  **`README.md`**: checked, needed no change — whole-phase granularity
+  only, same finding as every prior etap's closing stage.
+
+  **`docs/openapi.json`**: regenerated via
+  `PYTHONPATH=. python scripts/export_openapi.py`; confirmed via `grep`
+  that `/api/v1/dietitian`, `/api/v1/dietitian/{dietitian_id}`,
+  `/api/v1/dietitian/{dietitian_id}/reviews`, and
+  `/api/v1/transactions/me/purchases` are all present.
+
+  Exit criteria met — closing-gate full suites: backend **513 passed, 0
+  failed** (34 new tests across this etap: 29 from Stage 1's Review
+  domain + marketplace reads, 5 from Stage 2's `GetMyPurchasesUseCase` +
+  API — up from 479 at Etap 3's close; Stages 3/4 added no backend
+  code). Main frontend: **120 passed** (13 new across this etap — 4 from
+  Stage 2's `RightRail` marketplace tests, 5 from Stage 3's
+  `DietitianProfileModal`/click-through tests, 4 net from Stage 4's
+  offer-flow rewrite — up from 107 at Etap 3's close). `frontend-admin`:
+  **28 passed**, unchanged — this etap never touched the admin app.
+  `npx tsc --noEmit` and all three `npm run build`s clean (main app's
+  only warning is the same pre-existing, harmless "chunks larger than
+  500 kB" one).
+
+  No new bugs found this stage beyond the two doc staleness issues above
+  — this was a pure docs-and-verification close-out, consistent with
+  every prior etap's own Stage 5/6.
+- **Etap 4 (Marketplace & reviews): DONE** — all 5 stages complete
+  (review domain + public marketplace read endpoints, right-rail
+  listing wired to real data with purchase-based pinning, public
+  dietitian profile view with reviews, offer selection → real
+  transaction + honest payment stub, this docs/tests sync).
 
 ---
 

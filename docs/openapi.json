@@ -1403,6 +1403,132 @@
         }
       }
     },
+    "/api/v1/dietitian/{dietitian_id}/reviews": {
+      "post": {
+        "tags": [
+          "dietitian"
+        ],
+        "summary": "Submit Review",
+        "operationId": "submit_review_api_v1_dietitian__dietitian_id__reviews_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "dietitian_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dietitian Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubmitReviewRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dietitian": {
+      "get": {
+        "tags": [
+          "dietitian"
+        ],
+        "summary": "List Dietitians",
+        "operationId": "list_dietitians_api_v1_dietitian_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DietitianListingItemResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Dietitians Api V1 Dietitian Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/dietitian/{dietitian_id}": {
+      "get": {
+        "tags": [
+          "dietitian"
+        ],
+        "summary": "Get Public Dietitian Profile",
+        "operationId": "get_public_dietitian_profile_api_v1_dietitian__dietitian_id__get",
+        "parameters": [
+          {
+            "name": "dietitian_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dietitian Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicDietitianProfileResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/users": {
       "get": {
         "tags": [
@@ -1914,6 +2040,36 @@
                   },
                   "type": "array",
                   "title": "Response Get My Transactions As Dietitian Api V1 Transactions Me Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/transactions/me/purchases": {
+      "get": {
+        "tags": [
+          "transactions"
+        ],
+        "summary": "Get My Purchases",
+        "operationId": "get_my_purchases_api_v1_transactions_me_purchases_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TransactionResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get My Purchases Api V1 Transactions Me Purchases Get"
                 }
               }
             }
@@ -2465,6 +2621,60 @@
         ],
         "title": "DietitianApplicationResponse"
       },
+      "DietitianListingItemResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "experience": {
+            "type": "string",
+            "title": "Experience"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "photos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Photos"
+          },
+          "average_rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Rating"
+          },
+          "review_count": {
+            "type": "integer",
+            "title": "Review Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "email",
+          "experience",
+          "description",
+          "photos",
+          "average_rating",
+          "review_count"
+        ],
+        "title": "DietitianListingItemResponse"
+      },
       "DietitianProfileResponse": {
         "properties": {
           "id": {
@@ -2841,6 +3051,106 @@
         "type": "object",
         "title": "PasswordResetRequestedResponse"
       },
+      "PublicDietitianProfileResponse": {
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "email": {
+            "type": "string",
+            "title": "Email"
+          },
+          "experience": {
+            "type": "string",
+            "title": "Experience"
+          },
+          "diplomas": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Diplomas"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "photos": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Photos"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "average_rating": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Average Rating"
+          },
+          "review_count": {
+            "type": "integer",
+            "title": "Review Count"
+          },
+          "reviews": {
+            "items": {
+              "$ref": "#/components/schemas/PublicReviewResponse"
+            },
+            "type": "array",
+            "title": "Reviews"
+          }
+        },
+        "type": "object",
+        "required": [
+          "user_id",
+          "email",
+          "experience",
+          "diplomas",
+          "description",
+          "photos",
+          "created_at",
+          "average_rating",
+          "review_count",
+          "reviews"
+        ],
+        "title": "PublicDietitianProfileResponse"
+      },
+      "PublicReviewResponse": {
+        "properties": {
+          "rating": {
+            "type": "integer",
+            "title": "Rating"
+          },
+          "comment": {
+            "type": "string",
+            "title": "Comment"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rating",
+          "comment",
+          "created_at"
+        ],
+        "title": "PublicReviewResponse"
+      },
       "RefreshTokenRequest": {
         "properties": {
           "refresh_token": {
@@ -2969,6 +3279,54 @@
         ],
         "title": "RescheduleMealRequest"
       },
+      "ReviewResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "reviewer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reviewer Id"
+          },
+          "dietitian_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Dietitian Id"
+          },
+          "rating": {
+            "type": "integer",
+            "title": "Rating"
+          },
+          "comment": {
+            "type": "string",
+            "title": "Comment"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "reviewer_id",
+          "dietitian_id",
+          "rating",
+          "comment",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "ReviewResponse"
+      },
       "Role": {
         "type": "string",
         "enum": [
@@ -3048,6 +3406,26 @@
           "description"
         ],
         "title": "SubmitDietitianApplicationRequest"
+      },
+      "SubmitReviewRequest": {
+        "properties": {
+          "rating": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Rating"
+          },
+          "comment": {
+            "type": "string",
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rating",
+          "comment"
+        ],
+        "title": "SubmitReviewRequest"
       },
       "TransactionResponse": {
         "properties": {
