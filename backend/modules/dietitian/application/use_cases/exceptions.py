@@ -16,3 +16,7 @@ class DietitianProfileError(Exception):
 
 class DietitianProfileNotFoundError(DietitianProfileError):
     pass
+
+
+class DietitianNotFoundError(Exception):
+    pass

@@ -25,6 +25,11 @@ class SqlAlchemyDietitianProfileRepository(DietitianProfileRepository):
         model = result.scalar_one_or_none()
         return DietitianProfileMapper.to_domain(model) if model else None
 
+    async def list_all(self) -> list[DietitianProfile]:
+        stmt = select(DietitianProfileModel).order_by(DietitianProfileModel.created_at.desc())
+        result = await self._session.execute(stmt)
+        return [DietitianProfileMapper.to_domain(model) for model in result.scalars().all()]
+
     async def save(self, profile: DietitianProfile) -> None:
         existing = await self._session.get(DietitianProfileModel, profile.id)
 

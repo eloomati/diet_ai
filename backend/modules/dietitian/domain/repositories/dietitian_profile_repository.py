@@ -10,5 +10,9 @@ class DietitianProfileRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
+    async def list_all(self) -> list[DietitianProfile]:
+        raise NotImplementedError
+
+    @abstractmethod
     async def save(self, profile: DietitianProfile) -> None:
         raise NotImplementedError

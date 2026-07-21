@@ -27,7 +27,9 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                               frontend-admin): DONE
                                             Etap 3 (Transactions
                                               module): DONE
-                                            Etaps 4-6: not started
+                                            Etap 4 (Marketplace &
+                                              reviews): Stage 1/5
+                                            Etaps 5-6: not started
 ```
 
 ---
@@ -1205,11 +1207,128 @@ about to build this etap, from the looser sketch above):
 
 Goal: users can actually discover and hire a dietitian.
 
-- **Stage 1 — Review domain**: `Review` entity (reviewer user id,
-  dietitian id, rating 1-10, comment, created_at) in the `dietitian`
-  module — one review per (user, dietitian) pair, editable by its
-  author. `POST /dietitian/{id}/reviews`, aggregated average rating
-  exposed on the dietitian's public profile/listing.
+Design decisions settled before Stage 1 (revised 2026-07-20, once actually
+about to build this etap, same spirit as Etap 3's own pre-Stage-1 revision):
+
+- **`Review` lives in the `dietitian` module, not a new module** — it's
+  data about a dietitian's public standing, same bounded context as
+  `DietitianProfile`. `id, reviewer_id, dietitian_id (both plain `UUID`s
+  pointing at `users.id`, same cross-referencing style as
+  `DietitianApplication.reviewed_by`/`Transaction.dietitian_id`), rating:
+  int (1-10 per the sketch above), comment: str, created_at, updated_at`.
+  One review per `(reviewer_id, dietitian_id)` pair, **editable by its
+  author** — `SubmitReviewUseCase` upserts: loads any existing review for
+  that pair first, calls `review.update_content()` if found, else
+  `Review.create()`. A DB-level unique index on
+  `(reviewer_id, dietitian_id)` backs the same invariant the app layer
+  enforces, exactly the way `ix_dietitian_applications_user_id` already
+  backs "one application per user" — not a new pattern.
+- **Self-review guard lives in `Review.create()`**, same reasoning as
+  `Transaction.create()`'s self-purchase guard: `reviewer_id ==
+  dietitian_id` is a pure data invariant needing no repository lookup, so
+  it belongs in the entity, not the use case.
+- **No "must have a paid transaction to review" gate.** Nothing in this
+  etap's own goal or the earlier sketch calls for tying reviews to
+  completed engagements, and building that gate now would be inventing a
+  requirement rather than implementing one — any authenticated user may
+  review any real dietitian. Flagged here explicitly as a deliberate
+  scope decision, not an oversight.
+- **Public listing/profile reads are unauthenticated** — genuinely public
+  browsing (no login) for `GET /dietitian` (marketplace listing) and
+  `GET /dietitian/{dietitian_id}` (single public profile), matching how
+  any real marketplace lets you window-shop before signing up. Submitting
+  a review (`POST /dietitian/{dietitian_id}/reviews`) still requires
+  `get_current_user` — same "any authenticated user" dependency
+  `POST /transactions` already uses.
+- **Average rating is computed on read, not stored redundantly** on
+  `DietitianProfile` — a small `rating_summary_by_dietitian_id()`
+  repository method (SQL `AVG`/`COUNT`) called once per listed/viewed
+  dietitian. Demo-scope dietitian counts make the resulting N+1 pattern
+  (one query per card) an acceptable simplicity trade-off, same call
+  already made for admin's client-side email resolution.
+- **Public reviews omit the reviewer's identity** — the profile endpoint
+  returns `rating`, `comment`, `created_at` per review, never
+  `reviewer_id`/email. This mirrors Etap 3's own buyer-contact-hiding
+  decision in spirit (don't surface a user's identity to an audience the
+  spec never asked them to be exposed to) — here protecting *any*
+  visitor (not just the dietitian) from seeing who wrote a review, since
+  this endpoint needs no auth at all to view.
+- **Marketplace listing/profile filter to real, active dietitians only**:
+  a profile whose owning user is no longer `DIET_USER` (a `SUPER_ADMIN`
+  reversed the role) or is not `ACTIVE` (banned/deactivated) is excluded
+  — same `role`/`status` check `CreateTransactionUseCase` already applies
+  when validating a purchase target, reused here for the same reason (a
+  banned dietitian shouldn't be discoverable or hireable).
+- `DietitianProfileRepository` gains `list_all()` (mirrors
+  `UserRepository`/`TransactionRepository`'s own `list_all()`) — the
+  marketplace listing use case's data source, filtered down as above.
+
+- **Stage 1 — Review domain — DONE**: `Review` entity (`reviewer_id`,
+  `dietitian_id`, `rating` 1-10, `comment`, `created_at`, `updated_at`) +
+  `reviews` table in the `dietitian` module, built exactly per the design
+  decisions settled above — self-review guard in `Review.create()`,
+  DB-level unique index on `(reviewer_id, dietitian_id)` backing the
+  app-level upsert, both FKs `ON DELETE CASCADE` (reviews about a deleted
+  dietitian, or by a deleted reviewer, have no reason to survive — unlike
+  `transactions`' asymmetric FKs). `SubmitReviewUseCase` loads any
+  existing review for the pair first and calls `update_content()` if
+  found, else `Review.create()` — one `POST /dietitian/{id}/reviews` call
+  handles both create and edit. Validates the target is a real, active
+  `DIET_USER` via `UserRepository` (reused directly, same
+  not-actually-an-exception pattern `transactions`' own
+  `CreateTransactionUseCase` already established) before touching the
+  review itself.
+
+  Also shipped in this stage, since the plan calls for the average
+  rating to be "exposed on the dietitian's public profile/listing" and
+  that listing/profile don't exist as a *frontend* yet, the **backend**
+  side of both: `GET /dietitian` (marketplace listing) and
+  `GET /dietitian/{dietitian_id}` (single public profile) — both
+  genuinely unauthenticated, matching real-marketplace browse-before-login
+  UX. `ListDietitiansUseCase`/`GetPublicDietitianProfileUseCase` join
+  `DietitianProfileRepository.list_all()` (new method, added this stage)
+  against `UserRepository` (for email + role/status filtering) and
+  `ReviewRepository.rating_summary_by_dietitian_id()` (a small SQL
+  `AVG`/`COUNT` query) per dietitian — an accepted N+1 pattern at this
+  data scale, same trade-off already made for admin's client-side email
+  resolution. Public reviews surface `rating`/`comment`/`created_at`
+  only, never the reviewer's identity — a deliberate, explicitly-recorded
+  scope decision, not an oversight. This stage is otherwise backend-only
+  — Stages 2/3 wire the frontend to what it exposes, same "schema/logic
+  first, UI next" split as every prior etap.
+
+  Exit criteria met: 29 new tests (7 `Review` entity — self-review guard,
+  rating boundaries, empty-comment rejection, `update_content()`; 6
+  `SubmitReviewUseCase` — create, upsert-on-repeat, unknown/non-dietitian
+  target, self-review, invalid rating; 4 `ListDietitiansUseCase` — active
+  dietitian with rating summary, excludes banned, excludes role-reversed,
+  empty; 3 `GetPublicDietitianProfileUseCase` — reviews without reviewer
+  identity, not-found, banned-excluded; 6 review API tests — 201, 401,
+  404 unknown dietitian, 400 self-review, 422 out-of-range rating,
+  upsert-via-API; 3 marketplace API tests — public listing, public
+  profile with a real review, 404 without a profile), dietitian module
+  now at 82 tests (up from 53). Because this stage added a new abstract
+  method to the shared `DietitianProfileRepository` port (`list_all()`,
+  also consumed by `admin`'s existing fakes), the **full** backend suite
+  was run rather than just the touched module's: 508 passed, 0 failed
+  (up from 479 at Etap 3's close — the 29 new tests here plus nothing
+  else changed).
+
+  Live-verified against the real Docker backend: confirmed the
+  `20260720_10_reviews` migration applies cleanly on top of
+  `20260720_09_transactions`; registered a buyer and a dietitian,
+  promoted the dietitian and seeded a profile via direct SQL (same
+  pattern as every prior stage's bootstrap), confirmed `GET /dietitian`
+  lists it — and, since this environment's Postgres volume carries
+  dietitian profiles seeded by earlier live-verification sessions all the
+  way back to Phase 12's start, the listing response came back with all
+  of them still present and correctly email-resolved, a good incidental
+  check that `list_all()` doesn't silently drop older rows. Confirmed
+  `GET /dietitian/{id}` 404s before any profile exists check applies,
+  submitted a real review as the buyer (`average_rating`/`review_count`
+  updated correctly on the next profile fetch), and confirmed the
+  dietitian attempting to review themselves gets a real `400`.
+  `docker compose down` after.
 - **Stage 2 — Right rail becomes the marketplace listing**: replaces
   today's static "Co nowego" placeholder (which Etap 5 of Phase 10
   explicitly described as "reserved for future roadmap items" — this is
