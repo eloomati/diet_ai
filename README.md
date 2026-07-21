@@ -652,6 +652,16 @@ The focus is on understanding software architecture, domain modeling and clean a
 
 ---
 
+# License
+
+Licensed under the [Business Source License 1.1](LICENSE). The source is
+public and free to use for personal, educational, or internal purposes —
+offering Mycelo (or a substantially derived product) as a competing
+commercial service requires a separate license from the author. Converts
+automatically to Apache License 2.0 on 2030-07-21.
+
+---
+
 # Author
 
 Mateusz Hetko
