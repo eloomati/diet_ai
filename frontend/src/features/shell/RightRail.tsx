@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { ChevronRight, Star, Users } from 'lucide-react'
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -9,6 +10,8 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/EmptyState'
 import { listDietitians } from '@/api/dietitian'
 import type { DietitianListingItem } from '@/api/dietitian'
+import { listMyDietitianThreads } from '@/api/messaging'
+import type { DietitianThread } from '@/api/messaging'
 import { getMyPurchases } from '@/api/transactions'
 import { useAuth } from '@/lib/auth'
 import { resolveStaticUrl } from '@/lib/apiFetch'
@@ -64,8 +67,40 @@ function DietitianCard({
   )
 }
 
+function ThreadCard({
+  thread,
+  onOpen,
+}: {
+  thread: DietitianThread
+  onOpen: (threadId: string) => void
+}) {
+  const email = thread.other_participant_email ?? 'Nieznany użytkownik'
+  const initials = email.slice(0, 2).toUpperCase()
+
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(thread.id)}
+      className="w-full rounded-2xl border border-border bg-background p-3 text-left hover:bg-accent/40"
+    >
+      <div className="flex items-center gap-2.5">
+        <Avatar className="size-9 border border-border">
+          <AvatarFallback className="bg-gradient-to-br from-secondary to-secondary-foreground/30 font-bold text-secondary-foreground">
+            {initials}
+          </AvatarFallback>
+        </Avatar>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[13px] font-bold text-foreground">{email}</p>
+          <p className="text-[11px] text-muted-foreground">Otwórz czat</p>
+        </div>
+      </div>
+    </button>
+  )
+}
+
 export function RightRail({ onCollapse }: RightRailProps) {
   const { isAuthenticated } = useAuth()
+  const navigate = useNavigate()
   const [selectedDietitianId, setSelectedDietitianId] = useState<string | null>(null)
 
   const dietitiansQuery = useQuery({
@@ -77,6 +112,16 @@ export function RightRail({ onCollapse }: RightRailProps) {
     queryFn: getMyPurchases,
     enabled: isAuthenticated,
   })
+  // Symmetric on purpose — GET /messaging/threads already returns a
+  // thread regardless of which side the caller is on, so this one query
+  // serves a buyer's dietitian-contacts list and a dietitian's client
+  // list with no role branching needed here.
+  const threadsQuery = useQuery({
+    queryKey: ['my-dietitian-threads'],
+    queryFn: listMyDietitianThreads,
+    enabled: isAuthenticated,
+  })
+  const threads = threadsQuery.data ?? []
 
   const engagedDietitianIds = new Set(
     (purchasesQuery.data ?? [])
@@ -101,6 +146,21 @@ export function RightRail({ onCollapse }: RightRailProps) {
         </div>
 
         <div className="flex-1 overflow-y-auto px-3.5 pb-3.5">
+          {threads.length > 0 && (
+            <div className="mb-3 flex flex-col gap-2">
+              <span className="text-[11px] font-bold tracking-wide text-muted-foreground uppercase">
+                Wiadomości
+              </span>
+              {threads.map((thread) => (
+                <ThreadCard
+                  key={thread.id}
+                  thread={thread}
+                  onOpen={(threadId) => navigate(`/dietitian-chat/${threadId}`)}
+                />
+              ))}
+            </div>
+          )}
+
           {dietitiansQuery.isPending ? (
             <div className="flex flex-col gap-2" role="status" aria-label="Ładowanie listy dietetyków…">
               <Skeleton className="h-20 w-full rounded-2xl" />

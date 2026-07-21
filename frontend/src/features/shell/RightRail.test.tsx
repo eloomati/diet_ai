@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useRef } from 'react'
+import { MemoryRouter, Route, Routes, useParams } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AuthProvider, useAuth } from '@/lib/auth'
@@ -28,11 +29,26 @@ function LoggedInRightRail() {
   return <RightRail onCollapse={noop} />
 }
 
+function ThreadIdMarker() {
+  const { threadId } = useParams<{ threadId: string }>()
+  return <p>Czat z wątkiem {threadId}</p>
+}
+
 function renderRightRail({ loggedIn = false }: { loggedIn?: boolean } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>{loggedIn ? <LoggedInRightRail /> : <RightRail onCollapse={noop} />}</AuthProvider>
+      <MemoryRouter initialEntries={['/']}>
+        <AuthProvider>
+          <Routes>
+            <Route
+              path="/"
+              element={loggedIn ? <LoggedInRightRail /> : <RightRail onCollapse={noop} />}
+            />
+            <Route path="/dietitian-chat/:threadId" element={<ThreadIdMarker />} />
+          </Routes>
+        </AuthProvider>
+      </MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -175,5 +191,64 @@ describe('RightRail marketplace listing (Etap 4 Stage 2)', () => {
 
     expect(await screen.findByText('Pełny opis dietetyka A.')).toBeInTheDocument()
     expect(screen.getByText('MSc Dietetics')).toBeInTheDocument()
+  })
+
+  it('shows a "Wiadomości" section with contact cards and navigates to the chat on click (Etap 5 Stage 3)', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/me')) {
+        return Promise.resolve(
+          jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true }),
+        )
+      }
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      if (url.endsWith('/dietitian')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      if (url.endsWith('/transactions/me/purchases')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      if (url.endsWith('/messaging/threads')) {
+        return Promise.resolve(
+          jsonResponse(200, [
+            {
+              id: 'thread-1',
+              user_id: 'u1',
+              dietitian_id: 'd1',
+              created_at: '2026-07-22T00:00:00Z',
+              other_participant_email: 'dietitian.contact@example.com',
+            },
+          ]),
+        )
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderRightRail({ loggedIn: true })
+
+    expect(await screen.findByText('Wiadomości')).toBeInTheDocument()
+    expect(screen.getByText('dietitian.contact@example.com')).toBeInTheDocument()
+
+    await user.click(screen.getByText('dietitian.contact@example.com'))
+
+    expect(await screen.findByText('Czat z wątkiem thread-1')).toBeInTheDocument()
+  })
+
+  it('does not show a "Wiadomości" section when there are no threads', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        if (url.endsWith('/dietitian')) return Promise.resolve(jsonResponse(200, []))
+        return Promise.resolve(jsonResponse(200, {}))
+      }),
+    )
+
+    renderRightRail()
+    await screen.findByText('Brak dostępnych dietetyków.')
+
+    expect(screen.queryByText('Wiadomości')).not.toBeInTheDocument()
   })
 })

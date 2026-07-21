@@ -27,6 +27,7 @@
     --color-muted-foreground: var(--muted-foreground);
     --color-muted: var(--muted);
     --color-mycelo-idle: var(--mycelo-idle);
+    --color-human-chat-background: var(--human-chat-background);
     --color-secondary-foreground: var(--secondary-foreground);
     --color-secondary: var(--secondary);
     --color-primary-foreground: var(--primary-foreground);
@@ -65,6 +66,7 @@
     --accent-foreground: #5C3D0B;
     --destructive: #B4523D;
     --mycelo-idle: #A9754C;
+    --human-chat-background: #EEF3E7;
     --border: #E7DAC0;
     --input: #E7DAC0;
     --ring: #C98A1F;
@@ -100,6 +102,7 @@
     --accent-foreground: #F6DFA8;
     --destructive: #D97561;
     --mycelo-idle: #C98A5F;
+    --human-chat-background: #1C2417;
     --border: #3D3323;
     --input: #3D3323;
     --ring: #E8AE3D;

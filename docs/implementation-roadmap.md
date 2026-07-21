@@ -31,7 +31,7 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                               reviews): DONE
                                             Etap 5 (Kafka notifications
                                               + human-dietitian chat):
-                                              Stage 2/5
+                                              Stage 3/5
                                             Etap 6: not started
 ```
 
@@ -1903,8 +1903,8 @@ pre-Stage-1 revision):
   order from either side, and confirmed a third, unrelated registered
   user gets a real `403` trying to read that thread. `docker compose
   down` after.
-- **Stage 3 — Human-chat UI**: once a transaction is paid, a contact
-  card appears above the marketplace roster (Etap 4 Stage 2's rail).
+- **Stage 3 — Human-chat UI — DONE**: once a transaction is paid, a
+  contact card appears above the marketplace roster (Etap 4 Stage 2's rail).
   Opening it swaps `ChatCanvas` into a **human-chat variant** — same
   layout, but the background tint shifts toward green (a new set of
   design tokens, not a hardcoded color, so it composes with the existing
@@ -1912,6 +1912,85 @@ pre-Stage-1 revision):
   the AI. The composer gains a "send my generated plan" action (attaches
   a `diet_plan_id`, rendered in the thread as a compact `DietPlanCard`,
   reusing the existing component from Phase 10).
+
+  Design decisions settled right before building this stage:
+
+  - **A separate `HumanChatCanvas.tsx`, not a branch inside `ChatCanvas`
+    itself.** "Same layout" means the same *visual* structure (header /
+    scroll area / composer), not literally one component juggling two
+    unrelated data sources, message shapes, and send flows behind a pile
+    of conditionals. `AppShell` renders whichever one matches the
+    current route.
+  - **A new route, `/dietitian-chat/:threadId`, alongside the existing
+    `/:conversationId`** — mutually exclusive, never both set. Etap 0's
+    own reasoning for routing the AI conversation by URL (refresh/deep-link
+    safety) applies identically here; a plain local-state swap (like
+    `DietitianProfileModal`'s) would lose your place in the human
+    conversation on refresh, which the AI side deliberately avoids.
+  - **New `--human-chat-background` token** (light + dark, registered in
+    `@theme inline` as `--color-human-chat-background`) — a green-tinted
+    background applied to `HumanChatCanvas`'s outer container. Bubble
+    colors themselves stay the same primary/card scheme `ChatCanvas`
+    already uses — only the background shifts, which is all "visually
+    unmistakable this isn't the AI" actually calls for.
+  - **The message list polls** (`refetchInterval`), same "confirmed
+    polling decision" already governing Stage 4's own notification
+    badges — no WebSocket for the human side either.
+  - **"Send my generated plan" is its own composer action, not merged
+    into free-text sending** — clicking it lists the caller's own plans
+    (`GET /diet-plans`, Phase 10) and sending one attaches its
+    `diet_plan_id` with a fixed content string, distinct from typing a
+    message. Any message carrying a `diet_plan_id` renders a
+    `DietPlanCard` instead of a text bubble (fetching that one plan's
+    full detail on demand, not eagerly for the whole thread).
+  - **The right rail's new "Wiadomości" section is symmetric** — `GET
+    /messaging/threads` already returns a thread regardless of which
+    side the caller is on, so the exact same section/component serves a
+    buyer's dietitian-contacts list and a dietitian's client list, no
+    role branching needed in the frontend.
+
+  Built exactly per the design decisions above: `App.tsx` gained
+  `/dietitian-chat/:threadId`; `AppShell` branches on the new `threadId`
+  param (`HumanChatCanvas` vs `ChatCanvas`, never both). `HumanChatCanvas`
+  mirrors `ChatCanvas`'s header/scroll-area/composer structure but reads
+  its own data (`GET /messaging/threads` to resolve the header's "other
+  participant" email and to derive which role — `USER` or `DIETITIAN` —
+  the caller is in *this* thread, `GET .../messages` polling every 4s,
+  `POST .../messages` to send). `RightRail.tsx` gained a "Wiadomości"
+  section (only rendered when there's at least one thread — no
+  empty-state clutter for the common case of having none yet) above the
+  existing "Dietetycy" marketplace listing, each card navigating to the
+  thread's URL on click. `frontend/src/api/messaging.ts` (new) — thin
+  client for all three endpoints.
+
+  Exit criteria met: main frontend — 9 new tests (2 `RightRail` — the
+  new section + its "no threads → hidden" case, 6 `HumanChatCanvas` —
+  header, empty state, bubble alignment for both roles, sending a text
+  message, plan-attached rendering, no-plans-yet state, 1 `AppShell` —
+  confirms the route actually renders `HumanChatCanvas` not the AI hero)
+  — main frontend now at 131 tests. One real regression caught and fixed
+  immediately: adding `useNavigate()` to `RightRail` broke all 5 of its
+  *existing* tests (`useNavigate() may be used only in the context of a
+  <Router>`) — fixed by wrapping `renderRightRail`'s test helper in a
+  `MemoryRouter`, same as `ChatCanvas.test.tsx` already does. `npx tsc
+  -b` (the build's own stricter check, not caught by plain `--noEmit`)
+  also caught a real type mismatch in the plan-picker's `onValueChange`
+  handler — fixed. `npm run build` clean. No backend changes this stage.
+
+  Live-verified against the real Docker stack in a real browser
+  (Claude-in-Chrome stayed connected): seeded a real paid transaction
+  (auto-creating the thread via Stage 1/2's own consumers) and two seed
+  messages via `curl`, then — as the buyer — confirmed the "Wiadomości"
+  card appears, opening it shows the green-tinted background, the
+  correct header, both seeded messages correctly aligned, sent a new
+  message and watched it append live; refreshed directly on the
+  `/dietitian-chat/:threadId` URL and confirmed the whole thread reloads
+  correctly (the exact refresh-safety the URL-routing decision was for);
+  opened "Wyślij mój plan" with no generated plans yet and confirmed the
+  honest empty state. Then logged in as the dietitian in a second tab
+  and confirmed the header and bubble alignment both correctly flip from
+  their side — the buyer's messages read as "theirs," the dietitian's
+  own reply as "mine." `docker compose down` after.
 - **Stage 4 — Notification badges**: a small badge above the right rail
   for an unread dietitian message, and (Etap 3's event) a badge/toast
   for a newly-paid transaction becoming visible to the dietitian side.
