@@ -205,6 +205,13 @@ small packages:
   module's Ollama integration once it became clear the functions have zero
   coupling to `Prompt`/`AIResponse` or anything Ollama-specific — they only
   ever touched `dict`/`type[BaseModel]`.
+- `shared/validation/` (Phase 13) — `is_valid_human_name()`, a pure
+  predicate (Polish letters, digits, single spaces, max 50 chars) with no
+  exceptions of its own. Passes the same test as everything else here:
+  unlike `PasswordPolicy` above, it raises nothing module-specific, so it
+  qualifies for `shared/` even though three different call sites
+  (`identity`'s `DisplayName`, `dietitian`'s `first_name`/`last_name`)
+  wrap it in their own domain exception on failure.
 
 The dependency direction only ever goes one way: a module may depend on
 `shared/`, `shared/` never depends on a module. That's the test applied
@@ -513,11 +520,13 @@ requirement of a prior paid transaction** with the dietitian before
 reviewing — nothing in Etap 4's own scope calls for that gate, and
 adding it would be inventing a requirement, not implementing one.
 
-Reviews shown through the public profile endpoint omit the reviewer's
-identity (`rating`/`comment`/`created_at` only, never `reviewer_id` or
-an email) — mirrors `transactions`' own buyer-contact-hiding decision in
-spirit, but here protecting *any* visitor, not just the dietitian, since
-this endpoint needs no authentication at all to view.
+Reviews shown through the public profile endpoint include a resolved
+`reviewer_name` (Phase 13) — `GetPublicDietitianProfileUseCase` looks up
+each reviewer's `User` and resolves `resolved_display_name`. The raw
+`reviewer_id` was already returned by the submit-review response since
+Phase 12, so this endpoint's reviews were never actually anonymous in
+practice — this closes that gap rather than removing protection that
+existed.
 
 ---
 

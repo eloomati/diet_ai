@@ -275,7 +275,8 @@ Body:
   "email": "user@example.com",
   "status": "ACTIVE",
   "role": "USER",
-  "email_verified": false
+  "email_verified": false,
+  "display_name": null
 }
 ```
 
@@ -284,11 +285,57 @@ is `USER` until either a `SUPER_ADMIN` promotes them (see
 `PATCH /admin/users/{user_id}/role` below) or a future dietitian-
 application approval flow promotes them to `DIET_USER` (Phase 12).
 
+`display_name`: `null` until the user sets one via `PATCH /auth/me`
+below. Wherever the app shows this user's identity to someone else
+(chat, messaging threads, reviews), it resolves to `display_name` if
+set, falling back to `email` otherwise (Phase 13).
+
 ### Errors
 
 401 Unauthorized — `INVALID_ACCESS_TOKEN` (missing/malformed/expired token, or token references a deleted user)
 
 403 Forbidden — `INACTIVE_USER`
+
+---
+
+## PATCH /auth/me
+
+Sets or clears the authenticated user's own `display_name` — the name
+shown to other users instead of their email in chat, messaging threads,
+and reviews.
+
+Authentication:
+
+Required — `Authorization: Bearer {access_token}`.
+
+### Request
+
+```json
+{
+  "display_name": "Jan Kowalski"
+}
+```
+
+`display_name`: Polish letters, digits, and single spaces between words
+only, max 50 characters. Pass `null` to clear it back to unset (the
+user's email becomes the shown identity again).
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `GET /auth/me` above, reflecting the new
+`display_name`.
+
+### Errors
+
+400 Bad Request — `INVALID_DISPLAY_NAME`
+
+401 Unauthorized — `INVALID_ACCESS_TOKEN`
 
 ---
 
@@ -1288,12 +1335,20 @@ Body:
   "diplomas": ["MSc Dietetics"],
   "description": "I specialize in weight management and sports nutrition.",
   "photos": ["/static/dietitian-photos/<uuid>.jpg"],
-  "created_at": "2026-07-19T12:00:00+00:00"
+  "created_at": "2026-07-19T12:00:00+00:00",
+  "first_name": null,
+  "last_name": null
 }
 ```
 
 `photos` holds up to 3 entries — each a root-absolute path served by a
 static file mount, not under `/api/v1` (see `POST .../photos` below).
+
+`first_name`/`last_name`: both `null` until set via `PUT
+/dietitian/profile` below — entirely optional (Phase 13). Setting both
+is the dietitian's own choice to show their real name publicly instead
+of their `display_name`/email; see `GET /dietitian` and `GET
+/dietitian/{dietitian_id}` for the resolution order.
 
 ### Errors
 
@@ -1323,7 +1378,8 @@ Required — caller's role must be `DIET_USER`.
 }
 ```
 
-`experience`, `diplomas`, `description` — all optional.
+`experience`, `diplomas`, `description`, `first_name`, `last_name` — all
+optional.
 
 ### Response
 
@@ -1435,7 +1491,7 @@ Body:
 [
   {
     "user_id": "uuid",
-    "email": "dietitian@example.com",
+    "name": "Jan Kowalski",
     "experience": "5 years as a clinical dietitian",
     "description": "I specialize in weight management and sports nutrition.",
     "photos": ["/static/dietitian-photos/abc.jpg"],
@@ -1445,8 +1501,10 @@ Body:
 ]
 ```
 
-`average_rating` is `null` when `review_count` is `0`. `email` is the
-only display identifier — `User` has no separate display-name field.
+`average_rating` is `null` when `review_count` is `0`. `name` (Phase
+13, was `email`) resolves in priority order: the dietitian's own
+`first_name + last_name` if both are set → their `display_name` if set
+→ their email as the final fallback.
 
 ### Errors
 
@@ -1475,7 +1533,7 @@ Body:
 ```json
 {
   "user_id": "uuid",
-  "email": "dietitian@example.com",
+  "name": "Jan Kowalski",
   "experience": "5 years as a clinical dietitian",
   "diplomas": ["MSc Dietetics"],
   "description": "I specialize in weight management and sports nutrition.",
@@ -1487,16 +1545,19 @@ Body:
     {
       "rating": 9,
       "comment": "Very helpful, clear plan.",
-      "created_at": "2026-07-20T12:00:00+00:00"
+      "created_at": "2026-07-20T12:00:00+00:00",
+      "reviewer_name": "BuyerNick"
     }
   ]
 }
 ```
 
-Each entry in `reviews` deliberately omits the reviewer's identity — no
-`reviewer_id`/email — since this endpoint needs no auth at all to view,
-protecting any visitor (not just the dietitian) from seeing who wrote a
-review.
+`name`: same resolution order as `GET /dietitian` above. Each entry in
+`reviews` now includes `reviewer_name` (Phase 13, resolved the same way
+— the reviewer's `display_name` or email) — reviews are no longer
+anonymous, since this endpoint being public/no-auth was never actually
+the reason they omitted the reviewer's identity (the raw `reviewer_id`
+was already returned by `POST .../reviews` below all along).
 
 ### Errors
 
@@ -1540,6 +1601,7 @@ Body:
 {
   "id": "uuid",
   "reviewer_id": "uuid",
+  "reviewer_name": "BuyerNick",
   "dietitian_id": "uuid",
   "rating": 9,
   "comment": "Very helpful, clear plan.",
@@ -1547,6 +1609,10 @@ Body:
   "updated_at": "2026-07-20T12:00:00+00:00"
 }
 ```
+
+`reviewer_name` (Phase 13): the reviewer's own `display_name` or email —
+same resolution as elsewhere, just without the dietitian real-name step
+(a reviewer isn't necessarily a dietitian).
 
 Always `201`, even when this call updated an existing review rather
 than creating a new one — the response itself (an unchanged `id` versus
@@ -2154,14 +2220,16 @@ Body:
     "user_id": "uuid",
     "dietitian_id": "uuid",
     "created_at": "2026-07-22T12:00:00+00:00",
-    "other_participant_email": "dietitian@example.com"
+    "other_participant_name": "Jan Kowalski"
   }
 ]
 ```
 
-`other_participant_email` resolves to whichever side the caller *isn't*
-— the dietitian's email for a buyer calling this, the buyer's email for
-a dietitian calling this. `null` if that user's account has since been
+`other_participant_name` (Phase 13, was `other_participant_email`)
+resolves to whichever side the caller *isn't*. When the other side is
+the dietitian, it uses the same `first_name + last_name` → `display_name`
+→ email priority as `GET /dietitian`; when it's the buyer, it's their
+`display_name` or email. `null` if that user's account has since been
 deleted (the thread itself outlives them either way — both `user_id`
 and `dietitian_id` are `ON DELETE CASCADE`, so a thread is only ever
 actually removed once *both* participants are gone).

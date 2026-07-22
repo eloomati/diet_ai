@@ -26,9 +26,7 @@ Phase 13    - Quality, Security &           IN PROGRESS —
               Personalization                Etap 0 (Security & session
                                                 hardening): DONE
                                               Etap 1 (User display
-                                                names): IN PROGRESS
-                                                (Stage 1-3 done, Stage
-                                                4-5 remaining)
+                                                names): DONE
                                               Etap 2 (Chat & diet-plan
                                                 UX polish): not started
                                               Etap 3 (Multi-plan
@@ -439,7 +437,7 @@ thing anywhere in this codebase to read the request's client IP):
 
 ---
 
-### Etap 1 — User Display Names
+### Etap 1 — User Display Names — DONE
 
 Goal: everyone can set their own display name; dietitians additionally
 have the option to display their real first + last name instead.
@@ -642,7 +640,24 @@ gap Stage 2 didn't cover — it only touched read models):
     call; registration still succeeds end-to-end. `AuthPopup.test.tsx`
     (7 tests) covers login, register success, register conflict, the
     new mismatch case, guest continue, and forgot-password nav.
-- [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
+- [x] **Stage 5 — Tests + docs sync — DONE**: closing stage for this
+      etap. Synced `docs/api.md` (new `PATCH /auth/me` section;
+      `GET/PATCH /auth/me`'s `display_name`; `PUT /dietitian/profile`'s
+      `first_name`/`last_name`; `email` → `name` renames on `GET
+      /dietitian` and `GET /dietitian/{id}`; `reviewer_name` on both
+      review endpoints; `other_participant_email` → `_name` on `GET
+      /messaging/threads`), `docs/domain-model.md` (`User.displayName`,
+      `DietitianProfile.firstName`/`lastName`, corrected the Review
+      section's now-outdated "omits reviewer identity" claim), and
+      `docs/architecture.md` (`shared/validation/` entry for
+      `is_valid_human_name()`, corrected the same Review-anonymity
+      claim). `README.md` only links to this roadmap for Phase 13, no
+      changes needed there.
+
+  Exit criteria met: full suite run at etap close (per the tightened
+  test-scope rule — each stage only ran its own directly-affected
+  files). Full backend suite **622 passed**, full frontend suite **142
+  passed**.
 
 ---
 
