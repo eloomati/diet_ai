@@ -25,6 +25,7 @@ class TransactionResponse(BaseModel):
     status: TransactionStatus
     created_at: datetime
     paid_at: datetime | None
+    buyer_email: str | None = None
 
     @classmethod
     def from_result(cls, result: TransactionResult) -> "TransactionResponse":
@@ -37,4 +38,5 @@ class TransactionResponse(BaseModel):
             status=result.status,
             created_at=result.created_at,
             paid_at=result.paid_at,
+            buyer_email=result.buyer_email,
         )

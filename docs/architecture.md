@@ -1,8 +1,8 @@
-# Diet AI - Architecture
+# Mycelo - Architecture
 
 ## 1. Overview
 
-Diet AI is an AI-powered nutrition assistant that allows users to communicate with an AI model and receive personalized dietary recommendations.
+Mycelo is an AI-powered nutrition assistant that allows users to communicate with an AI model and receive personalized dietary recommendations.
 
 The system allows users to:
 
@@ -47,7 +47,7 @@ The project uses a **Modular Monolith** architecture.
 The application is a single deployable backend, but internally consists of independent business modules.
 
 ```
-Diet AI Backend
+Mycelo Backend
 
 +--------------------------------+
 
@@ -251,7 +251,7 @@ own `InvalidPasswordError` directly, so it stays put).
                 Claude Provider / Ollama (local)
 ```
 
-`frontend-admin` (Phase 12, in progress) is a second, separate frontend
+`frontend-admin` (Phase 12) is a second, separate frontend
 calling the same FastAPI API — omitted from the diagram above to keep
 it to the original chat/nutrition flow. It talks to a new `Admin`
 module, which has no database of its own (see "Admin Module" below) —
@@ -538,10 +538,10 @@ Two route groups, both gated by `require_role(ADMIN, SUPER_ADMIN)`:
   experience/diplomas/description.
 - `/admin/transactions` — list every transaction, mark one paid/unpaid.
   Marking paid also calls `transactions`' `TransactionEventPublisher`
-  port (see the Transactions Module below) — a no-op today, a real
-  Kafka publish once Phase 12 Etap 5 exists; marking unpaid doesn't
-  publish anything, since only a transaction *becoming* paid is a
-  meaningful business event.
+  port (see the Transactions Module below) — a no-op by default, a real
+  Kafka publish since Phase 12 Etap 5; marking unpaid doesn't publish
+  anything, since only a transaction *becoming* paid is a meaningful
+  business event.
 
 ---
 
@@ -588,27 +588,45 @@ actual mark-paid/unpaid endpoints (this module owns the data and the
 buyer-facing `POST /transactions`, but the admin actions on it live in
 `admin`, same split as everywhere else).
 
-### `TransactionEventPublisher` — a port with no real implementation yet
+### `TransactionEventPublisher` — mock by default, real Kafka since Etap 5
 
-A transaction becoming `PAID` is meant to trigger a Kafka
-`TransactionPaid` event once Phase 12 Etap 5 adds Kafka infrastructure
-— but that infrastructure doesn't exist yet, and Stage 3 of Etap 3
-still needed *something* to call. Same "swappable port, mock/no-op
-default" shape as `EmailSender`/`SftpClient`/`FileStorage` elsewhere in
-this codebase:
+A transaction becoming `PAID` triggers a Kafka `TransactionPaid` event.
+Same "swappable port, mock/no-op default" shape as
+`EmailSender`/`SftpClient`/`FileStorage` elsewhere in this codebase:
 
 ```python
 class TransactionEventPublisher(ABC):
     async def publish_transaction_paid(self, transaction: Transaction) -> None: ...
 ```
 
-`NoOpTransactionEventPublisher` is the only implementation today —
-it just records what it would have published (`published: list[Transaction]`,
-mirroring `MockEmailSender.sent`) so tests can assert against it without
-a real broker. Etap 5 adds a `KafkaTransactionEventPublisher` and wires
-it in; the use case that calls `publish_transaction_paid()`
-(`MarkTransactionPaidUseCase`, in the Admin module) doesn't change when
-that happens.
+`NoOpTransactionEventPublisher` just records what it would have
+published (`published: list[Transaction]`, mirroring
+`MockEmailSender.sent`) so tests can assert against it without a real
+broker — and stays the *default* (`kafka_provider: mock`), same
+mock/real split as `ai_provider`/`email_provider`/`sftp_provider`,
+precisely so `pytest` never needs a broker either. `Kafka
+TransactionEventPublisher` (Phase 12 Etap 5) is the real implementation,
+taking an `aiokafka.AIOKafkaProducer` via constructor injection (a
+`_KafkaProducerLike` Protocol exposing just `send_and_wait`, not the
+global singleton reached into directly) — the use case that calls
+`publish_transaction_paid()` (`MarkTransactionPaidUseCase`, in the
+Admin module) never changed when this was added.
+
+Kafka infrastructure itself (`backend/shared/messaging/`) is a single
+broker in KRaft mode (`apache/kafka:3.8.0`, no Zookeeper) — a producer
+singleton (`init_kafka_producer`/`close_kafka_producer`, same
+init/close shape as `shared/database/postgres.py`) plus a generic
+`run_kafka_consumer_loop(topics, bootstrap_servers, group_id,
+handle_message)` helper (decode JSON, dispatch, log-and-continue on a
+bad message rather than crashing the whole consumer task). Both only
+start in the app's `lifespan` when `kafka_provider == "kafka"` — nothing
+to consume if nothing real is publishing.
+
+**Two independent consumer groups** (`mycelo-notifications`,
+`mycelo-messaging`) subscribe to the same `transaction-paid` topic —
+standard Kafka fan-out, not one consumer handling two responsibilities.
+See the Notifications and Messaging Module sections below for what each
+one does on receipt.
 
 ### FK behavior — the one relationship in this codebase where the same
 ### entity plays two different roles with two different delete behaviors
@@ -622,6 +640,94 @@ account shouldn't erase the *buyer's* transaction history, so the row
 survives with `dietitian_id = NULL`. Both behaviors were verified for
 real (not just trusted from the migration DDL) by deleting each side's
 user row directly and checking the transaction row's resulting state.
+
+---
+
+## Notifications Module (Phase 12)
+
+Responsible for one unread/read marker per recipient — the backing
+model for the right-rail badge.
+
+Responsibilities:
+
+- `GET /notifications` — the caller's own, most recent first,
+- `POST /notifications/mark-all-read` — one bulk action, not
+  per-notification mark-read (a small-badge UI has few enough
+  notifications that "mark everything I can currently see as read" is
+  the only action that makes sense).
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+Notification
+```
+
+This module never calls another module's ports itself — it's purely on
+the *receiving* end, populated from two independent sources: its own
+Kafka consumer (`run_transaction_paid_consumer`, reacting to
+`TransactionPaid` → creates a `TRANSACTION_PAID` notification for the
+transaction's dietitian, skipping silently if that dietitian's account
+has since been deleted) and a direct, synchronous call from
+`messaging`'s `SendDietitianMessageUseCase` (`NEW_MESSAGE`) — sending a
+message and notifying its recipient happen in the same request, same
+module boundary `messaging` already crosses, so this is a plain
+use-case-to-use-case call, not a second Kafka topic invented for a
+same-process event.
+
+---
+
+## Messaging Module (Phase 12)
+
+Responsible for the one-thread-per-buyer/dietitian-pair channel a
+`TransactionPaid` event auto-creates, and the messages exchanged on it.
+
+Responsibilities:
+
+- `GET /messaging/threads` — every thread the caller is a participant
+  of (symmetric — serves a buyer's "my dietitians" list and a
+  dietitian's "my clients" list with no role branching, since the
+  endpoint doesn't care which side of the pair the caller is),
+- `GET /messaging/threads/{id}/messages` / `POST
+  /messaging/threads/{id}/messages` — reading and sending on a thread
+  the caller is a participant of.
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+DietitianThread
+
+DietitianMessage
+```
+
+**No endpoint creates a thread directly** — `EnsureDietitianThreadUseCase`
+get-or-creates one, called only from this module's own Kafka consumer
+(`run_transaction_paid_thread_consumer`, its own independent consumer
+group on the same `transaction-paid` topic `notifications`' consumer
+also subscribes to — see the Transactions Module's Kafka subsection
+above). Thread existence *is* the access gate to send/read messages on
+it, and it's permanent once granted — **not** re-checked against the
+transaction's live `status` the way the buyer-contact reveal on `GET
+/transactions/me` is; once a thread exists, it exists.
+
+`sender` (`USER` | `DIETITIAN`) on a message is always derived
+server-side from which participant the caller is — never accepted from
+the client. `diet_plan_id` is an optional, FK-less cross-database
+pointer into a Mongo-held `DietPlan` (same pattern as every other
+Postgres-row-points-at-Mongo-data case in this system) — set only when
+the frontend's "send my plan" action is used, and renders as a
+`DietPlanCard` instead of a text bubble.
 
 ---
 
@@ -1052,6 +1158,18 @@ role/status, and to resolve a dietitian's email — `User` has no separate
 display-name field) alongside its own module's `DietitianProfileRepository`
 and `ReviewRepository`. Same port, same pattern.
 
+`messaging`'s `ListMyDietitianThreadsUseCase` (Phase 12 Etap 5) and
+`transactions`' `GetMyTransactionsAsDietitianUseCase` (same etap) do the
+same again — the former resolves `other_participant_email` for each
+thread, the latter resolves `buyer_email` once a transaction is `PAID`
+— both via `identity`'s `UserRepository` directly, same port, same
+pattern. `notifications` (also Etap 5) is the first module in this
+codebase with **no** cross-module repository calls of its own at
+all — it only ever receives a `recipient_user_id` + `type` +
+`reference_id` from whichever module calls its `CreateNotificationUseCase`
+(either a Kafka consumer, or `messaging` directly), never resolving
+anything about the recipient itself.
+
 ---
 
 # 10. AI Communication Flow
@@ -1141,11 +1259,12 @@ backend
 
 frontend        — React + Vite dev server (Phase 10, the actual web UI)
 
-frontend-admin  — React + Vite dev server (Phase 12, in progress) — the
-                  admin panel, a fully separate app on its own port;
-                  login requires an ADMIN/SUPER_ADMIN account
+frontend-admin  — React + Vite dev server (Phase 12) — the admin
+                  panel, a fully separate app on its own port; login
+                  requires an ADMIN/SUPER_ADMIN account
 
-db          — PostgreSQL (Identity, Dietitian, Transactions)
+db          — PostgreSQL (Identity, Dietitian, Transactions,
+              Notifications, Messaging)
 
 mongo       — MongoDB (Conversation, Nutrition)
 
@@ -1154,6 +1273,9 @@ ollama      — local LLM (default AI_PROVIDER)
 mailhog     — local SMTP catcher (Phase 8, password reset/email verification)
 
 sftp        — local SFTP server (Phase 9, diet-plan CSV export archive)
+
+kafka       — single-node broker, KRaft mode (Phase 12 Etap 5,
+              `TransactionPaid` events for Notifications + Messaging)
 ```
 
 `CORS_ORIGINS` on the `backend` service must list *both* frontend dev
@@ -1214,7 +1336,7 @@ The following rules should always be respected:
 
 # 15. Summary
 
-Diet AI is designed as a modular backend application using:
+Mycelo is designed as a modular backend application using:
 
 - Python,
 - FastAPI,

@@ -2,7 +2,7 @@ from backend.modules.ai.domain import Prompt, PromptTurn
 from backend.modules.conversation.domain import Conversation, MessageRole
 
 _BASE_SYSTEM_PROMPT = (
-    "You are the Diet AI assistant, a nutrition and fitness expert. Give practical, "
+    "You are the Mycelo assistant, a nutrition and fitness expert. Give practical, "
     "specific, evidence-based advice — concrete meals, portions, macros, or routines "
     "rather than generic platitudes. You are not a substitute for a doctor or "
     "registered dietitian: say so plainly when a question touches on medical "

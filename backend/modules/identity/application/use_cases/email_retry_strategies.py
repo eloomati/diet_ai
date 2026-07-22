@@ -36,7 +36,7 @@ class PasswordResetRetryStrategy(EmailRetryStrategy):
             user_id=user.id, ttl_minutes=_PASSWORD_RESET_TTL_MINUTES
         )
         await self._password_reset_token_repository.save(token)
-        subject = "Reset your Diet AI password"
+        subject = "Reset your Mycelo password"
         body = (
             "We received a request to reset your password.\n\n"
             f"Reset token: {raw_token}\n\n"
@@ -57,9 +57,9 @@ class EmailVerificationRetryStrategy(EmailRetryStrategy):
             user_id=user.id, ttl_minutes=_EMAIL_VERIFICATION_TTL_MINUTES
         )
         await self._email_verification_token_repository.save(token)
-        subject = "Verify your Diet AI email address"
+        subject = "Verify your Mycelo email address"
         body = (
-            "Welcome to Diet AI! Please verify your email address.\n\n"
+            "Welcome to Mycelo! Please verify your email address.\n\n"
             f"Verification code: {raw_token}\n\n"
             f"This code expires in {_EMAIL_VERIFICATION_TTL_MINUTES // 60} hours."
         )

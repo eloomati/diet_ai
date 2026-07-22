@@ -66,7 +66,11 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, CONVERSATIONS))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -93,7 +97,11 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -136,7 +144,11 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -178,7 +190,11 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -234,7 +250,11 @@ describe('AppShell conversations (Etap 3 Stage 3 — archive & delete)', () => {
         conversationsListCalls += 1
         return Promise.resolve(jsonResponse(200, conversationsListCalls === 1 ? CONVERSATIONS : []))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -289,7 +309,11 @@ describe('AppShell responsiveness (Etap 5 Stage 2)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
-      if (url.endsWith('/dietitian') || url.endsWith('/transactions/me/purchases')) {
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
         return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
@@ -352,5 +376,62 @@ describe('AppShell responsiveness (Etap 5 Stage 2)', () => {
 
     await user.click(screen.getByTestId('rail-backdrop'))
     expect(screen.queryByLabelText('Profil')).not.toBeInTheDocument()
+  })
+})
+
+describe('AppShell human-chat routing (Etap 5 Stage 3)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearTokens()
+  })
+
+  it('renders HumanChatCanvas instead of the AI ChatCanvas on the /dietitian-chat/:threadId route', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/me')) {
+        return Promise.resolve(
+          jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true }),
+        )
+      }
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      if (url.endsWith('/conversations')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      if (url.endsWith('/messaging/threads')) {
+        return Promise.resolve(
+          jsonResponse(200, [
+            {
+              id: 'thread-1',
+              user_id: 'u1',
+              dietitian_id: 'd1',
+              created_at: '2026-07-22T00:00:00Z',
+              other_participant_email: 'dietitian@example.com',
+            },
+          ]),
+        )
+      }
+      if (url.endsWith('/messaging/threads/thread-1/messages')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderApp(['/dietitian-chat/thread-1'])
+    await loginViaPopup(user)
+
+    // Appears twice — the right rail's own "Wiadomości" contact card and
+    // HumanChatCanvas's header — confirming both rendered correctly.
+    expect((await screen.findAllByText('dietitian@example.com')).length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByText('Cześć! W czym mogę Ci dziś pomóc?')).not.toBeInTheDocument()
   })
 })

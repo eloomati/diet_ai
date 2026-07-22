@@ -8,6 +8,7 @@ function App() {
     <>
       <Routes>
         <Route path="/" element={<AppShell />} />
+        <Route path="/dietitian-chat/:threadId" element={<AppShell />} />
         <Route path="/:conversationId" element={<AppShell />} />
       </Routes>
       <Toaster />

@@ -1,4 +1,4 @@
-# Diet AI
+# Mycelo
 
 > AI-powered nutrition assistant built with Python, FastAPI, Domain-Driven Design and Hexagonal Architecture.
 
@@ -6,7 +6,7 @@
 
 # Overview
 
-Diet AI is an AI-powered nutrition assistant that allows authenticated users to chat with a Large Language Model (LLM), maintain a nutrition profile, and generate personalized structured diet plans.
+Mycelo is an AI-powered nutrition assistant that allows authenticated users to chat with a Large Language Model (LLM), maintain a nutrition profile, and generate personalized structured diet plans.
 
 The application combines modern backend architecture with AI integration while following enterprise software engineering practices inspired by Java/Spring Boot development.
 
@@ -37,18 +37,19 @@ cd diet_ai
 docker compose up -d --build
 ```
 
-This builds the backend and frontend images and starts eight containers:
+This builds the backend and frontend images and starts nine containers:
 
 | Service    | Container          | Port        | Purpose                                             |
 |------------|--------------------|-------------|------------------------------------------------------|
 | `backend`  | `diet_ai_backend`  | 8000        | FastAPI application                                  |
 | `frontend` | `diet_ai_frontend` | 5173        | React + Vite dev server — the web UI                 |
-| `frontend-admin` | `diet_ai_frontend_admin` | 5174 | React + Vite dev server — the admin panel (Phase 12, in progress; login requires an `ADMIN`/`SUPER_ADMIN` account) |
-| `db`       | `diet_ai_db`       | 5432        | PostgreSQL — Identity module                         |
+| `frontend-admin` | `diet_ai_frontend_admin` | 5174 | React + Vite dev server — the admin panel (Phase 12; login requires an `ADMIN`/`SUPER_ADMIN` account) |
+| `db`       | `diet_ai_db`       | 5432        | PostgreSQL — Identity, Dietitian, Transactions, Notifications, Messaging modules |
 | `mongo`    | `diet_ai_mongo`    | 27017       | MongoDB — Conversation + Nutrition modules           |
 | `ollama`   | `diet_ai_ollama`   | 11434       | Local LLM — powers chat + diet-plan generation by default |
 | `mailhog`  | `diet_ai_mailhog`  | 1025 / 8025 | Local SMTP catcher — password-reset/verification emails land here, not a real inbox. Web UI at http://localhost:8025 |
 | `sftp`     | `diet_ai_sftp`     | 2222        | Local SFTP server — diet-plan CSV exports are archived here so a user can re-download one later. User `dietai`/`dietai` |
+| `kafka`    | `diet_ai_kafka`    | 9094        | Single-node broker (KRaft mode) — `TransactionPaid` events power the Notifications badge + auto-created Messaging threads |
 
 **First start takes a few minutes** — two things happen automatically, no action needed:
 
@@ -221,7 +222,7 @@ Allow users to:
 | Meal Scheduling & Calendar Export (weekly obligations, AI meal times, reschedule, CSV export/archive, date-range filtering) | ✅ |
 | Frontend | ✅ |
 | Reporting | ⏳ |
-| Phase 12 — Dietitian Marketplace, Admin Panel & Roles | 🚧 in progress — see `docs/implementation-roadmap.md` |
+| Phase 12 — Dietitian Marketplace, Admin Panel & Roles | ✅ |
 
 See `docs/implementation/implementation-roadmap-done190726.md` for the full stage-by-stage history of Phases 0-11; `docs/implementation-roadmap.md` holds the current phase's prospective plan.
 
@@ -396,7 +397,7 @@ diet_ai/
 │
 ├── frontend/              # React + Vite + TS + Tailwind v4 + shadcn/ui (Phase 10, done)
 │
-├── frontend-admin/        # separate admin panel app (Phase 12, in progress) — ADMIN/SUPER_ADMIN only
+├── frontend-admin/        # separate admin panel app (Phase 12) — ADMIN/SUPER_ADMIN only
 │
 ├── docs/                  # architecture, domain model, API contract, roadmap, .http smoke tests
 │
@@ -649,6 +650,16 @@ Project documentation lives in `docs/`:
 This project is intentionally designed to resemble an enterprise backend system.
 
 The focus is on understanding software architecture, domain modeling and clean application design rather than simply implementing features.
+
+---
+
+# License
+
+Licensed under the [Business Source License 1.1](LICENSE). The source is
+public and free to use for personal, educational, or internal purposes —
+offering Mycelo (or a substantially derived product) as a competing
+commercial service requires a separate license from the author. Converts
+automatically to Apache License 2.0 on 2030-07-21.
 
 ---
 

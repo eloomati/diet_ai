@@ -1,7 +1,7 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Diet AI",
+    "title": "Mycelo",
     "version": "0.1.0"
   },
   "paths": {
@@ -591,7 +591,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SendMessageRequest"
+                "$ref": "#/components/schemas/backend__modules__conversation__api__schemas__conversation_schemas__SendMessageRequest"
               }
             }
           }
@@ -2081,6 +2081,204 @@
           }
         ]
       }
+    },
+    "/api/v1/messaging/threads": {
+      "get": {
+        "tags": [
+          "messaging"
+        ],
+        "summary": "List My Threads",
+        "operationId": "list_my_threads_api_v1_messaging_threads_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/DietitianThreadResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List My Threads Api V1 Messaging Threads Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/messaging/threads/{thread_id}/messages": {
+      "get": {
+        "tags": [
+          "messaging"
+        ],
+        "summary": "List Thread Messages",
+        "operationId": "list_thread_messages_api_v1_messaging_threads__thread_id__messages_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thread Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DietitianMessageResponse"
+                  },
+                  "title": "Response List Thread Messages Api V1 Messaging Threads  Thread Id  Messages Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "messaging"
+        ],
+        "summary": "Send Message",
+        "operationId": "send_message_api_v1_messaging_threads__thread_id__messages_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "thread_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Thread Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/backend__modules__messaging__api__schemas__messaging_schemas__SendMessageRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietitianMessageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/notifications": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "List My Notifications",
+        "operationId": "list_my_notifications_api_v1_notifications_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List My Notifications Api V1 Notifications Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/notifications/mark-all-read": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Mark All Notifications Read",
+        "operationId": "mark_all_notifications_read_api_v1_notifications_mark_all_read_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NotificationResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Mark All Notifications Read Api V1 Notifications Mark All Read Post"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -2675,6 +2873,54 @@
         ],
         "title": "DietitianListingItemResponse"
       },
+      "DietitianMessageResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "thread_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Thread Id"
+          },
+          "sender": {
+            "$ref": "#/components/schemas/MessageSender"
+          },
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "diet_plan_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diet Plan Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "thread_id",
+          "sender",
+          "content",
+          "diet_plan_id",
+          "created_at"
+        ],
+        "title": "DietitianMessageResponse"
+      },
       "DietitianProfileResponse": {
         "properties": {
           "id": {
@@ -2726,6 +2972,50 @@
           "created_at"
         ],
         "title": "DietitianProfileResponse"
+      },
+      "DietitianThreadResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "User Id"
+          },
+          "dietitian_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Dietitian Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "other_participant_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Other Participant Email"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "user_id",
+          "dietitian_id",
+          "created_at",
+          "other_participant_email"
+        ],
+        "title": "DietitianThreadResponse"
       },
       "EmailVerificationConfirmedResponse": {
         "properties": {
@@ -2954,6 +3244,65 @@
           "created_at"
         ],
         "title": "MessageResponse"
+      },
+      "MessageSender": {
+        "type": "string",
+        "enum": [
+          "USER",
+          "DIETITIAN"
+        ],
+        "title": "MessageSender"
+      },
+      "NotificationResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "type": {
+            "$ref": "#/components/schemas/NotificationType"
+          },
+          "reference_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reference Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "reference_id",
+          "created_at",
+          "read_at"
+        ],
+        "title": "NotificationResponse"
+      },
+      "NotificationType": {
+        "type": "string",
+        "enum": [
+          "TRANSACTION_PAID",
+          "NEW_MESSAGE"
+        ],
+        "title": "NotificationType"
       },
       "NutritionProfileResponse": {
         "properties": {
@@ -3337,21 +3686,6 @@
         ],
         "title": "Role"
       },
-      "SendMessageRequest": {
-        "properties": {
-          "content": {
-            "type": "string",
-            "maxLength": 4000,
-            "minLength": 1,
-            "title": "Content"
-          }
-        },
-        "type": "object",
-        "required": [
-          "content"
-        ],
-        "title": "SendMessageRequest"
-      },
       "SendMessageResponse": {
         "properties": {
           "conversation_id": {
@@ -3478,6 +3812,17 @@
               }
             ],
             "title": "Paid At"
+          },
+          "buyer_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Buyer Email"
           }
         },
         "type": "object",
@@ -3770,6 +4115,46 @@
           "label"
         ],
         "title": "WeeklyObligationResponse"
+      },
+      "backend__modules__conversation__api__schemas__conversation_schemas__SendMessageRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "SendMessageRequest"
+      },
+      "backend__modules__messaging__api__schemas__messaging_schemas__SendMessageRequest": {
+        "properties": {
+          "content": {
+            "type": "string",
+            "title": "Content"
+          },
+          "diet_plan_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Diet Plan Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content"
+        ],
+        "title": "SendMessageRequest"
       }
     },
     "securitySchemes": {

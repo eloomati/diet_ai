@@ -66,9 +66,9 @@ class RegisterUserUseCase:
 
         await self._email_sender.send(
             to=user.email.value,
-            subject="Verify your Diet AI email address",
+            subject="Verify your Mycelo email address",
             body=(
-                "Welcome to Diet AI! Please verify your email address.\n\n"
+                "Welcome to Mycelo! Please verify your email address.\n\n"
                 f"Verification code: {raw_token}\n\n"
                 f"This code expires in {_VERIFICATION_TOKEN_TTL_MINUTES // 60} hours."
             ),

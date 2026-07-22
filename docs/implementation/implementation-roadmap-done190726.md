@@ -1,8 +1,8 @@
-      # Diet AI - Implementation Roadmap
+      # Mycelo - Implementation Roadmap
 
 ## Purpose
 
-This document defines the implementation order of the Diet AI project.
+This document defines the implementation order of the Mycelo project.
 
 The goal is to build the system incrementally while keeping architecture clean.
 
@@ -2915,7 +2915,7 @@ clean console throughout.
 - [x] Message bubbles (`MessageBubble`): user messages right-aligned on
       `bg-primary`, assistant left-aligned on `bg-card`, a `SYSTEM` role
       rendered as small centered text (unused today, but the schema
-      allows it). A "Diet AI pisze odpowiedź…" line shows while the
+      allows it). A "Mycelo pisze odpowiedź…" line shows while the
       mutation is in flight.
 - [x] 409 `CONFLICT` (archived conversation — full handling is Stage 3,
       but the error needs *some* message now that sending is real) maps to

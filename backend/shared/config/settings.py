@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Diet AI"
+    app_name: str = "Mycelo"
     app_env: str = "dev"
     app_debug: bool = True
     api_prefix: str = "/api/v1"
@@ -65,6 +65,20 @@ class Settings(BaseSettings):
     # means a new `FileStorage` implementation, no call sites change.
     dietitian_photos_storage_dir: str = "./data/dietitian_photos"
     dietitian_photos_base_url: str = "/static/dietitian-photos"
+
+    # Kafka — provider selection: "mock" | "kafka". Mirrors ai_provider/
+    # email_provider/sftp_provider: pytest never spins up a real broker
+    # either, so the mock (NoOpTransactionEventPublisher) stays the
+    # default, and the notification consumer simply doesn't start in
+    # that mode — nothing to consume if nothing real is publishing.
+    kafka_provider: str = "mock"
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_transaction_paid_topic: str = "transaction-paid"
+    # Two independent consumer groups on the same topic (Etap 5 Stage 2) —
+    # notifications and messaging each react to TransactionPaid on their
+    # own terms, standard Kafka fan-out, not one consumer doing both.
+    kafka_notifications_consumer_group_id: str = "mycelo-notifications"
+    kafka_messaging_consumer_group_id: str = "mycelo-messaging"
 
     jwt_secret_key: str = "dev-secret-change-me"
     jwt_algorithm: str = "HS256"

@@ -7,9 +7,12 @@ import { FieldError } from '@/components/FieldError'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
+import { MyceloNotificationBadge } from '@/components/MyceloNotificationBadge'
 import { categoryEmoji } from '@/lib/categoryOptions'
 import { ApiError } from '@/lib/apiFetch'
 import { notifyError } from '@/lib/toast'
+import { useAuth } from '@/lib/auth'
+import { useUnreadNotificationsCount } from '@/hooks/useUnreadNotificationsCount'
 import { archiveConversation, deleteConversation, getConversation, sendMessage } from '@/api/conversations'
 import type { ConversationCategory, ConversationDetail, Message } from '@/api/conversations'
 import { generateDietPlan } from '@/api/dietPlans'
@@ -99,6 +102,8 @@ export function ChatCanvas({
 }: ChatCanvasProps) {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
+  const { isAuthenticated } = useAuth()
+  const unreadNotificationsCount = useUnreadNotificationsCount(isAuthenticated)
   const [message, setMessage] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -253,15 +258,17 @@ export function ChatCanvas({
           )}
         </div>
         {rightCollapsed && (
-          <Button
-            variant="outline"
-            size="icon"
-            className="absolute top-2 right-3.5"
-            onClick={onExpandRight}
-            aria-label="Rozwiń panel"
-          >
-            <Sparkles className="size-3.5" />
-          </Button>
+          <div className="absolute top-2 right-3.5 flex items-center gap-1.5">
+            <MyceloNotificationBadge unreadCount={unreadNotificationsCount} onClick={onExpandRight} />
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={onExpandRight}
+              aria-label="Rozwiń panel"
+            >
+              <Sparkles className="size-3.5" />
+            </Button>
+          </div>
         )}
       </header>
 
@@ -269,7 +276,7 @@ export function ChatCanvas({
         {showHero ? (
           <div className="mx-auto mt-[6%] max-w-xl text-center">
             <p className="mb-3.5 inline-block rounded-full bg-accent px-3 py-1 text-xs font-bold text-accent-foreground uppercase">
-              Diet AI
+              Mycelo
             </p>
             <h1 className="mb-2.5 font-[family-name:var(--font-heading)] text-[27px] leading-tight text-balance">
               Cześć! W czym mogę Ci dziś pomóc?
@@ -306,7 +313,7 @@ export function ChatCanvas({
               <MessageBubble key={msg.id} message={msg} />
             ))}
             {sendMessageMutation.isPending && (
-              <p className="text-[13px] text-muted-foreground">Diet AI pisze odpowiedź…</p>
+              <p className="text-[13px] text-muted-foreground">Mycelo pisze odpowiedź…</p>
             )}
           </div>
         )}

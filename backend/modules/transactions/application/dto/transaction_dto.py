@@ -27,9 +27,18 @@ class TransactionResult:
     status: TransactionStatus
     created_at: datetime
     paid_at: datetime | None
+    # Only ever populated for the dietitian's own sales view
+    # (GetMyTransactionsAsDietitianUseCase), and only once status == PAID —
+    # the Etap 5 "contact reveal", resolved via UserRepository at the use
+    # case layer, not stored on Transaction itself. None everywhere else
+    # (the buyer's own purchases, the buyer's own create-transaction
+    # response, admin's listing) since those views don't need it.
+    buyer_email: str | None = None
 
     @classmethod
-    def from_domain(cls, transaction: Transaction) -> "TransactionResult":
+    def from_domain(
+        cls, transaction: Transaction, buyer_email: str | None = None
+    ) -> "TransactionResult":
         return cls(
             id=transaction.id,
             user_id=transaction.user_id,
@@ -39,4 +48,5 @@ class TransactionResult:
             status=transaction.status,
             created_at=transaction.created_at,
             paid_at=transaction.paid_at,
+            buyer_email=buyer_email,
         )

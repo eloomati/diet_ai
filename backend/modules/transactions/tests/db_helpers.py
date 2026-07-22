@@ -9,6 +9,9 @@ from backend.modules.identity.domain.value_objects.role import Role
 from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
+from backend.modules.transactions.infrastructure.persistence.repository.sqlalchemy_transaction_repository import (
+    SqlAlchemyTransactionRepository,
+)
 from backend.shared.config import get_settings
 
 
@@ -51,4 +54,17 @@ async def promote_to_dietitian(user_id: str) -> None:
         user = await user_repo.get_by_id(UUID(user_id))
         user.change_role(Role.DIET_USER)
         await user_repo.save(user)
+        await session.commit()
+
+
+async def mark_transaction_paid_directly(transaction_id: str) -> None:
+    """Etap 5 Stage 1's own tests need a paid transaction without going
+    through the full admin mark-paid endpoint (already covered by the
+    admin module's own tests) — same direct-DB-bootstrap spirit as
+    `promote_to_dietitian` above."""
+    async with test_db_session() as session:
+        transaction_repo = SqlAlchemyTransactionRepository(session)
+        transaction = await transaction_repo.get_by_id(UUID(transaction_id))
+        transaction.mark_paid()
+        await transaction_repo.save(transaction)
         await session.commit()

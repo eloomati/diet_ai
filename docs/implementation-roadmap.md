@@ -1,8 +1,8 @@
-# Diet AI - Implementation Roadmap
+# Mycelo - Implementation Roadmap
 
 ## Purpose
 
-This document defines the implementation order of the Diet AI project.
+This document defines the implementation order of the Mycelo project.
 
 The goal is to build the system incrementally while keeping architecture clean.
 
@@ -15,11 +15,11 @@ Phase 12.
 
 ---
 
-## Status (as of 2026-07-20)
+## Status (as of 2026-07-22)
 
 ```
 Phase 0-11  - Foundation through Testing   DONE — see the archived roadmap
-Phase 12    - Dietitian Marketplace,       IN PROGRESS —
+Phase 12    - Dietitian Marketplace,       DONE —
               Admin Panel & Roles           Etap 0 (Roles & RBAC): DONE
                                             Etap 1 (Dietitian applications
                                               & profile): DONE
@@ -29,7 +29,12 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                               module): DONE
                                             Etap 4 (Marketplace &
                                               reviews): DONE
-                                            Etaps 5-6: not started
+                                            Etap 5 (Kafka notifications
+                                              + human-dietitian chat):
+                                              DONE
+                                            Etap 6: SKIPPED — see note
+                                              at the end of Phase 12
+                                              below
 ```
 
 ---
@@ -1619,35 +1624,289 @@ about to build this etap, same spirit as Etap 3's own pre-Stage-1 revision):
 
 ---
 
+### Branding — Mycelo (decided before Etap 5, applies to everything after)
+
+The product is renamed **Mycelo** (was "Diet AI") — a full rebrand, not
+just a new logo: `Settings.app_name`, both frontends' `<title>`, the AI's
+own system-prompt self-introduction, transactional email subject/body
+text, README.md, and every doc's title header were all updated in one
+pass (see the git history around this note for the exact diff — not
+re-derived here since it's plain mechanical text replacement, not a
+design decision worth re-explaining).
+
+**What *is* a lasting decision, and does need to be remembered**: the
+brand mark is a mushroom, chosen from six proposed line-art/geometric/
+mascot variants — "Wariant C" (a line-art silhouette: stroke-only dome
+cap + rounded stem, no fill) is the one picked. Two colors carry the
+whole brand:
+
+- idle / everyday: a warm earthy brown (`--mycelo-idle` token, added to
+  `frontend/src/index.css` — `#A9754C` light / `#C98A5F` dark),
+- **notification / something-new state: the cap turns red** — reuses
+  the existing `--destructive` token rather than a new color, since a
+  notification-red and an error-red are the same semantic "pay
+  attention" signal. This imitates a fly agaric (*muchomor*/*Amanita
+  muscaria*) turning up red-capped once there's something to see —
+  the whole reason a mushroom was chosen as the mark in the first place.
+
+Implemented now, ready for later:
+
+- `frontend/public/favicon.svg` and `frontend-admin/public/favicon.svg`
+  — both replaced with the idle-state mark (Vite's unrelated default
+  logo was still in place before this, never customized since Etap 0),
+- `frontend/src/components/MyceloIcon.tsx` — a reusable component with
+  an `alert` boolean prop that flips stroke color and adds a small spore
+  dot; **Etap 5 Stage 4's notification badge should use this component**
+  rather than inventing a separate bell/badge icon, so the "cap turns
+  red" rule stays a single implementation, not one look on the favicon
+  and a different one on the actual notification UI.
+
+No infrastructure identifiers were touched — `docker-compose.yml`/
+`docker-compose.test.yml` container names, the Postgres/Mongo database
+name (`diet_ai`/`diet_ai_test`), and the dev SFTP/SMTP credentials all
+still say `diet_ai`/`dietai`. Renaming those has zero brand benefit (no
+user ever sees a container name) and real risk (existing local dev
+volumes/data live under the `diet_ai` database name) — a deliberate
+scope boundary, not an oversight, confirmed with the user before
+starting this rebrand.
+
+---
+
 ### Etap 5 — Kafka notifications + human-dietitian chat
 
 Goal: the highest-infrastructure-risk etap — introduces Kafka from
 scratch, plus a second chat surface distinct from the AI one.
 
-- **Stage 1 — Kafka infrastructure**: single-broker Kafka in KRaft mode
-  (no separate Zookeeper — the modern minimal setup, appropriate for a
-  demo rather than a multi-broker production cluster) added to
-  `docker-compose.yml`, plus a thin producer/consumer wrapper started
-  from `backend/app/main.py`'s lifespan (same place the existing
-  email-retry background loop lives). First real event:
-  `TransactionPaid` — Etap 3 Stage 3 already defines the
-  `TransactionEventPublisher` port and calls it on every mark-paid; this
-  stage swaps in a real `KafkaTransactionEventPublisher`, no change to
-  that use case itself — a consumer creates
-  a `Notification` row (new small table/collection — landing spot
-  TBD during implementation, likely Postgres alongside `transactions`
-  since notifications are per-user transactional state) and — this is
-  the dietitian-facing contact reveal — makes the paying user's contact
-  visible to the dietitian.
-- **Stage 2 — New `backend/modules/messaging/` module** (kept separate
-  from the AI `conversation` module, per the Grounding section above):
+Design decisions settled before Stage 1 (revised 2026-07-22, once actually
+about to build this etap, same spirit as every prior etap's own
+pre-Stage-1 revision):
+
+- **Kafka image & mode**: `apache/kafka` (official image, KRaft combined
+  broker+controller in one process — no separate Zookeeper container),
+  single node — the "modern minimal setup, appropriate for a demo" the
+  original sketch already called for, not a multi-broker cluster.
+- **Client library**: `aiokafka==0.14.0` — async, matching this
+  codebase's async-everywhere style (the same reasoning that picked
+  `asyncpg`/`beanie` over sync alternatives elsewhere).
+- **`kafka_provider` setting (`mock` | `kafka`), same exact shape as
+  `ai_provider`/`email_provider`/`sftp_provider`/`captcha_provider`
+  elsewhere in `Settings`** — `NoOpTransactionEventPublisher` (Etap 3)
+  stays the `mock` default. This matters for a concrete reason: `pytest`
+  today never spins up ollama/mailhog/sftp containers either — those
+  modules' own tests run against mocks by default, and only
+  `docker-compose.yml`'s dev stack sets the real provider. Kafka follows
+  the identical rule so the full backend suite keeps passing with zero
+  Docker services running, exactly as it does today. The consumer
+  background task also simply doesn't start when `kafka_provider=mock` —
+  nothing to consume if nothing real is publishing.
+- **`Notification` gets its own new module** (`backend/modules/
+  notifications/`), not folded into `transactions` or the
+  not-yet-built `messaging` module — it's genuinely cross-cutting: this
+  stage needs it for `TRANSACTION_PAID`, and Etap 5's own Stage 2/4 will
+  need the identical entity for `NEW_MESSAGE`. One small Postgres-backed
+  entity (`recipient_user_id`, `type`, `reference_id`, `created_at`,
+  `read_at`) reused by both, rather than two near-duplicate tables.
+- **Contact reveal is a derived property of `transaction.status ==
+  PAID`, computed synchronously — not gated on whether the Kafka
+  consumer has actually processed the event yet.** The original sketch
+  reads as if the *event* is what reveals contact; on reflection that
+  would make the reveal fragile (a slow or briefly-down consumer means a
+  paid transaction's buyer stays hidden from the dietitian for no good
+  reason) and, worse, irreversible in the wrong direction — `mark_unpaid`
+  (Etap 3's own reversible 2-state toggle) should hide the contact again,
+  which a one-time event-triggered flag can't express cleanly. So:
+  `GetMyTransactionsAsDietitianUseCase` resolves `buyer_email` via
+  `UserRepository` directly whenever `status == PAID`, full stop. The
+  Kafka round-trip's only job is producing the `Notification` row (the
+  actual badge Stage 4 will show) — a real, live-verified side effect,
+  just not the source of truth for what the dietitian can see.
+- **A real ephemeral Kafka test container is Stage 5's job, not this
+  one** — same split the original sketch already called for. This
+  stage's own tests use the existing fakes (`InMemoryTransactionRepository`
+  etc.) plus a fake `aiokafka` producer double for
+  `KafkaTransactionEventPublisher`'s own unit test; the actual
+  broker round-trip is verified live against the real Docker stack
+  instead, same as every other infrastructure integration this whole
+  project.
+
+- **Stage 1 — Kafka infrastructure — DONE**: single-broker Kafka in
+  KRaft mode (no separate Zookeeper — the modern minimal setup,
+  appropriate for a demo rather than a multi-broker production cluster)
+  added to `docker-compose.yml` (`apache/kafka:3.8.0`, broker+controller
+  combined), plus a thin producer wrapper (`backend/shared/messaging/
+  kafka.py`, mirroring `backend/shared/database/postgres.py`'s
+  init/close singleton) and a consumer background task started from
+  `backend/app/main.py`'s lifespan (same place the existing email-retry
+  loop lives) — both only when `kafka_provider=kafka` (see design
+  decisions above). First real event: `TransactionPaid` —
+  `KafkaTransactionEventPublisher` implements the port Etap 3 Stage 3
+  already defined, no change to `MarkTransactionPaidUseCase` itself,
+  exactly as that stand-in was designed for. The consumer
+  (`run_transaction_paid_consumer`) creates a `Notification` row in the
+  new `backend/modules/notifications/` module — skips silently if
+  `dietitian_id` is `null` (the dietitian's account was already deleted
+  by the time the message is consumed, nothing left to notify).
+
+  **Contact reveal, built as settled above**:
+  `GetMyTransactionsAsDietitianUseCase` now takes a `UserRepository` too
+  and resolves `buyer_email` via it whenever `transaction.status ==
+  PAID` — a synchronous check, never gated on the Kafka round-trip.
+  `TransactionResult`/`TransactionResponse` both gained an optional
+  `buyer_email` field (`None` everywhere except this one view). The
+  frontend's `TransakcjeTab.tsx` (dietitian's own sales list, hidden
+  behind Etap 3's own deliberate scope decision) now renders a "Kontakt:
+  {email}" line whenever `buyer_email` is present — the exact reveal
+  Etap 3 deferred to this stage.
+
+  **`KafkaTransactionEventPublisher` takes its producer via constructor
+  injection**, not a reach into the shared singleton itself — same
+  convention every `SqlAlchemyXRepository` already follows for its
+  session. Made the class trivially testable with a fake producer
+  double, no real broker needed for its own unit test.
+
+  **Two small pre-existing gaps found and fixed while touching
+  `backend/alembic/env.py`**: `ReviewModel` (added back in Etap 4 Stage
+  1) was never added to the autogenerate-metadata import list there —
+  harmless today since every migration here is hand-written, not
+  autogenerated, but would have made `alembic revision --autogenerate`
+  try to drop the `reviews` table if anyone ever ran it. Fixed alongside
+  adding the new `NotificationModel`, rather than repeating the gap a
+  third time.
+
+  Exit criteria met: no real Kafka container needed for `pytest` — the
+  full backend suite (523 passed, up from 513) runs exactly as before,
+  confirming `kafka_provider=mock` keeps this etap's own tests exactly
+  as fast/dependency-free as every other module's. New tests: 4
+  `Notification` entity/use-case tests (new `notifications` module,
+  first tests in it), 2 `KafkaTransactionEventPublisher` unit tests
+  (fake producer double — payload shape, and the null-`dietitian_id`
+  skip case), 4 new tests in `transactions` (2 use-case, 2 API) for the
+  contact-reveal/reversibility behavior — `transactions` module now at
+  32 tests. Frontend: 2 new `TransakcjeTab.test.tsx` tests (reveals
+  contact once paid, hides it while unpaid) — main frontend now at 122
+  tests. `npx tsc --noEmit` and `npm run build` both clean.
+
+  Live-verified against the real Docker stack (this is the first etap
+  to genuinely need Docker's Kafka service, not just Postgres/Mongo):
+  confirmed the `20260722_11_notifications` migration applies cleanly;
+  confirmed the consumer joins its consumer group and gets assigned the
+  `transaction-paid` partition on startup; registered a buyer, a
+  dietitian, and a `SUPER_ADMIN`, created a real transaction, confirmed
+  `buyer_email` is `null` before payment; called the real `POST
+  /admin/transactions/{id}/mark-paid` endpoint and confirmed, within
+  seconds, both that `GET /transactions/me` now reveals the buyer's real
+  email **and** that a real row landed in the `notifications` table
+  (`recipient_user_id` = the dietitian, `type=TRANSACTION_PAID`,
+  `reference_id` = the transaction, `read_at` still null) — the full
+  producer → broker → consumer → Postgres round-trip, not just the
+  publish half. Then called `mark-unpaid` and confirmed `buyer_email`
+  reverted to `null` on the next fetch, proving the reveal is correctly
+  reversible and doesn't depend on the notification that already fired.
+  `docker compose down` after.
+
+  Design decisions settled before Stage 2 (revised 2026-07-22, once
+  actually about to build this stage):
+
+  - **One `DietitianThread` per `(user_id, dietitian_id)` pair, not one
+    per transaction.** "Tied to a paid transaction" (the original sketch)
+    is about what *creates* the thread, not a permanent 1:1 link kept
+    forever — if the same buyer purchases both offers from the same
+    dietitian, that's still one conversation, not two. Same "one row per
+    ordered pair" shape as `Review` (Etap 4), including a matching
+    `UNIQUE` index.
+  - **Threads are created automatically by a Kafka consumer reacting to
+    `TransactionPaid` — no "create thread" endpoint exists.** This etap's
+    own Stage 1 already built the whole publish→consume pipeline for
+    exactly this event; `messaging` gets its **own** consumer and
+    consumer group (`mycelo-messaging`, alongside notifications' own
+    `mycelo-notifications`) independently subscribed to the same
+    `transaction-paid` topic, rather than teaching the `notifications`
+    module about threads or vice versa — each interested module reacts
+    to the shared event on its own terms, the standard Kafka fan-out
+    shape, and keeps the two modules decoupled from each other. Both
+    consumers now share one small generic runner
+    (`backend/shared/messaging/consumer.py`) — extracted from Stage 1's
+    own consumer once a second, near-identical one appeared, the same
+    "de-duplicate once a real second case shows up" call already made
+    for `OFFER_LABEL` in Etap 4.
+  - **Thread existence *is* the access gate — not re-checked against
+    live transaction status on every message request.** Once a thread
+    exists, both participants can keep messaging even if an admin later
+    reverses that specific transaction back to `UNPAID` (Etap 3's own
+    reversible toggle) — there's no stated requirement to revoke an
+    already-started conversation retroactively, and doing so would be
+    inventing a punitive rule nobody asked for. `sender` (`USER` |
+    `DIETITIAN`) is derived from which participant the caller is, never
+    accepted from the client.
+  - **`diet_plan_id` carries no FK and is never validated against
+    Mongo** — `DietPlan` lives in the `nutrition` module's Mongo
+    collection; this is the same "plain UUID, no cross-database
+    referential integrity" pattern already established everywhere a
+    Postgres row points at Mongo-held data (e.g. admin's
+    `DeleteUserUseCase` cleanup). Stage 3's frontend is what actually
+    attaches a real one; Stage 2's endpoint just accepts the field.
+  - **Postgres, not Mongo** — `DietitianThread`/`DietitianMessage` are
+    structured relational data with clear ownership (foreign keys to
+    `users`), matching every other new Phase 12 module's choice over
+    the AI `conversation` module's own Mongo pick (free-form message
+    documents there, not this).
+  - **Both FKs are `ON DELETE CASCADE`, not `Transaction`'s asymmetric
+    pair** — a one-sided orphaned thread (say, the dietitian's side
+    deleted but the buyer's messages survive) serves no purpose the way
+    a buyer's purchase-history record does; same reasoning `Review`
+    already used for its own two FKs, not `Transaction`'s reason to
+    keep one side alive via `SET NULL`.
+
+- **Stage 2 — New `backend/modules/messaging/` module — DONE** (kept
+  separate from the AI `conversation` module, per the Grounding section
+  above):
   `DietitianThread` (paired user + dietitian, tied to a paid
   transaction), `DietitianMessage` (sender USER or DIETITIAN, content,
   optional attached `diet_plan_id`, `created_at`). REST endpoints for
   listing a thread's messages and posting a new one — plain
   request/response, no WebSocket, per the confirmed polling decision.
-- **Stage 3 — Human-chat UI**: once a transaction is paid, a contact
-  card appears above the marketplace roster (Etap 4 Stage 2's rail).
+  This stage is backend-only (no frontend changes) — Stage 3 wires the
+  UI to what this stage exposes, same "schema/logic first, UI next"
+  split as every prior etap.
+
+  Built exactly per the design decisions settled above: `GET
+  /messaging/threads` (any authenticated user — lists the caller's own
+  threads, whichever side they're on, resolving the *other*
+  participant's email for display), `GET
+  /messaging/threads/{id}/messages` and `POST
+  /messaging/threads/{id}/messages` (thread existence + participant
+  membership is the whole access check — `sender` is derived from which
+  participant the caller is, never accepted from the client). No
+  "create thread" endpoint exists at all — threads are get-or-created
+  automatically by `messaging`'s own new Kafka consumer
+  (`run_transaction_paid_thread_consumer`, consumer group
+  `mycelo-messaging`), independent of `notifications`' own consumer on
+  the exact same `transaction-paid` topic — confirmed live that both
+  groups get assigned the same topic partition and react independently
+  to one publish.
+
+  Exit criteria met: no real Kafka container needed for `pytest` (same
+  `kafka_provider=mock` rule as Stage 1) — full backend suite **550
+  passed, up from 523**. New: 27 tests in the brand-new `messaging`
+  module (6 entity, 13 use-case — including the get-or-create
+  idempotency check and both directions of `sender` derivation, 8 API —
+  including the 403-for-a-non-participant and 400-for-blank-content
+  cases). Frontend untouched this stage, nothing to re-run there.
+
+  Live-verified against the real Docker stack: confirmed the
+  `20260722_12_messaging` migration applies cleanly; registered a buyer,
+  a dietitian, and a `SUPER_ADMIN`, paid a real transaction, and
+  confirmed — from that single `mark-paid` call — **both** a
+  `notifications` row **and** a `dietitian_threads` row landed
+  independently (the two-consumer-groups-on-one-topic fan-out actually
+  works, not just in theory); fetched the buyer's own thread list
+  (correctly resolved the dietitian's email), sent a message as the
+  buyer, replied as the dietitian, confirmed both messages appear in
+  order from either side, and confirmed a third, unrelated registered
+  user gets a real `403` trying to read that thread. `docker compose
+  down` after.
+- **Stage 3 — Human-chat UI — DONE**: once a transaction is paid, a
+  contact card appears above the marketplace roster (Etap 4 Stage 2's rail).
   Opening it swaps `ChatCanvas` into a **human-chat variant** — same
   layout, but the background tint shifts toward green (a new set of
   design tokens, not a hardcoded color, so it composes with the existing
@@ -1655,38 +1914,379 @@ scratch, plus a second chat surface distinct from the AI one.
   the AI. The composer gains a "send my generated plan" action (attaches
   a `diet_plan_id`, rendered in the thread as a compact `DietPlanCard`,
   reusing the existing component from Phase 10).
+
+  Design decisions settled right before building this stage:
+
+  - **A separate `HumanChatCanvas.tsx`, not a branch inside `ChatCanvas`
+    itself.** "Same layout" means the same *visual* structure (header /
+    scroll area / composer), not literally one component juggling two
+    unrelated data sources, message shapes, and send flows behind a pile
+    of conditionals. `AppShell` renders whichever one matches the
+    current route.
+  - **A new route, `/dietitian-chat/:threadId`, alongside the existing
+    `/:conversationId`** — mutually exclusive, never both set. Etap 0's
+    own reasoning for routing the AI conversation by URL (refresh/deep-link
+    safety) applies identically here; a plain local-state swap (like
+    `DietitianProfileModal`'s) would lose your place in the human
+    conversation on refresh, which the AI side deliberately avoids.
+  - **New `--human-chat-background` token** (light + dark, registered in
+    `@theme inline` as `--color-human-chat-background`) — a green-tinted
+    background applied to `HumanChatCanvas`'s outer container. Bubble
+    colors themselves stay the same primary/card scheme `ChatCanvas`
+    already uses — only the background shifts, which is all "visually
+    unmistakable this isn't the AI" actually calls for.
+  - **The message list polls** (`refetchInterval`), same "confirmed
+    polling decision" already governing Stage 4's own notification
+    badges — no WebSocket for the human side either.
+  - **"Send my generated plan" is its own composer action, not merged
+    into free-text sending** — clicking it lists the caller's own plans
+    (`GET /diet-plans`, Phase 10) and sending one attaches its
+    `diet_plan_id` with a fixed content string, distinct from typing a
+    message. Any message carrying a `diet_plan_id` renders a
+    `DietPlanCard` instead of a text bubble (fetching that one plan's
+    full detail on demand, not eagerly for the whole thread).
+  - **The right rail's new "Wiadomości" section is symmetric** — `GET
+    /messaging/threads` already returns a thread regardless of which
+    side the caller is on, so the exact same section/component serves a
+    buyer's dietitian-contacts list and a dietitian's client list, no
+    role branching needed in the frontend.
+
+  Built exactly per the design decisions above: `App.tsx` gained
+  `/dietitian-chat/:threadId`; `AppShell` branches on the new `threadId`
+  param (`HumanChatCanvas` vs `ChatCanvas`, never both). `HumanChatCanvas`
+  mirrors `ChatCanvas`'s header/scroll-area/composer structure but reads
+  its own data (`GET /messaging/threads` to resolve the header's "other
+  participant" email and to derive which role — `USER` or `DIETITIAN` —
+  the caller is in *this* thread, `GET .../messages` polling every 4s,
+  `POST .../messages` to send). `RightRail.tsx` gained a "Wiadomości"
+  section (only rendered when there's at least one thread — no
+  empty-state clutter for the common case of having none yet) above the
+  existing "Dietetycy" marketplace listing, each card navigating to the
+  thread's URL on click. `frontend/src/api/messaging.ts` (new) — thin
+  client for all three endpoints.
+
+  Exit criteria met: main frontend — 9 new tests (2 `RightRail` — the
+  new section + its "no threads → hidden" case, 6 `HumanChatCanvas` —
+  header, empty state, bubble alignment for both roles, sending a text
+  message, plan-attached rendering, no-plans-yet state, 1 `AppShell` —
+  confirms the route actually renders `HumanChatCanvas` not the AI hero)
+  — main frontend now at 131 tests. One real regression caught and fixed
+  immediately: adding `useNavigate()` to `RightRail` broke all 5 of its
+  *existing* tests (`useNavigate() may be used only in the context of a
+  <Router>`) — fixed by wrapping `renderRightRail`'s test helper in a
+  `MemoryRouter`, same as `ChatCanvas.test.tsx` already does. `npx tsc
+  -b` (the build's own stricter check, not caught by plain `--noEmit`)
+  also caught a real type mismatch in the plan-picker's `onValueChange`
+  handler — fixed. `npm run build` clean. No backend changes this stage.
+
+  Live-verified against the real Docker stack in a real browser
+  (Claude-in-Chrome stayed connected): seeded a real paid transaction
+  (auto-creating the thread via Stage 1/2's own consumers) and two seed
+  messages via `curl`, then — as the buyer — confirmed the "Wiadomości"
+  card appears, opening it shows the green-tinted background, the
+  correct header, both seeded messages correctly aligned, sent a new
+  message and watched it append live; refreshed directly on the
+  `/dietitian-chat/:threadId` URL and confirmed the whole thread reloads
+  correctly (the exact refresh-safety the URL-routing decision was for);
+  opened "Wyślij mój plan" with no generated plans yet and confirmed the
+  honest empty state. Then logged in as the dietitian in a second tab
+  and confirmed the header and bubble alignment both correctly flip from
+  their side — the buyer's messages read as "theirs," the dietitian's
+  own reply as "mine." `docker compose down` after.
 - **Stage 4 — Notification badges**: a small badge above the right rail
   for an unread dietitian message, and (Etap 3's event) a badge/toast
   for a newly-paid transaction becoming visible to the dietitian side.
   Polling-driven per the confirmed decision — a `useQuery` with a short
   `refetchInterval` against a `GET /notifications` endpoint, not a push
   channel.
-- **Stage 5 — Tests + docs sync**: this etap's tests need a
+
+  Design decisions settled right before building this stage:
+
+  - **`notifications` gets its first API surface** — Stage 1 only ever
+    needed the entity + a consumer writing to it; this stage adds `GET
+    /notifications` (the caller's own, most recent first) and `POST
+    /notifications/mark-all-read`. One bulk action, not per-notification
+    mark-read — "small badge," not a full notification center, and a
+    demo-scope user has few enough notifications that "mark everything
+    I can currently see as read" is the only action that makes sense.
+  - **Sending a message now also creates a `NEW_MESSAGE` notification
+    for the *other* participant — a direct, synchronous call from
+    `SendDietitianMessageUseCase` to `notifications`' own
+    `CreateNotificationUseCase`, not a second Kafka round-trip.** Kafka
+    was for cross-cutting distribution of an event a whole different
+    module (two, as of Etap 5 Stage 2) needs to react to independently;
+    a message being sent and its recipient being notified happen in the
+    same request, same module boundary crossing `messaging` already
+    makes routinely (this is the same "reuse the other module's already-
+    exported unit directly" pattern used everywhere in this phase, only
+    the exported unit is a use case instead of a repository this time —
+    the two use cases were already going to run back-to-back regardless).
+  - **One unified badge (total unread count), plus a *separate* one-shot
+    toast specifically for a newly-arrived `TRANSACTION_PAID`
+    notification** — matches the sketch's own two mentions: an ordinary
+    running badge count covers "unread dietitian message" as the everyday
+    case, while a rarer, more significant event (money changing hands)
+    earns an explicit toast, not just a quieter count increment. The
+    toast fires at most once per notification — a ref tracks
+    already-seen notification ids across polls so it isn't re-fired
+    every `refetchInterval`.
+  - **The badge lives in the right rail's own header row** (next to
+    "Dietetycy" + the collapse button) — not also duplicated onto the
+    collapsed-rail's expand button in `ChatCanvas`/`HumanChatCanvas`.
+    That would mean lifting unread state up through `AppShell` into
+    three separate components for a demo-scope detail the sketch itself
+    doesn't ask for — a deliberate scope trim, not an oversight.
+  - **The badge reuses `MyceloIcon`'s own `alert` prop** (Etap 5's own
+    branding work, back before this etap started) — red mushroom-cap
+    exactly when there's something unread, idle brown otherwise. This is
+    the component's first real usage outside the favicon, exactly as
+    planned when it was built.
+
+  Built exactly per the design decisions above: `notifications` gained
+  its first API surface (`GET /notifications`, `POST
+  /notifications/mark-all-read`, both any-authenticated-user, no role
+  gate — `NotificationResponse` deliberately omits `recipient_user_id`
+  since it's always the caller), backed by two new use cases
+  (`ListMyNotificationsUseCase`, `MarkAllNotificationsReadUseCase`, the
+  latter's bulk mark-read idempotent via `Notification.mark_read()`).
+  `SendDietitianMessageUseCase` took a third constructor argument
+  (`CreateNotificationUseCase`, injected the same way its two
+  repositories already are) and now calls it directly — a plain
+  synchronous use-case-to-use-case call, not a second Kafka topic. On
+  the frontend, a new `api/notifications.ts` client backs a
+  `NotificationsBell` component living in `RightRail`'s own header:
+  `useQuery` on a 4-second `refetchInterval` (matching the human-chat
+  poll cadence), a `Popover` (a new shadcn/Base UI component added this
+  stage, since nothing existing covered an anchored dropdown) showing
+  each notification with a small unread dot, marking everything read the
+  moment it opens, and a `MyceloIcon` trigger whose `alert` prop and red
+  count pill both derive from the same unread count. A `useEffect`
+  keyed on the query's data compares incoming ids against a `seenIds`
+  ref — seeded silently from whatever's already there on first mount, so
+  the toast only ever fires for a notification that arrived *after* the
+  component was already watching, never retroactively for one that
+  existed before it mounted.
+
+  Exit criteria met: backend added 41 tests total across
+  `backend/modules/notifications/tests/` and
+  `backend/modules/messaging/tests/` (double-checked via
+  `--collect-only`) — new coverage for both use cases, the two new API
+  endpoints, and a `SendDietitianMessageUseCase` case asserting the
+  right recipient gets notified with the right `reference_id`; the
+  three pre-existing `SendDietitianMessageUseCase` tests were updated
+  for the use case's new third constructor argument, not left broken.
+  Frontend added to `RightRail.test.tsx` (12 tests total, including 5 new
+  ones for the badge/popover/mark-all-read/toast-suppression/toast-firing
+  behavior) and touched `AppShell.test.tsx` (9 tests total) only to teach
+  its existing fetch mocks about the new `/notifications` call every
+  logged-in render now makes — no assertions in that file changed. `npx
+  tsc -b` and `npm run build` both clean; `oxlint` shows only
+  pre-existing warnings.
+
+  Live-verified against the real Docker stack (Kafka included) in two
+  separate Claude-in-Chrome browser sessions. Backend first, via `curl`:
+  registered a buyer, a dietitian (promoted via direct SQL, same as
+  every prior stage), and an admin; created a transaction and marked it
+  paid — confirmed the dietitian's `GET /notifications` showed a fresh
+  `TRANSACTION_PAID` notification (the same live Kafka round-trip proven
+  in Stage 1, now actually surfacing through this stage's own endpoint);
+  called `POST /notifications/mark-all-read` and confirmed `read_at` came
+  back set and stayed set on a follow-up `GET`; sent a message on the
+  auto-created thread and confirmed a `NEW_MESSAGE` notification appeared
+  for the dietitian only, never for the sender. Then in the browser:
+  logged in as the dietitian in one tab and the buyer in a second, and
+  watched the dietitian's badge go from idle brown with no count to a red
+  "1" the moment a `curl`-created payment landed, without any manual
+  refresh; opened the popover, saw "Nowa wiadomość" / "Nowa płatność od
+  klienta" listed, and confirmed via the network log that opening it
+  fired `POST /notifications/mark-all-read` and the badge cleared back
+  to idle; then, from the buyer's tab, sent a real message through the
+  UI and watched the dietitian's badge light back up on its own within
+  one poll cycle — no refresh, no manual action on the dietitian's side.
+  Finally, triggered one more real payment via `curl` and caught the
+  one-shot "Klient opłacił transakcję." toast rendering live bottom-right
+  on the dietitian's screen alongside the badge incrementing to match —
+  confirming the badge/toast split behaves exactly as designed. `docker
+  compose down` after.
+
+  Follow-up within this same stage: the collapsed-rail expand button
+  (the floating `Sparkles` button shown in both `ChatCanvas` and
+  `HumanChatCanvas` when the right rail is hidden) now also shows the
+  same mushroom + count badge next to it, so an unread notification
+  stays visible even while the rail is collapsed — reversing this
+  stage's earlier "deliberate scope trim" once the user asked for it. A
+  shared `useUnreadNotificationsCount` hook (`frontend/src/hooks/`) reads
+  the same `['my-notifications']` query key `NotificationsBell` already
+  polls (React Query dedupes by key, so this doesn't add a second
+  network call), and a small `MyceloNotificationBadge` component renders
+  the icon/count pill; clicking it calls the same `onExpandRight` the
+  `Sparkles` button already uses. Per the user's own direction to stop
+  testing this broadly for small in-stage additions, no new tests were
+  written for this — only the two existing test files
+  (`ChatCanvas.test.tsx`, `HumanChatCanvas.test.tsx`) that broke as a
+  mechanical consequence (the former needed an `AuthProvider` wrapper it
+  never required before; the latter's shared fetch mock needed one more
+  `/notifications` branch) were fixed. Live-verified visually in the
+  browser: collapsed the dietitian's right rail and confirmed the badge
+  appears showing the correct unread count next to the expand button,
+  and clicking it re-expands the rail.
+- **Stage 5 — Tests + docs sync — DONE**: this etap's tests need a
   docker-compose.test.yml Kafka service too (the existing ephemeral
   Postgres/Mongo test-stack pattern in `conftest.py` extends to Kafka).
 
+  Design decisions settled right before building this stage:
+
+  - **The real Kafka round-trip (one `TransactionPaid` publish → both the
+    `notifications` and `messaging` consumer groups reacting
+    independently) has only ever been proven by hand** — live-verified
+    via `curl` against the real Docker stack in every stage of this etap,
+    but never by an automated test, since `kafka_provider` defaults to
+    `"mock"` precisely so `pytest` never needs a broker. This stage adds
+    exactly **one** new integration test closing that gap — not a
+    broader Kafka test suite, matching the user's own "minimum tests"
+    direction from Stage 4's follow-up.
+  - **The new `kafka-test` service is *not* added to the existing
+    always-on session fixture.** `conftest.py`'s autouse `test_database`
+    fixture already starts Postgres+Mongo for every single `pytest`
+    invocation; naively adding Kafka to that same `docker compose up`
+    call would tax every test run (Kafka's own healthcheck needs a
+    `start_period`) even though only one test file ever needs a real
+    broker. Instead: the autouse fixture's `up` call is narrowed to name
+    `db-test`/`mongo-test` explicitly, and a second, non-autouse
+    session-scoped fixture (`kafka_test_broker`) brings up just
+    `kafka-test` — requested only by the new integration test. The
+    existing `finally: _compose("down", "-v")` already tears down the
+    *whole* compose project, so `kafka_test_broker` needs no teardown of
+    its own.
+  - **The test spins up its own `TestClient` via a fresh `create_app()`
+    call, not the shared `app` singleton other tests import** — it needs
+    `kafka_provider=kafka` and a `kafka_bootstrap_servers` pointing at
+    the test broker's host port, set via environment variables and
+    `get_settings.cache_clear()` before entering the client's `with`
+    block (which is what actually triggers the producer/consumer
+    startup, same as any other lifespan-dependent test in this repo),
+    then restored to the mock defaults afterward so no other test in the
+    session is affected by import/fixture ordering.
+  - **Consumer processing is polled for, not assumed instant** — same
+    as the manual `curl`+`sleep` verification already done live, the
+    test retries `GET /notifications` and `GET /messaging/threads` in a
+    short bounded loop rather than asserting immediately after the
+    `mark-paid` call returns.
+
+  Built exactly per the design decisions above: `docker-compose.test.yml`
+  gained a `kafka-test` service (same KRaft single-node config as dev's
+  own `kafka`, on its own container/ports/tmpfs so it can never touch
+  dev data, host-mapped to `9095` to avoid clashing with dev's `9094`).
+  Root `conftest.py`'s autouse `test_database` fixture now names
+  `db-test`/`mongo-test` explicitly rather than bringing up the whole
+  compose file, and a new non-autouse `kafka_test_broker` fixture starts
+  `kafka-test` on demand. One new test,
+  `backend/tests/test_kafka_transaction_paid_integration.py::test_marking_a_transaction_paid_notifies_and_creates_a_thread_via_real_kafka`,
+  requests that fixture, flips `KAFKA_PROVIDER`/`KAFKA_BOOTSTRAP_SERVERS`
+  env vars + clears the settings cache, builds a fresh app via
+  `create_app()`, registers a buyer/dietitian/admin, creates and marks a
+  transaction paid through the real HTTP API, then polls `GET
+  /notifications` and `GET /messaging/threads` until both the
+  `TRANSACTION_PAID` notification and the auto-created thread appear —
+  proving, for the first time in an automated test rather than only by
+  hand, that one publish reaches both independent consumer groups.
+
+  Docs sync, same five-file scope as every prior etap's closing stage:
+  - **`docs/api.md`**: new `# Notifications API` (`GET /notifications`,
+    `POST /notifications/mark-all-read`) and `# Messaging API` (`GET
+    /messaging/threads`, `GET`/`POST
+    /messaging/threads/{id}/messages`) sections; fixed a real stale
+    claim found while writing this — `GET /transactions/me` said it
+    "deliberately does not expose the buyer's identity" and that a
+    `TransactionPaid` Kafka event "triggers" the reveal, but Stage 1
+    actually built `buyer_email` as a *synchronous* derived property of
+    `status == PAID`, computed in that same endpoint, with no
+    dependency on the Kafka consumer at all — corrected, and
+    `buyer_email` added to the response examples across the Transactions
+    API section; removed `/notifications` from Future Extensions (it's
+    real now); Overview bullet list gained the two new capabilities.
+  - **`docs/domain-model.md`**: new `# 10. Notifications Domain`
+    (`Notification` entity) and `# 11. Messaging Domain`
+    (`DietitianThread`, `DietitianMessage`) sections, with every
+    subsequent section renumbered (12 through 17); `Notification`/
+    `DietitianThread` added to Aggregates, Relationships, and
+    Persistence Mapping; Future Extensions' Phase-12 progress note
+    updated to "done" for this domain; fixed the `Transaction` entity's
+    own stale note that its event publisher was "currently a no-op" —
+    now correctly describes mock-as-default rather than
+    no-implementation-yet.
+  - **`docs/architecture.md`**: new `## Notifications Module (Phase 12)`
+    and `## Messaging Module (Phase 12)` sections; rewrote the
+    `TransactionEventPublisher` subsection (previously titled "a port
+    with no real implementation yet" — no longer true) to describe the
+    real `KafkaTransactionEventPublisher`, the shared producer
+    singleton + generic consumer-loop helper, and the two independent
+    consumer groups; Data Ownership Rules gained a paragraph on
+    `messaging`/`transactions`' Etap-5 use cases reusing `identity`'s
+    `UserRepository` directly (same established pattern) and a note that
+    `notifications` is the first module with no cross-module repository
+    calls of its own at all; Docker section gained the `kafka` service
+    and fixed the `db` service description (stale since Etap 1 — never
+    updated past "Identity module"). Found and fixed two unrelated stale
+    "in progress" mentions of `frontend-admin` (done since Etap 2) while
+    reading through this section.
+  - **`README.md`**: fixed a real gap found while checking it — the
+    Docker services table said "eight containers" and never listed
+    `kafka` at all, dating back to Stage 1 of this etap; added the
+    `kafka` row, corrected the count to nine, fixed the `db` row's
+    stale "Identity module" description, and the same stale
+    `frontend-admin` "in progress" mention as `architecture.md`. Overall
+    Phase 12 status line unchanged (whole-phase granularity only, same
+    finding as every prior etap's closing stage).
+  - **`docs/openapi.json`**: regenerated via
+    `PYTHONPATH=. python scripts/export_openapi.py`; confirmed via
+    `grep` that `/api/v1/notifications`,
+    `/api/v1/notifications/mark-all-read`, `/api/v1/messaging/threads`,
+    and `/api/v1/messaging/threads/{thread_id}/messages` are all
+    present (a 401-line diff — this hadn't been regenerated since
+    Etap 4's own close, so it also picked up `buyer_email` and every
+    other schema change from Stages 1-4 of this etap in one pass).
+
+  Exit criteria met — closing-gate full suites, run because this stage's
+  own changes (root `conftest.py`, `docker-compose.test.yml`) are
+  genuinely cross-cutting test infrastructure: backend **561 passed, 0
+  failed** (double-checked via `--collect-only` — up from 513 at Etap
+  4's close: 47 new across this etap's Stages 1-4, 1 more from this
+  stage's own Kafka integration test) — and confirmed the narrowed
+  autouse fixture keeps Kafka off the other 560 tests' critical path
+  (full run: ~118s, only the one Kafka test paying the broker's own
+  startup cost). Frontend: **136 passed** across 21 files (up from 120
+  at Etap 4's close — 16 new across this etap's Stages 1-4, none added
+  by this closing stage itself, per the user's own "minimum tests"
+  direction). `npx tsc -b` and `npm run build` both clean.
+
+  Live-verified: ran the new Kafka integration test standalone first
+  (`pytest backend/tests/test_kafka_transaction_paid_integration.py`),
+  confirmed both `mycelo-notifications` and `mycelo-messaging` consumer
+  groups actually joined the test broker and the test passed within its
+  polling window; then ran the full backend suite once more to confirm
+  the narrowed `db-test`/`mongo-test`-only autouse fixture didn't
+  regress any other test's access to Postgres/Mongo.
+
 ---
 
-### Etap 6 — Cross-cutting polish + docs/status sync
+### Etap 6 — Cross-cutting polish + docs/status sync — SKIPPED
 
-Goal: close out Phase 12 the same way Phase 10 closed out — once every
-piece above is live, a consistency pass + final doc sync, not a new
-feature.
+Originally planned as a closing consistency pass (design-system audit,
+a manual smoke-walkthrough doc, and a final `README.md`/roadmap/
+`architecture.md` status sync), mirroring how Phase 10 closed out.
 
-- **Stage 1 — Design-system consistency pass** on everything built in
-  this phase (reusing `Badge`/`FieldError`/`EmptyState`/`Skeleton` from
-  Phase 10 Etap 5 rather than reinventing per-screen patterns — a mirror
-  of that etap's own audit, scoped to the new screens this phase adds).
-- **Stage 2 — Manual smoke walkthrough**: a new
-  `docs/dietitian-marketplace-smoke-walkthrough.md` (same spirit as
-  Phase 10's own walkthrough doc) covering: apply as a dietitian → admin
-  approves → dietitian completes their profile → a second user browses
-  the marketplace → leaves a review → selects an offer → admin marks
-  the transaction paid → dietitian sees the contact reveal → both sides
-  chat and exchange a generated plan.
-- **Stage 3 — Docs & status sync**: `README.md`, this roadmap's own
-  status table, and `docs/architecture.md` all updated to reflect
-  Phase 12 as done — same closing move as Phase 10 Etap 6 Stage 3.
+The user explicitly decided to skip it (2026-07-22): every etap in this
+phase was already live-verified continuously — real Docker-stack +
+browser verification at the end of nearly every stage, not just at
+phase close — and every etap's own closing "Tests + docs sync" stage
+already carried out the same `README.md`/`architecture.md`/`api.md`/
+`domain-model.md` sync Etap 6 Stage 3 would have repeated. Stage 1's
+design-system audit and Stage 2's smoke-walkthrough doc were the only
+two genuinely non-redundant pieces, and the user chose to drop both
+rather than write them retroactively for a phase already fully
+verified. Phase 12 is marked **DONE** in the status block above on
+that basis.
 
 ---
 

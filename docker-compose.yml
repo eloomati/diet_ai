@@ -87,6 +87,39 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Single-node Kafka in KRaft mode (broker + controller combined, no
+  # Zookeeper) — the modern minimal setup, appropriate for a demo rather
+  # than a multi-broker production cluster. CLUSTER_ID is just a fixed
+  # local identifier for this one-node cluster's storage format, not
+  # registered anywhere external — reused from Apache's own KRaft example.
+  kafka:
+    image: apache/kafka:3.8.0
+    container_name: diet_ai_kafka
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093,PLAINTEXT_HOST://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:9094
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    ports:
+      - "9094:9094"
+    volumes:
+      - kafka_data:/tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9094"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -102,6 +135,8 @@ services:
       mailhog:
         condition: service_started
       sftp:
+        condition: service_healthy
+      kafka:
         condition: service_healthy
     environment:
       APP_ENV: dev
@@ -137,6 +172,9 @@ services:
       SMTP_HOST: mailhog
       SMTP_PORT: "1025"
       SMTP_FROM_ADDRESS: noreply@dietai.local
+
+      KAFKA_PROVIDER: kafka
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
 
       SFTP_PROVIDER: sftp
       SFTP_HOST: sftp
@@ -197,3 +235,4 @@ volumes:
   postgres_data:
   mongo_data:
   ollama_data:
+  kafka_data:

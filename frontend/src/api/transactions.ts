@@ -24,6 +24,10 @@ export interface Transaction {
   status: TransactionStatus
   created_at: string
   paid_at: string | null
+  /** Only ever populated on the dietitian's own sales view
+   * (getMyTransactionsAsDietitian), and only once status is PAID — the
+   * Etap 5 contact reveal. */
+  buyer_email: string | null
 }
 
 export function getMyTransactionsAsDietitian(): Promise<Transaction[]> {
