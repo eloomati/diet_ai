@@ -1,3 +1,4 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { createContext, useEffect, useState, useSyncExternalStore, type ReactNode } from 'react'
 
 import { login as loginRequest, logout as logoutRequest, me as meRequest, register as registerRequest } from '@/api/auth'
@@ -25,6 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const hasToken = useSyncExternalStore(subscribe, getIsAuthenticatedSnapshot)
   const [user, setUser] = useState<MeResponse | null>(null)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
+  const queryClient = useQueryClient()
 
   async function loadUser(): Promise<void> {
     try {
@@ -61,18 +63,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function login(email: string, password: string): Promise<void> {
     const result = await loginRequest({ email, password })
+    // Wipe any cached data from whoever was previously logged in (or
+    // browsing as a guest) before this session's own queries populate it —
+    // otherwise a stale profile/conversations/plans/etc. from the last
+    // account briefly (or not-so-briefly) leaks into the new one.
+    queryClient.clear()
     setTokens(result.access_token, result.refresh_token)
     await loadUser()
   }
 
   async function register(email: string, password: string, captchaToken: string): Promise<void> {
     await registerRequest({ email, password, captcha_token: captchaToken })
+    queryClient.clear()
   }
 
   async function logout(): Promise<void> {
     const refreshToken = getRefreshToken()
     clearTokens()
     setUser(null)
+    queryClient.clear()
     if (refreshToken) {
       // Best-effort — an already-expired/garbage token still means "logged
       // out" locally, matching the backend's own idempotent /auth/logout.

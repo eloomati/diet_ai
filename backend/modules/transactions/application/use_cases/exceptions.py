@@ -6,5 +6,9 @@ class DietitianNotFoundError(TransactionApplicationError):
     pass
 
 
+class EmailNotVerifiedError(TransactionApplicationError):
+    pass
+
+
 class TransactionNotFoundError(TransactionApplicationError):
     pass

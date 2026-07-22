@@ -2,7 +2,12 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
-from backend.modules.admin.tests.db_helpers import auth_headers, promote_role, register_and_login
+from backend.modules.admin.tests.db_helpers import (
+    auth_headers,
+    promote_role,
+    register_and_login,
+    verify_email,
+)
 from backend.modules.identity.domain.value_objects.role import Role
 
 
@@ -27,9 +32,10 @@ def test_list_transactions_requires_admin_role(client: TestClient) -> None:
 def test_list_transactions_returns_all(client: TestClient) -> None:
     admin_token, admin_id = register_and_login(client, "txn.listadmin")
     asyncio.run(promote_role(admin_id, Role.ADMIN))
-    buyer_token, _ = register_and_login(client, "txn.listbuyer")
+    buyer_token, buyer_id = register_and_login(client, "txn.listbuyer")
     _, dietitian_id = register_and_login(client, "txn.listdietitian")
     asyncio.run(promote_role(dietitian_id, Role.DIET_USER))
+    asyncio.run(verify_email(buyer_id))
     transaction_id = _create_transaction(client, buyer_token, dietitian_id)
 
     response = client.get("/api/v1/admin/transactions", headers=auth_headers(admin_token))
@@ -52,9 +58,10 @@ def test_mark_transaction_paid_requires_admin_role(client: TestClient) -> None:
 def test_admin_marks_transaction_paid_then_unpaid(client: TestClient) -> None:
     admin_token, admin_id = register_and_login(client, "txn.markadmin")
     asyncio.run(promote_role(admin_id, Role.ADMIN))
-    buyer_token, _ = register_and_login(client, "txn.markbuyer")
+    buyer_token, buyer_id = register_and_login(client, "txn.markbuyer")
     _, dietitian_id = register_and_login(client, "txn.markdietitian")
     asyncio.run(promote_role(dietitian_id, Role.DIET_USER))
+    asyncio.run(verify_email(buyer_id))
     transaction_id = _create_transaction(client, buyer_token, dietitian_id)
 
     paid_response = client.post(

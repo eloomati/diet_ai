@@ -6,6 +6,7 @@ from backend.modules.transactions.tests.db_helpers import (
     auth_headers,
     promote_to_dietitian,
     register_and_login,
+    verify_email,
 )
 
 
@@ -28,7 +29,9 @@ def test_get_my_purchases_returns_only_the_buyers_own_transactions(client: TestC
     buyer_token, buyer_id = register_and_login(client, "txn.mypurchases")
     _, dietitian_id = register_and_login(client, "txn.mypurchasesdiet")
     asyncio.run(promote_to_dietitian(dietitian_id))
-    other_buyer_token, _ = register_and_login(client, "txn.otherpurchaser")
+    other_buyer_token, other_buyer_id = register_and_login(client, "txn.otherpurchaser")
+    asyncio.run(verify_email(buyer_id))
+    asyncio.run(verify_email(other_buyer_id))
 
     client.post(
         "/api/v1/transactions",

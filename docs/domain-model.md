@@ -325,7 +325,10 @@ Business rules:
 - password cannot be stored as plain text,
 - inactive users cannot authenticate,
 - `emailVerified` is tracked but does not gate authentication — a
-  deliberate scope boundary (Phase 8), not an oversight.
+  deliberate scope boundary (Phase 8), not an oversight. It does gate
+  one specific action since Phase 13, though: buying a dietitian's
+  offer (`Transactions Domain`, below) requires it — enforced there,
+  not as a rule on `User` itself.
 - `role` (Phase 12) is one of `USER` (default for every new account),
   `DIET_USER`, `ADMIN`, `SUPER_ADMIN`. `User.change_role()` is a plain
   state transition + `UserRoleChanged` event — it does **not** itself
@@ -1026,8 +1029,11 @@ Rules:
 - `create()` rejects `userId == dietitianId` (a user cannot buy their
   own offer) — a pure data invariant, checked in the entity itself since
   it needs no repository lookup; confirming the *dietitian* side is
-  actually a `DIET_USER` does need one and lives in the application
-  layer instead,
+  actually a `DIET_USER`, and that the *buyer* side has a verified email
+  (Phase 13), both need a repository lookup and live in the application
+  layer instead (`CreateTransactionUseCase`) — the account-banned/inactive
+  check doesn't even need to live here, since `get_current_user` already
+  covers it for every authenticated endpoint,
 - neither `mark_paid()` nor `mark_unpaid()` emits a domain event — the
   business event that matters (`TransactionPaid`, for Phase 12 Etap 5's
   two Kafka consumers) is published through a separate
@@ -1481,13 +1487,21 @@ BodyMeasurementHistory
 AllergyProfile
 ```
 
-Phase 12 (see `docs/implementation-roadmap.md`) is **done**: admin
-panel + roles (Etap 0), dietitian applications and profile management
-(Etap 1), the admin backend module + `frontend-admin` app (Etap 2),
-fixed-price dietitian-offer transactions (Etap 3), reviews + marketplace
-listing/profile (Etap 4), Kafka-backed notifications + human-dietitian
-chat (these two domains — Etap 5). Etap 6 (a closing consistency-pass
-stage) was explicitly skipped — every etap above already did continuous
-live verification and its own docs sync along the way.
+Phase 12 (see `docs/implementation/implementation-roadmap-done220726.md`)
+is **done**: admin panel + roles (Etap 0), dietitian applications and
+profile management (Etap 1), the admin backend module + `frontend-admin`
+app (Etap 2), fixed-price dietitian-offer transactions (Etap 3), reviews
++ marketplace listing/profile (Etap 4), Kafka-backed notifications and
+human-dietitian chat (these two domains — Etap 5). Etap 6 (a closing
+consistency-pass stage) was explicitly skipped — every etap above already
+did continuous live verification and its own docs sync along the way.
+
+Phase 13 — Quality, Security & Personalization (see
+`docs/implementation-roadmap.md`) is in progress: Etap 0 (JWT secret
+hardening, Redis-backed auth rate limiting, a verified-email requirement
+on buying a dietitian's offer, frontend session/cache reset across
+account switches) is done; Etaps 1-4 (per-user display names, chat/plan
+UX polish, a multi-plan calendar, admin-panel pagination) not yet
+started.
 
 These should be introduced only when supported by real business requirements.

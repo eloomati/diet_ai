@@ -57,6 +57,19 @@ async def promote_to_dietitian(user_id: str) -> None:
         await session.commit()
 
 
+async def verify_email(user_id: str) -> None:
+    """Phase 13 Etap 0 Stage 3's own tests need a verified buyer without
+    going through the real confirm-email-verification flow (already
+    covered by identity's own tests) — same direct-DB-bootstrap spirit as
+    `promote_to_dietitian` above."""
+    async with test_db_session() as session:
+        user_repo = SqlAlchemyUserRepository(session)
+        user = await user_repo.get_by_id(UUID(user_id))
+        user.mark_email_verified()
+        await user_repo.save(user)
+        await session.commit()
+
+
 async def mark_transaction_paid_directly(transaction_id: str) -> None:
     """Etap 5 Stage 1's own tests need a paid transaction without going
     through the full admin mark-paid endpoint (already covered by the

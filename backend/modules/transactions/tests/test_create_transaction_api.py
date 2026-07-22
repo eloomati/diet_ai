@@ -6,13 +6,15 @@ from backend.modules.transactions.tests.db_helpers import (
     auth_headers,
     promote_to_dietitian,
     register_and_login,
+    verify_email,
 )
 
 
 def test_create_transaction_returns_201(client: TestClient) -> None:
-    buyer_token, _ = register_and_login(client, "txn.buyer")
+    buyer_token, buyer_id = register_and_login(client, "txn.buyer")
     _, dietitian_id = register_and_login(client, "txn.dietitian")
     asyncio.run(promote_to_dietitian(dietitian_id))
+    asyncio.run(verify_email(buyer_id))
 
     response = client.post(
         "/api/v1/transactions",
@@ -68,6 +70,7 @@ def test_create_transaction_returns_404_when_target_is_not_a_dietitian(client: T
 def test_create_transaction_rejects_buying_your_own_offer(client: TestClient) -> None:
     token, user_id = register_and_login(client, "txn.self")
     asyncio.run(promote_to_dietitian(user_id))
+    asyncio.run(verify_email(user_id))
 
     response = client.post(
         "/api/v1/transactions",
@@ -76,6 +79,21 @@ def test_create_transaction_rejects_buying_your_own_offer(client: TestClient) ->
     )
 
     assert response.status_code == 400
+
+
+def test_create_transaction_returns_403_for_an_unverified_buyer(client: TestClient) -> None:
+    buyer_token, _ = register_and_login(client, "txn.unverified")
+    _, dietitian_id = register_and_login(client, "txn.unverifieddiet")
+    asyncio.run(promote_to_dietitian(dietitian_id))
+
+    response = client.post(
+        "/api/v1/transactions",
+        json={"dietitian_id": dietitian_id, "offer_type": "PLAN_REVIEW"},
+        headers=auth_headers(buyer_token),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["code"] == "EMAIL_NOT_VERIFIED"
 
 
 def test_create_transaction_rejects_unknown_offer_type(client: TestClient) -> None:
