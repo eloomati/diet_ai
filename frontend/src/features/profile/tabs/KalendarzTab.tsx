@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarOff, Check } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 
@@ -20,15 +20,19 @@ const ROW_STEP_MINUTES = 30
 const NO_TIME = ''
 
 interface DraggedMeal {
+  planId: string
   dayNumber: number
   mealName: string
   originTime: string
 }
 
-/** `dayNumber: null` means "this column has no plan day at all" (still a
- * trackable hover target, since a drop there is still handled — forced
- * back to the dragged meal's own day, per the same-day-only constraint). */
+/** `planId`/`dayNumber`: `null` means "no selected plan covers this date at
+ * all" — still a trackable hover target (a drop there is rejected, styled
+ * as invalid). A date covered by a *different* plan than the one being
+ * dragged is equally invalid — moving a meal across plans isn't supported,
+ * only within its own plan (day and/or time). */
 interface HoverCell {
+  planId: string | null
   dayNumber: number | null
   time: string
 }
@@ -119,11 +123,13 @@ function rowTimeForMeal(time: string): string {
 }
 
 /** Always covers 07:00–21:00 (matching the approved mockup) and grows to
- * include any meal that falls outside that range, so nothing is hidden. */
-function buildHourRows(plan: DietPlan): string[] {
+ * include any meal that falls outside that range, so nothing is hidden.
+ * Takes the flattened days of every currently-selected plan, not a single
+ * plan's own — the combined calendar has one shared hour axis. */
+function buildHourRows(days: DietDay[]): string[] {
   let minMinutes = BASE_HOUR_START * 60
   let maxMinutes = BASE_HOUR_END * 60
-  for (const day of plan.days) {
+  for (const day of days) {
     for (const meal of day.meals) {
       if (!meal.time) continue
       const [h, m] = meal.time.split(':').map(Number)
@@ -141,17 +147,17 @@ function buildHourRows(plan: DietPlan): string[] {
 
 interface MealChipProps {
   meal: Meal
-  dayNumber: number
+  testId: string
   time: string
   isDragging: boolean
   onDragStart: () => void
   draggable?: boolean
 }
 
-function MealChip({ meal, dayNumber, time, isDragging, onDragStart, draggable = true }: MealChipProps) {
+function MealChip({ meal, testId, time, isDragging, onDragStart, draggable = true }: MealChipProps) {
   return (
     <div
-      data-testid={`meal-day${dayNumber}-${meal.name}`}
+      data-testid={testId}
       onPointerDown={draggable ? onDragStart : undefined}
       className={cn(
         'rounded-lg bg-card p-1.5 text-[11px] shadow-sm select-none',
@@ -202,24 +208,26 @@ export function KalendarzTab() {
       : plansQuery.data?.[0]
         ? [plansQuery.data[0].plan_id]
         : []
-  // Stage 2 only wires up multi-select + overlap validation — the calendar
-  // grid itself still renders a single plan (the first selected one) until
-  // Stage 3 merges every selected plan's days into one combined view.
-  const effectivePlanId = effectiveSelectedIds[0] ?? null
-
-  const planQuery = useQuery({
-    queryKey: ['diet-plan', effectivePlanId],
-    queryFn: () => getDietPlan(effectivePlanId!),
-    retry: false,
-    enabled: !!effectivePlanId,
+  // One query per selected plan — the combined calendar merges all of
+  // their days into one continuous range (below), rather than showing
+  // only the first selected plan as earlier stages did.
+  const planQueries = useQueries({
+    queries: effectiveSelectedIds.map((id) => ({
+      queryKey: ['diet-plan', id],
+      queryFn: () => getDietPlan(id),
+      retry: false,
+    })),
   })
+  const plans = planQueries.map((q) => q.data).filter((d): d is DietPlan => !!d)
+  const plansPending = planQueries.some((q) => q.isPending)
+  const plansErrored = planQueries.some((q) => q.isError)
 
   // Dragging is pointer-events-based (not native HTML5 drag/drop), matching
   // the mechanic already proven in the approved mockup. A drop onto a cell
-  // that belongs to a different day (but still within the plan's own
-  // duration_days) moves the meal to that day *and* sets the dropped-on
-  // time; a drop onto a date the plan doesn't cover at all is rejected —
-  // `HoverCell.dayNumber` is `null` for those, styled as an invalid target.
+  // belonging to a different day *within the same plan* moves the meal
+  // there and sets the dropped-on time. A drop onto a date no selected plan
+  // covers, or one covered by a *different* plan than the dragged meal's
+  // own, is rejected — moving a meal across plans isn't supported.
   const [dragging, setDragging] = useState<DraggedMeal | null>(null)
   const [hoverCell, setHoverCell] = useState<HoverCell | null>(null)
   const [confirmation, setConfirmation] = useState<string | null>(null)
@@ -233,13 +241,17 @@ export function KalendarzTab() {
 
   const rescheduleMutation = useMutation({
     mutationFn: (payload: {
+      planId: string
       day_number: number
       meal_name: string
       new_time: string
       new_day_number?: number
-    }) => rescheduleMeal(effectivePlanId!, payload),
-    onSuccess: (updatedPlan) => {
-      queryClient.setQueryData(['diet-plan', effectivePlanId], updatedPlan)
+    }) => {
+      const { planId, ...body } = payload
+      return rescheduleMeal(planId, body)
+    },
+    onSuccess: (updatedPlan, variables) => {
+      queryClient.setQueryData(['diet-plan', variables.planId], updatedPlan)
     },
   })
   const rescheduleMutationRef = useRef(rescheduleMutation)
@@ -248,26 +260,27 @@ export function KalendarzTab() {
   function finishDrag() {
     const activeDrag = draggingRef.current
     const target = hoverCellRef.current
-    const droppedOnRealDay = target !== null && target.dayNumber !== null
+    const validTarget =
+      !!activeDrag && !!target && target.planId === activeDrag.planId && target.dayNumber !== null
     const somethingChanged =
-      droppedOnRealDay &&
-      (target.time !== activeDrag?.originTime || target.dayNumber !== activeDrag?.dayNumber)
+      validTarget && (target!.time !== activeDrag!.originTime || target!.dayNumber !== activeDrag!.dayNumber)
 
-    if (activeDrag && droppedOnRealDay && somethingChanged) {
-      const dayChanged = target.dayNumber !== activeDrag.dayNumber
+    if (activeDrag && validTarget && somethingChanged) {
+      const dayChanged = target!.dayNumber !== activeDrag.dayNumber
       rescheduleMutationRef.current.mutate(
         {
+          planId: activeDrag.planId,
           day_number: activeDrag.dayNumber,
           meal_name: activeDrag.mealName,
-          new_time: `${target.time}:00`,
-          ...(dayChanged ? { new_day_number: target.dayNumber! } : {}),
+          new_time: `${target!.time}:00`,
+          ...(dayChanged ? { new_day_number: target!.dayNumber! } : {}),
         },
         {
           onSuccess: () => {
             setConfirmation(
               dayChanged
-                ? `Przeniesiono „${activeDrag.mealName}” na inny dzień, godzina ${target.time}.`
-                : `Przeniesiono „${activeDrag.mealName}” na ${target.time}.`,
+                ? `Przeniesiono „${activeDrag.mealName}” na inny dzień, godzina ${target!.time}.`
+                : `Przeniesiono „${activeDrag.mealName}” na ${target!.time}.`,
             )
           },
         },
@@ -348,29 +361,57 @@ export function KalendarzTab() {
     )
   }
 
-  const plan = planQuery.data
-
-  // day_number is only ever a relative offset (1..duration_days) from the
-  // plan's own creation date — the API has no per-day absolute date. Map it
-  // onto real calendar dates (and thus real weekdays) so the grid can show
-  // a genuine Mon-Sun week, including days the plan doesn't cover.
+  // day_number is only ever a relative offset (1..duration_days) from each
+  // plan's own creation date — the API has no per-day absolute date. Map
+  // every selected plan's days onto real calendar dates (and thus real
+  // weekdays), merged into one shared lookup — non-overlapping selection
+  // (enforced in Stage 2) means at most one plan ever claims a given date.
   let visibleDates: Date[] = []
   let totalWeeks = 1
-  const dayByDateKey = new Map<string, DietDay>()
-  if (plan) {
-    const planStartDate = startOfDay(new Date(plan.created_at))
-    for (const day of plan.days) {
-      dayByDateKey.set(dateKey(addDays(planStartDate, day.day_number - 1)), day)
+  const dayByDateKey = new Map<string, { planId: string; day: DietDay }>()
+  if (plans.length > 0) {
+    let earliestMonday: Date | null = null
+    let latestPlanMonday: Date | null = null
+    for (const p of plans) {
+      const planStartDate = startOfDay(new Date(p.created_at))
+      for (const day of p.days) {
+        dayByDateKey.set(dateKey(addDays(planStartDate, day.day_number - 1)), { planId: p.plan_id, day })
+      }
+      const planFirstMonday = startOfWeek(planStartDate)
+      const planLastMonday = startOfWeek(addDays(planStartDate, p.duration_days - 1))
+      if (!earliestMonday || planFirstMonday < earliestMonday) earliestMonday = planFirstMonday
+      if (!latestPlanMonday || planLastMonday > latestPlanMonday) latestPlanMonday = planLastMonday
     }
-    const firstMonday = startOfWeek(planStartDate)
-    const lastDayDate = addDays(planStartDate, plan.duration_days - 1)
-    const lastMonday = startOfWeek(lastDayDate)
+    const firstMonday = earliestMonday!
+    // The combined range always covers at least a full year forward from
+    // the earliest selected plan, so the calendar can be browsed well past
+    // its actual data — weeks with nothing scheduled just render empty,
+    // rather than plans being generated to artificially fill them.
+    const YEAR_WEEKS = 52
+    const lastMondayByYear = addDays(firstMonday, (YEAR_WEEKS - 1) * 7)
+    const lastMonday = latestPlanMonday! > lastMondayByYear ? latestPlanMonday! : lastMondayByYear
     totalWeeks = Math.round((lastMonday.getTime() - firstMonday.getTime()) / (7 * 86400000)) + 1
     const visibleWeekStart = addDays(firstMonday, weekIndex * 7)
     visibleDates = Array.from({ length: 7 }, (_, i) => addDays(visibleWeekStart, i))
   }
 
-  const hourRows = plan ? buildHourRows(plan) : []
+  const dietTypes = [...new Set(plans.map((p) => p.diet_type))]
+  const allRequirements = [...new Set(plans.flatMap((p) => p.requirements))]
+  const hourRows = plans.length > 0 ? buildHourRows(plans.flatMap((p) => p.days)) : []
+  // With one plan active, `day_number` alone is a unique, stable testid —
+  // unchanged from earlier stages. With two or more, different plans can
+  // both have a "day 1" visible in the same real week, so the id needs the
+  // owning plan too.
+  const multiplePlansActive = plans.length > 1
+  function cellTestId(planId: string, dayNumber: number, suffix: string): string {
+    return multiplePlansActive ? `cell-${planId}-day${dayNumber}-${suffix}` : `cell-day${dayNumber}-${suffix}`
+  }
+  function mealTestId(planId: string, dayNumber: number, mealName: string): string {
+    return multiplePlansActive ? `meal-${planId}-day${dayNumber}-${mealName}` : `meal-day${dayNumber}-${mealName}`
+  }
+  function overviewTestId(planId: string, dayNumber: number): string {
+    return multiplePlansActive ? `overview-${planId}-day${dayNumber}` : `overview-day${dayNumber}`
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -426,14 +467,14 @@ export function KalendarzTab() {
       </div>
       {overlapError && <FieldError message={overlapError} />}
 
-      {planQuery.isPending ? (
+      {plansPending ? (
         <div className="flex flex-col gap-3" role="status" aria-label="Ładowanie kalendarza…">
           <Skeleton className="h-9 w-full rounded-lg" />
           <Skeleton className="h-72 w-full rounded-xl" />
         </div>
-      ) : planQuery.isError ? (
+      ) : plansErrored ? (
         <p className="text-sm text-destructive">Nie udało się wczytać tego planu.</p>
-      ) : plan ? (
+      ) : plans.length > 0 ? (
         <>
           <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
             <div className="flex items-center gap-1.5">
@@ -457,7 +498,8 @@ export function KalendarzTab() {
               </Button>
             </div>
             <span className="text-[12.5px] font-bold text-muted-foreground">
-              {formatWeekRange(visibleDates[0], visibleDates[6])} · {dietTypeLabel(plan.diet_type)}
+              {formatWeekRange(visibleDates[0], visibleDates[6])}
+              {dietTypes.length > 0 && ` · ${dietTypes.map(dietTypeLabel).join(', ')}`}
             </span>
             <label className="flex items-center gap-2 text-[11px] font-bold">
               <span className={cn(viewMode === 'szczegolowy' ? 'text-foreground' : 'text-muted-foreground')}>
@@ -489,12 +531,13 @@ export function KalendarzTab() {
                 </div>
               ))}
               {visibleDates.map((date, i) => {
-                const day = dayByDateKey.get(dateKey(date))
+                const entry = dayByDateKey.get(dateKey(date))
+                const day = entry?.day
                 const mealsHere = day ? sortMealsForOverview(day.meals) : []
                 return (
                   <div
                     key={i}
-                    data-testid={day ? `overview-day${day.day_number}` : `overview-empty${i}`}
+                    data-testid={day ? overviewTestId(entry!.planId, day.day_number) : `overview-empty${i}`}
                     className={cn('flex flex-col gap-1 p-1.5', i > 0 && 'border-l border-border')}
                   >
                     {mealsHere.length === 0 ? (
@@ -504,7 +547,7 @@ export function KalendarzTab() {
                         <MealChip
                           key={meal.name}
                           meal={meal}
-                          dayNumber={day!.day_number}
+                          testId={mealTestId(entry!.planId, day!.day_number, meal.name)}
                           time={meal.time ?? NO_TIME}
                           isDragging={false}
                           onDragStart={() => {}}
@@ -536,12 +579,13 @@ export function KalendarzTab() {
                   valid drop target (the API requires a real new_time). */}
               <div className="border-b border-border p-2 text-[11px] font-bold text-muted-foreground">Bez pory</div>
               {visibleDates.map((date, i) => {
-                const day = dayByDateKey.get(dateKey(date))
+                const entry = dayByDateKey.get(dateKey(date))
+                const day = entry?.day
                 const mealsHere = day ? day.meals.filter((m) => !m.time) : []
                 return (
                   <div
                     key={i}
-                    data-testid={day ? `cell-day${day.day_number}-none` : `cell-empty${i}-none`}
+                    data-testid={day ? cellTestId(entry!.planId, day.day_number, 'none') : `cell-empty${i}-none`}
                     className="border-b border-l border-border p-1.5"
                   >
                     <div className="flex flex-col gap-1">
@@ -549,10 +593,12 @@ export function KalendarzTab() {
                         <MealChip
                           key={meal.name}
                           meal={meal}
-                          dayNumber={day!.day_number}
+                          testId={mealTestId(entry!.planId, day!.day_number, meal.name)}
                           time={NO_TIME}
-                          isDragging={dragging?.dayNumber === day!.day_number && dragging.mealName === meal.name}
-                          onDragStart={() => startDrag({ dayNumber: day!.day_number, mealName: meal.name, originTime: NO_TIME })}
+                          isDragging={dragging?.planId === entry!.planId && dragging.dayNumber === day!.day_number && dragging.mealName === meal.name}
+                          onDragStart={() =>
+                            startDrag({ planId: entry!.planId, dayNumber: day!.day_number, mealName: meal.name, originTime: NO_TIME })
+                          }
                         />
                       ))}
                     </div>
@@ -564,19 +610,26 @@ export function KalendarzTab() {
                 <Fragment key={time}>
                   <div className="border-b border-border p-2 text-[11px] font-bold text-muted-foreground">{time}</div>
                   {visibleDates.map((date, i) => {
-                    const day = dayByDateKey.get(dateKey(date))
+                    const entry = dayByDateKey.get(dateKey(date))
+                    const day = entry?.day
                     const mealsHere = day ? day.meals.filter((m) => m.time && rowTimeForMeal(m.time) === time) : []
+                    const cellPlanId = entry?.planId ?? null
                     const cellDayNumber = day?.day_number ?? null
-                    const isHovered = hoverCell?.time === time && hoverCell.dayNumber === cellDayNumber
-                    const isInvalidDropTarget = !!dragging && cellDayNumber === null
+                    const isHovered =
+                      hoverCell?.time === time &&
+                      hoverCell.dayNumber === cellDayNumber &&
+                      hoverCell.planId === cellPlanId
+                    const isInvalidDropTarget =
+                      !!dragging && (cellPlanId === null || cellPlanId !== dragging.planId)
                     return (
                       <div
                         key={i}
-                        data-testid={day ? `cell-day${day.day_number}-${time}` : `cell-empty${i}-${time}`}
-                        onPointerEnter={() => dragging && setHover({ dayNumber: cellDayNumber, time })}
+                        data-testid={day ? cellTestId(entry!.planId, day.day_number, time) : `cell-empty${i}-${time}`}
+                        onPointerEnter={() => dragging && setHover({ planId: cellPlanId, dayNumber: cellDayNumber, time })}
                         onPointerLeave={() =>
                           hoverCellRef.current?.time === time &&
                           hoverCellRef.current.dayNumber === cellDayNumber &&
+                          hoverCellRef.current.planId === cellPlanId &&
                           setHover(null)
                         }
                         className={cn(
@@ -590,11 +643,11 @@ export function KalendarzTab() {
                             <MealChip
                               key={meal.name}
                               meal={meal}
-                              dayNumber={day!.day_number}
+                              testId={mealTestId(entry!.planId, day!.day_number, meal.name)}
                               time={time}
-                              isDragging={dragging?.dayNumber === day!.day_number && dragging.mealName === meal.name}
+                              isDragging={dragging?.planId === entry!.planId && dragging.dayNumber === day!.day_number && dragging.mealName === meal.name}
                               onDragStart={() =>
-                                startDrag({ dayNumber: day!.day_number, mealName: meal.name, originTime: time })
+                                startDrag({ planId: entry!.planId, dayNumber: day!.day_number, mealName: meal.name, originTime: time })
                               }
                             />
                           ))}
@@ -616,9 +669,9 @@ export function KalendarzTab() {
               : 'Przeciągnij posiłek na inną komórkę, by zmienić jego dzień i/lub godzinę.'}
           </p>
 
-          {plan.requirements.length > 0 && (
+          {allRequirements.length > 0 && (
             <p className="text-[11px] text-muted-foreground">
-              Uwzględnione wskazówki: {plan.requirements.join(', ')}
+              Uwzględnione wskazówki: {allRequirements.join(', ')}
             </p>
           )}
         </>

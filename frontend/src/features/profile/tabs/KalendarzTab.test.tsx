@@ -174,8 +174,36 @@ describe('KalendarzTab', () => {
     expect(await screen.findByTestId('meal-day5-Posiłek 5')).toBeInTheDocument()
     expect(screen.getByTestId('meal-day10-Posiłek 10')).toBeInTheDocument()
     expect(screen.getByText(/19–25 stycznia 2026/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Następny tydzień →' })).toBeDisabled()
     expect(screen.queryByTestId('meal-day1-Posiłek 1')).not.toBeInTheDocument()
+
+    // The plan's own data ends here, but the calendar keeps scrolling
+    // through a full year regardless — "Next" stays enabled, and the
+    // following week simply renders empty rather than being disabled or
+    // fabricating meals to fill it.
+    expect(screen.getByRole('button', { name: 'Następny tydzień →' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Następny tydzień →' }))
+    expect(await screen.findByText(/26 stycznia – 1 lutego 2026/)).toBeInTheDocument()
+    expect(screen.queryByTestId('meal-day10-Posiłek 10')).not.toBeInTheDocument()
+  })
+
+  it('allows scrolling forward through empty weeks for a full year past the plan', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/p1')) return Promise.resolve(jsonResponse(200, threeDayPlan()))
+      return Promise.resolve(jsonResponse(200, [PLAN_SUMMARY]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+    await screen.findByTestId('meal-day1-Owsianka')
+
+    // threeDayPlan starts 2026-01-15 (Thu) — first Monday is 2026-01-12.
+    // 51 more clicks reaches the 52nd (last) week of the full year, where
+    // "Next" finally disables.
+    for (let i = 0; i < 51; i++) {
+      await user.click(screen.getByRole('button', { name: 'Następny tydzień →' }))
+    }
+    expect(screen.getByRole('button', { name: 'Następny tydzień →' })).toBeDisabled()
   })
 
   it('always shows all 7 days of the week, including ones the plan does not cover', async () => {
@@ -515,6 +543,120 @@ describe('KalendarzTab', () => {
 
       expect(screen.getByTestId('plan-option-p1')).toHaveClass('bg-accent')
       expect(screen.getByTestId('plan-picker-trigger')).toHaveTextContent(/15–17 stycznia 2026/)
+    })
+  })
+
+  describe('combined week-by-week navigation (Etap 3 Stage 3)', () => {
+    // p1: 15-17 stycznia (Thu-Sat), first real week (12-18). p2: 20-21
+    // stycznia (Tue-Wed), second real week (19-25) — non-overlapping,
+    // adjacent-but-different weeks, so navigating forward one week should
+    // swap from p1's meals to p2's with no gap or leftover overlap.
+    const PLAN_A_SUMMARY = { ...PLAN_SUMMARY, plan_id: 'p1', created_at: '2026-01-15T10:00:00Z', duration_days: 3 }
+    const PLAN_B_SUMMARY = { ...PLAN_SUMMARY, plan_id: 'p2', created_at: '2026-01-20T10:00:00Z', duration_days: 2 }
+
+    function planADetail() {
+      return threeDayPlan()
+    }
+    function planBDetail() {
+      return {
+        ...PLAN_B_SUMMARY,
+        user_id: 'u1',
+        requirements: ['wysokobiałkowe'],
+        days: [
+          { day_number: 1, meals: [{ name: 'Kurczak', calories: 600, protein: 50, carbohydrates: 40, fat: 15, time: '13:00' }] },
+          { day_number: 2, meals: [{ name: 'Ryba', calories: 550, protein: 45, carbohydrates: 30, fat: 20, time: '13:00' }] },
+        ],
+        updated_at: '2026-01-20T10:00:00Z',
+      }
+    }
+
+    function twoPlanFetchMock() {
+      return vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/diet-plans/p1')) return Promise.resolve(jsonResponse(200, planADetail()))
+        if (url.includes('/diet-plans/p2')) return Promise.resolve(jsonResponse(200, planBDetail()))
+        return Promise.resolve(jsonResponse(200, [PLAN_A_SUMMARY, PLAN_B_SUMMARY]))
+      })
+    }
+
+    it("shows each selected plan's meals in its own week, with no gaps or overlaps", async () => {
+      const user = userEvent.setup()
+      vi.stubGlobal('fetch', twoPlanFetchMock())
+
+      renderKalendarzTab()
+      await screen.findByTestId('meal-day1-Owsianka')
+
+      await user.click(screen.getByTestId('plan-picker-trigger'))
+      await user.click(screen.getByTestId('plan-option-p2'))
+      await user.click(screen.getByTestId('plan-picker-trigger')) // close the popover
+
+      // Two plans are now active, so testids disambiguate by plan id.
+      // Week 1 (12-18 stycznia): only p1's meals.
+      expect(screen.getByText(/12–18 stycznia 2026/)).toBeInTheDocument()
+      expect(screen.getByTestId('meal-p1-day1-Owsianka')).toBeInTheDocument()
+      expect(screen.queryByTestId('meal-p2-day1-Kurczak')).not.toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Następny tydzień →' }))
+
+      // Week 2 (19-25 stycznia): only p2's meals — p1's are gone, not
+      // duplicated, and nothing from either plan is missing.
+      expect(await screen.findByText(/19–25 stycznia 2026/)).toBeInTheDocument()
+      expect(screen.getByTestId('meal-p2-day1-Kurczak')).toBeInTheDocument()
+      expect(screen.getByTestId('meal-p2-day2-Ryba')).toBeInTheDocument()
+      expect(screen.queryByTestId('meal-p1-day1-Owsianka')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('meal-p1-day2-Jajecznica')).not.toBeInTheDocument()
+    })
+
+    it('rejects dragging a meal onto a cell that belongs to a different plan', async () => {
+      const user = userEvent.setup()
+      // p1: 15 stycznia (Thu) only. p2: 16 stycznia (Fri) only — adjacent
+      // day, same real week (12-18), non-overlapping. Both plans' cells are
+      // visible together in this one week, so a cross-plan drop is
+      // actually reachable.
+      const adjacentPlanA = { ...PLAN_A_SUMMARY, duration_days: 1 }
+      const adjacentPlanB = { ...PLAN_B_SUMMARY, created_at: '2026-01-16T10:00:00Z', duration_days: 1 }
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/diet-plans/p1')) {
+          return Promise.resolve(
+            jsonResponse(200, {
+              ...adjacentPlanA,
+              user_id: 'u1',
+              requirements: [],
+              days: [{ day_number: 1, meals: [{ name: 'Owsianka', calories: 500, protein: 30, carbohydrates: 60, fat: 12, time: '08:00' }] }],
+              updated_at: '2026-01-15T10:00:00Z',
+            }),
+          )
+        }
+        if (url.includes('/diet-plans/p2')) {
+          return Promise.resolve(
+            jsonResponse(200, {
+              ...adjacentPlanB,
+              user_id: 'u1',
+              requirements: [],
+              days: [{ day_number: 1, meals: [{ name: 'Kurczak', calories: 600, protein: 50, carbohydrates: 40, fat: 15, time: '13:00' }] }],
+              updated_at: '2026-01-16T10:00:00Z',
+            }),
+          )
+        }
+        return Promise.resolve(jsonResponse(200, [adjacentPlanA, adjacentPlanB]))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderKalendarzTab()
+      await screen.findByTestId('meal-day1-Owsianka')
+
+      await user.click(screen.getByTestId('plan-picker-trigger'))
+      await user.click(screen.getByTestId('plan-option-p2'))
+      await screen.findByTestId('meal-p2-day1-Kurczak')
+
+      fireEvent.pointerDown(screen.getByTestId('meal-p1-day1-Owsianka'))
+      fireEvent.pointerEnter(screen.getByTestId('cell-p2-day1-13:00'))
+      fireEvent.pointerUp(window)
+
+      const patchCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')
+      expect(patchCall).toBeUndefined()
+      // Both meals stay exactly where they started.
+      expect(screen.getByTestId('meal-p1-day1-Owsianka')).toBeInTheDocument()
+      expect(screen.getByTestId('meal-p2-day1-Kurczak')).toBeInTheDocument()
     })
   })
 })

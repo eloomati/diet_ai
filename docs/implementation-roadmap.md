@@ -821,13 +821,34 @@ days, and export the combined selection directly from that view.
     one with the error message, and rejecting deselection down to zero.
     Full frontend suite: 152 passed, clean `tsc --noEmit`. Frontend-only
     change, so no backend run needed this stage.
-- [ ] **Stage 3 — Combined week-by-week navigation**: the calendar's
-      week grid merges all currently-selected plans' days into one
-      continuous range, replacing the current single-plan `totalWeeks`
-      calculation.
-  - Exit criteria: navigating week-by-week across two or more selected
-    non-overlapping plans shows the correct plan's meals for each week,
-    with no gaps/overlaps in the combined range.
+- [x] **Stage 3 — Combined week-by-week navigation — DONE**: replaced
+      the single `planQuery` with one `useQueries` call across every
+      selected plan id; their days merge into one
+      `Map<dateKey, {planId, day}>` (non-overlapping selection means at
+      most one plan ever claims a given date). Combined `totalWeeks`
+      spans from the earliest selected plan's first Monday through
+      whichever is later of its own last week or a full 52-week year —
+      per a mid-stage clarification, the calendar should be scrollable
+      through an entire year even across weeks with no plan data at
+      all, while a plan itself is only ever generated for the days it
+      actually covers (no fabricated empty days). Diet type(s) in the
+      header and "Uwzględnione wskazówki" now dedupe across every
+      loaded plan instead of reading a single plan's own fields.
+      Dragging gained a `planId` on both the dragged meal and the hover
+      target — a drop is only valid within the *same* plan; a foreign
+      plan's cell is rejected exactly like a date no plan covers at all
+      (same invalid-target styling). Bug caught while writing this
+      stage's own tests: two different plans' days can both be "day 1"
+      and land in the *same* visible week near a plan boundary, so
+      `cell-day1-…`/`meal-day1-…` testids could collide; fixed by
+      disambiguating with the owning plan id, but **only** once 2+
+      plans are actually loaded together, so every existing single-plan
+      test's testids are completely unchanged.
+  - Exit criteria met: new tests assert each selected plan's meals show
+    correctly in their own week with nothing missing or duplicated,
+    and a cross-plan drop is rejected with no PATCH sent. Full frontend
+    suite: 155 passed, clean `tsc --noEmit`. Frontend-only change, no
+    backend run needed this stage.
 - [ ] **Stage 4 — Combined export**: a new backend endpoint exporting
       several selected plans' meals combined into one CSV (given a list
       of plan ids); an export action added directly in `KalendarzTab`
