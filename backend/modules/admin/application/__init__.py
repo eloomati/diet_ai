@@ -1,4 +1,4 @@
-from .dto import UserSummaryResult
+from .dto import PageResult, UserSummaryResult
 from .use_cases import (
     ActivateUserUseCase,
     AdminApplicationError,
@@ -16,6 +16,7 @@ from .use_cases import (
 
 __all__ = [
     "UserSummaryResult",
+    "PageResult",
     "ListUsersUseCase",
     "ActivateUserUseCase",
     "BanUserUseCase",

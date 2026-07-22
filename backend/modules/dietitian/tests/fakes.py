@@ -21,11 +21,20 @@ class InMemoryDietitianApplicationRepository:
     async def save(self, application: DietitianApplication) -> None:
         self._by_id[application.id] = application
 
-    async def list_all(self, status=None) -> list[DietitianApplication]:
+    async def list_all(
+        self, status=None, limit: int | None = None, offset: int = 0
+    ) -> list[DietitianApplication]:
         applications = list(self._by_id.values())
         if status is not None:
             applications = [a for a in applications if a.status == status]
-        return sorted(applications, key=lambda a: a.created_at)
+        applications = sorted(applications, key=lambda a: a.created_at)[offset:]
+        return applications[:limit] if limit is not None else applications
+
+    async def count_all(self, status=None) -> int:
+        applications = list(self._by_id.values())
+        if status is not None:
+            applications = [a for a in applications if a.status == status]
+        return len(applications)
 
 
 class InMemoryDietitianProfileRepository:

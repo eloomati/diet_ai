@@ -942,13 +942,51 @@ days, and export the combined selection directly from that view.
 Goal: all three `frontend-admin` tabs (Users, Dietitian Applications,
 Transactions) paginate instead of rendering every row unpaginated.
 
-- [ ] **Stage 1 — Backend pagination**: `limit`/`offset` (or
-      `page`/`page_size`) query params added to `GET /admin/users`,
-      `GET /admin/dietitian-applications`, `GET /admin/transactions`,
-      each returning a total count alongside the page of results.
-  - Exit criteria: each endpoint's existing behavior is preserved when
-    no pagination params are passed (backwards compatible), and returns
-    a correctly-sized page + accurate total when they are.
+- [x] **Stage 1 — Backend pagination — DONE**: `limit`/`offset` query
+      params (`Query(default=None, ge=1, le=200)` / `Query(default=0,
+      ge=0)`) added to `GET /admin/users`, `GET
+      /admin/dietitian-applications` (alongside its existing `status`
+      filter), `GET /admin/transactions`. All three now respond with a
+      shared generic envelope, `Page[T]` (`{"items": [...], "total": N}`,
+      `backend/modules/admin/api/schemas/pagination_schemas.py`), rather
+      than a bare array — the first pagination pattern in this codebase
+      (no prior `limit`/`offset`/`page` convention existed to mirror; the
+      only precedent was `GET /diet-plans`'s `from`/`to` date filtering,
+      a different concern). `limit=None` (the default, i.e. the param
+      omitted) returns every row with no `LIMIT` applied — the
+      "backwards compatible" half of the exit criteria — so any
+      not-yet-upgraded caller still gets everything, just now wrapped
+      with an accurate `total` alongside it.
+
+      Threaded through every layer for all three: `UserRepository`/
+      `DietitianApplicationRepository`/`TransactionRepository` each
+      gained `limit`/`offset` params on `list_all()` plus a new
+      `count_all()` method (both abstract and their `SqlAlchemy*`
+      implementations — `.offset()` always applied, `.limit()` only
+      when given, `count_all` a separate `SELECT count(*)` respecting
+      the same filters, e.g. dietitian applications' `status`).
+      `TransactionRepository.list_by_user_id`/`list_by_dietitian_id`
+      (backing the non-admin `/transactions/me*` endpoints) were left
+      untouched — only the admin-facing `list_all` gained pagination.
+      New generic `PageResult[T]` DTO
+      (`backend/modules/admin/application/dto/pagination_dto.py`) is
+      what each `List*UseCase.execute()` now returns instead of a bare
+      list — the routers wrap that into the `Page[T]` response schema.
+      Every fake repository (`InMemoryUserRepository` ×2 — one in
+      `identity/tests/fakes.py`, one duplicated locally in
+      `test_user_repository_contract.py` since it subclasses the ABC
+      directly —, `InMemoryDietitianApplicationRepository`,
+      `InMemoryTransactionRepository`) updated to match, sorting the
+      same way its real `SqlAlchemy*` counterpart orders before slicing.
+  - Exit criteria met: existing tests updated for the new `{items,
+    total}` shape, plus a new pagination-specific test per endpoint
+    (`limit`/`offset` returns the right page size, disjoint pages,
+    accurate `total` unaffected by the current page). `docs/openapi.json`
+    re-exported. Directly-affected suite: `admin`, `identity`,
+    `dietitian`, `transactions` modules — 324 passed. Backend-only
+    stage, no frontend change yet (Stage 2), so no live-browser
+    verification this stage — matches how prior etaps' backend-only
+    stages were verified via automated coverage alone.
 - [ ] **Stage 2 — Frontend-admin pagination UI**: a shared
       pagination control wired into all three tabs.
   - Exit criteria: live-verified paging through each of the three tabs

@@ -112,4 +112,34 @@ def test_list_dietitian_applications_filters_by_status(client: TestClient) -> No
     )
 
     assert response.status_code == 200
-    assert all(a["status"] == "PENDING" for a in response.json())
+    body = response.json()
+    assert all(a["status"] == "PENDING" for a in body["items"])
+    assert body["total"] == len(body["items"])
+
+
+def test_list_dietitian_applications_paginates_with_limit_and_offset(client: TestClient) -> None:
+    admin_token, admin_id = register_and_login(client, "admin.appPaginate")
+    asyncio.run(promote_role(admin_id, Role.ADMIN))
+    for suffix in ("a", "b", "c"):
+        applicant_token, _ = register_and_login(client, f"admin.appPaginate.{suffix}")
+        client.post(
+            "/api/v1/dietitian/applications",
+            json=_APPLICATION_PAYLOAD,
+            headers=auth_headers(applicant_token),
+        )
+
+    full = client.get(
+        "/api/v1/admin/dietitian-applications",
+        params={"status": "PENDING"},
+        headers=auth_headers(admin_token),
+    ).json()
+    assert full["total"] >= 3
+
+    page = client.get(
+        "/api/v1/admin/dietitian-applications",
+        params={"status": "PENDING", "limit": 2, "offset": 0},
+        headers=auth_headers(admin_token),
+    ).json()
+
+    assert len(page["items"]) == 2
+    assert page["total"] == full["total"]

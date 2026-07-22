@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.dietitian.domain.entities.dietitian_application import DietitianApplication
@@ -51,10 +51,23 @@ class SqlAlchemyDietitianApplicationRepository(DietitianApplicationRepository):
         await self._session.flush()
 
     async def list_all(
-        self, status: ApplicationStatus | None = None
+        self,
+        status: ApplicationStatus | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[DietitianApplication]:
         stmt = select(DietitianApplicationModel).order_by(DietitianApplicationModel.created_at)
         if status is not None:
             stmt = stmt.where(DietitianApplicationModel.status == status.value)
+        stmt = stmt.offset(offset)
+        if limit is not None:
+            stmt = stmt.limit(limit)
         result = await self._session.execute(stmt)
         return [DietitianApplicationMapper.to_domain(model) for model in result.scalars().all()]
+
+    async def count_all(self, status: ApplicationStatus | None = None) -> int:
+        stmt = select(func.count()).select_from(DietitianApplicationModel)
+        if status is not None:
+            stmt = stmt.where(DietitianApplicationModel.status == status.value)
+        result = await self._session.execute(stmt)
+        return result.scalar_one()
