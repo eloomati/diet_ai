@@ -111,7 +111,7 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
     renderApp()
     await loginViaPopup(user)
 
-    expect(await screen.findByText('Brak jeszcze żadnych rozmów.')).toBeInTheDocument()
+    expect(await screen.findByText('Jeszcze z nami nie pogadałeś :(')).toBeInTheDocument()
   })
 
   it('creates a conversation from the category picker and navigates to it', async () => {
@@ -158,7 +158,7 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
     renderApp()
     await loginViaPopup(user)
 
-    await screen.findByText('Brak jeszcze żadnych rozmów.')
+    await screen.findByText('Jeszcze z nami nie pogadałeś :(')
     await user.click(screen.getByRole('button', { name: 'Nowy czat' }))
     await user.click(screen.getByRole('button', { name: '🥗 Dieta' }))
     await user.click(screen.getByRole('button', { name: 'Rozpocznij czat' }))
@@ -204,7 +204,7 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
     renderApp()
     await loginViaPopup(user)
 
-    await screen.findByText('Brak jeszcze żadnych rozmów.')
+    await screen.findByText('Jeszcze z nami nie pogadałeś :(')
     await user.click(screen.getByRole('button', { name: 'Nowy czat' }))
     await user.click(screen.getByRole('button', { name: '🥗 Dieta' }))
     await user.click(screen.getByRole('button', { name: 'Rozpocznij czat' }))

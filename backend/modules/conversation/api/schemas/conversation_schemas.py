@@ -38,6 +38,10 @@ class ConversationHistoryResponse(BaseModel):
     messages: list[MessageResponse]
 
 
+class RenameConversationRequest(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
 class SendMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
 

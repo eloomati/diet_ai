@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { MyceloNotificationBadge } from '@/components/MyceloNotificationBadge'
 import { categoryEmoji } from '@/lib/categoryOptions'
 import { ApiError } from '@/lib/apiFetch'
-import { notifyError } from '@/lib/toast'
+import { notifyError, notifyInfo } from '@/lib/toast'
 import { useAuth } from '@/lib/auth'
 import { useUnreadNotificationsCount } from '@/hooks/useUnreadNotificationsCount'
 import { archiveConversation, deleteConversation, getConversation, sendMessage } from '@/api/conversations'
@@ -122,15 +122,39 @@ export function ChatCanvas({
     scrollRef.current?.scrollTo?.({ top: scrollRef.current.scrollHeight })
   }, [messages.length])
 
+  const OPTIMISTIC_USER_MESSAGE_ID = 'optimistic-user-message'
+
   const sendMessageMutation = useMutation({
     mutationFn: (content: string) => sendMessage(conversationId!, content),
+    // The user's own bubble appears immediately on submit, not only once the
+    // full AI round trip completes — the assistant's reply still arrives via
+    // onSuccess below, reconciling this temporary message with its real id.
+    onMutate: (content: string) => {
+      const previous = queryClient.getQueryData<ConversationDetail>(['conversation', conversationId])
+      queryClient.setQueryData(['conversation', conversationId], (old?: ConversationDetail) =>
+        old && {
+          ...old,
+          messages: [
+            ...old.messages,
+            {
+              id: OPTIMISTIC_USER_MESSAGE_ID,
+              role: 'USER' as const,
+              content,
+              created_at: new Date().toISOString(),
+            },
+          ],
+        },
+      )
+      setMessage('')
+      return { previous }
+    },
     onSuccess: (result, content) => {
       const now = new Date().toISOString()
       queryClient.setQueryData(['conversation', conversationId], (old?: ConversationDetail) =>
         old && {
           ...old,
           messages: [
-            ...old.messages,
+            ...old.messages.filter((msg) => msg.id !== OPTIMISTIC_USER_MESSAGE_ID),
             { id: result.user_message_id, role: 'USER' as const, content, created_at: now },
             {
               id: result.assistant_message_id,
@@ -142,7 +166,10 @@ export function ChatCanvas({
         },
       )
       void queryClient.invalidateQueries({ queryKey: ['conversations'] })
-      setMessage('')
+    },
+    onError: (_error, content, context) => {
+      queryClient.setQueryData(['conversation', conversationId], context?.previous)
+      setMessage(content)
     },
   })
 
@@ -184,6 +211,8 @@ export function ChatCanvas({
         duration_days: 3,
         requirements: message.trim() ? [message.trim()] : undefined,
       }),
+    onSuccess: () => notifyInfo('Plan wygenerowany! Zobacz go poniżej.'),
+    onError: (error) => notifyError(generateErrorMessage(error)),
   })
 
   const isArchived = conversationQuery.data?.status === 'ARCHIVED'
@@ -259,7 +288,9 @@ export function ChatCanvas({
         </div>
         {rightCollapsed && (
           <div className="absolute top-2 right-3.5 flex items-center gap-1.5">
-            <MyceloNotificationBadge unreadCount={unreadNotificationsCount} onClick={onExpandRight} />
+            {isAuthenticated && (
+              <MyceloNotificationBadge unreadCount={unreadNotificationsCount} onClick={onExpandRight} />
+            )}
             <Button
               variant="outline"
               size="icon"
@@ -272,7 +303,7 @@ export function ChatCanvas({
         )}
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 pt-5">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 pt-5">
         {showHero ? (
           <div className="mx-auto mt-[6%] max-w-xl text-center">
             <p className="mb-3.5 inline-block rounded-full bg-accent px-3 py-1 text-xs font-bold text-accent-foreground uppercase">
@@ -322,12 +353,6 @@ export function ChatCanvas({
           <p className="mx-auto mt-4 max-w-2xl text-center text-sm text-muted-foreground">
             Generowanie planu…
           </p>
-        )}
-        {generatePlanMutation.isError && (
-          <FieldError
-            message={generateErrorMessage(generatePlanMutation.error)}
-            className="mx-auto mt-4 max-w-2xl text-center"
-          />
         )}
         {generatePlanMutation.data && (
           <div className="mx-auto mt-4 max-w-2xl pb-3">

@@ -73,7 +73,7 @@ export function AppShell() {
   }
 
   return (
-    <div className="flex h-dvh w-full bg-background text-foreground">
+    <div className="flex h-dvh w-full overflow-hidden bg-background text-foreground">
       {!leftCollapsed && (
         <LeftRail
           onProfileClick={handleProfileClick}

@@ -8,6 +8,7 @@ from backend.modules.conversation.application import (
     DeleteConversationUseCase,
     GetConversationHistoryUseCase,
     ListConversationsUseCase,
+    RenameConversationUseCase,
     SendMessageUseCase,
 )
 from backend.modules.conversation.domain import ConversationRepository
@@ -64,3 +65,9 @@ def get_delete_conversation_use_case(
     repository: ConversationRepository = Depends(get_conversation_repository),
 ) -> DeleteConversationUseCase:
     return DeleteConversationUseCase(repository)
+
+
+def get_rename_conversation_use_case(
+    repository: ConversationRepository = Depends(get_conversation_repository),
+) -> RenameConversationUseCase:
+    return RenameConversationUseCase(repository)

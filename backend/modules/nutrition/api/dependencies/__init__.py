@@ -7,6 +7,7 @@ from .diet_plan_dependencies import (
     get_generate_diet_plan_use_case,
     get_list_diet_plan_exports_use_case,
     get_list_diet_plans_use_case,
+    get_rename_diet_plan_use_case,
     get_reschedule_meal_use_case,
     get_sftp_client,
 )
@@ -27,6 +28,7 @@ __all__ = [
     "get_list_diet_plans_use_case",
     "get_diet_plan_use_case",
     "get_reschedule_meal_use_case",
+    "get_rename_diet_plan_use_case",
     "get_diet_plan_export_repository",
     "get_sftp_client",
     "get_export_diet_plan_use_case",

@@ -180,7 +180,7 @@ export function HumanChatCanvas({
         )}
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 pt-5">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 pt-5">
         {isLoading ? (
           <div
             className="mx-auto flex max-w-2xl flex-col gap-3 pb-3"

@@ -26,11 +26,9 @@ Phase 13    - Quality, Security &           IN PROGRESS —
               Personalization                Etap 0 (Security & session
                                                 hardening): DONE
                                               Etap 1 (User display
-                                                names): IN PROGRESS
-                                                (Stage 1-3 done, Stage
-                                                4-5 remaining)
+                                                names): DONE
                                               Etap 2 (Chat & diet-plan
-                                                UX polish): not started
+                                                UX polish): DONE
                                               Etap 3 (Multi-plan
                                                 calendar): not started
                                               Etap 4 (Admin panel
@@ -439,7 +437,7 @@ thing anywhere in this codebase to read the request's client IP):
 
 ---
 
-### Etap 1 — User Display Names
+### Etap 1 — User Display Names — DONE
 
 Goal: everyone can set their own display name; dietitians additionally
 have the option to display their real first + last name instead.
@@ -642,42 +640,131 @@ gap Stage 2 didn't cover — it only touched read models):
     call; registration still succeeds end-to-end. `AuthPopup.test.tsx`
     (7 tests) covers login, register success, register conflict, the
     new mismatch case, guest continue, and forgot-password nav.
-- [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
+- [x] **Stage 5 — Tests + docs sync — DONE**: closing stage for this
+      etap. Synced `docs/api.md` (new `PATCH /auth/me` section;
+      `GET/PATCH /auth/me`'s `display_name`; `PUT /dietitian/profile`'s
+      `first_name`/`last_name`; `email` → `name` renames on `GET
+      /dietitian` and `GET /dietitian/{id}`; `reviewer_name` on both
+      review endpoints; `other_participant_email` → `_name` on `GET
+      /messaging/threads`), `docs/domain-model.md` (`User.displayName`,
+      `DietitianProfile.firstName`/`lastName`, corrected the Review
+      section's now-outdated "omits reviewer identity" claim), and
+      `docs/architecture.md` (`shared/validation/` entry for
+      `is_valid_human_name()`, corrected the same Review-anonymity
+      claim). `README.md` only links to this roadmap for Phase 13, no
+      changes needed there.
+
+  Exit criteria met: full suite run at etap close (per the tightened
+  test-scope rule — each stage only ran its own directly-affected
+  files). Full backend suite **622 passed**, full frontend suite **142
+  passed**.
 
 ---
 
-### Etap 2 — Chat & Diet Plan UX Polish
+### Etap 2 — Chat & Diet Plan UX Polish — DONE
 
 Goal: the rough day-to-day UX edges the user hit while actually using
 the app.
 
-- [ ] **Stage 1 — Optimistic own-message rendering**: the user's own
-      sent message appears in the chat immediately on submit, not only
-      after the AI's full response returns.
-  - Exit criteria: live-verified — typing and sending shows the user's
-    own bubble instantly, with the existing "Mycelo pisze
-    odpowiedź…" placeholder following it, not preceding it.
-- [ ] **Stage 2 — Diet-plan-generation feedback**: `onSuccess`/`onError`
-      added to the generate-plan mutation — a success toast (or
-      equivalent inline confirmation) and a clear error toast on
-      failure, matching the pattern already used by
-      archive/delete/send-message mutations elsewhere in this codebase.
-  - Exit criteria: a forced generation failure surfaces a visible error
-    instead of silently doing nothing.
-- [ ] **Stage 3 — Rename conversations + diet plans**: new
-      rename/edit-title endpoints for both (`PATCH` on each), plus
-      inline-edit UI (e.g. click-to-edit the title) in the left rail's
-      conversation history and the Plany tab's plan list.
-  - Exit criteria: renaming persists across a refresh for both entity
-    types.
-- [ ] **Stage 4 — Copy + layout fixes**: empty-state copy in the left
-      rail changes from "Brak jeszcze żadnych rozmów." to "Jeszcze z
-      nami nie pogadałeś :("; root layout gets `overflow-hidden` (or
-      equivalent) so panel-level scroll areas don't leak into a
-      page-level scrollbar.
-  - Exit criteria: no page-level scrollbar visible on any main view;
-    new empty-state copy confirmed live.
-- [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
+- [x] **Stage 1 — Optimistic own-message rendering — DONE**: the
+      `sendMessage` mutation in `ChatCanvas.tsx` gained an `onMutate`
+      that appends the user's message to the cached conversation with a
+      temporary id and clears the composer immediately; `onSuccess`
+      reconciles it with the real `user_message_id` and appends the
+      assistant's reply; `onError` rolls back to the pre-mutate snapshot
+      and restores the typed text into the composer.
+  - Exit criteria met: `ChatCanvas.test.tsx`'s in-flight test asserts the
+    user's bubble ("Cześć") renders before the AI response resolves,
+    with "Mycelo pisze odpowiedź…" following it. 17/17 tests in this
+    file pass.
+- [x] **Stage 2 — Diet-plan-generation feedback — DONE**: added
+      `onSuccess`/`onError` to `generatePlanMutation` in `ChatCanvas.tsx`
+      — a success toast ("Plan wygenerowany! Zobacz go poniżej.") and an
+      error toast (reusing the existing `generateErrorMessage()`
+      code-to-message mapping), matching the toast-only pattern already
+      used by the archive/delete mutations in the same file. Replaced
+      the old passive `isError`-driven inline `FieldError` banner, which
+      duplicated the same information with no toast.
+  - Exit criteria met: a forced generation failure now surfaces
+    `notifyError(...)` instead of silently doing nothing.
+    `ChatCanvas.test.tsx` updated to assert against the mocked
+    `notifyError`/`notifyInfo` calls instead of DOM text for these
+    cases. 17/17 tests pass.
+- [x] **Stage 3 — Rename conversations + diet plans — DONE**:
+      `Conversation.rename()`/`RenameConversationUseCase` +
+      `PATCH /conversations/{id}` (same shape as `GET`); `DietPlan`
+      gained a new optional `name` field (`rename()`, `None` clears back
+      to the default goal/diet_type/duration display, same convention
+      as `User.display_name`) + `RenameDietPlanUseCase` +
+      `PATCH /diet-plans/{id}`. Frontend: hover-reveal pencil icon
+      toggles an inline `<Input>` in both `LeftRail.tsx`'s conversation
+      list and `PlanyTab.tsx`'s plan list, committing on Enter/blur,
+      cancelling on Escape; `PlanyTab` shows `plan.name` when set,
+      falling back to the existing composed label otherwise.
+  - Exit criteria met: renamed titles persist across a refetch
+    (asserted directly against the API responses in both new frontend
+    tests, and via a follow-up `GET` in both new backend API tests) for
+    both entity types. Full suites run since this touched shared DTOs on
+    two backend modules and API types used by multiple components:
+    backend 637 passed, frontend 145 passed.
+- [x] **Stage 4 — Copy + layout fixes — DONE**: empty-state copy in the
+      left rail changed to "Jeszcze z nami nie pogadałeś :(". Root cause
+      of the page-level scrollbar: four `flex-1 overflow-y-auto`
+      scroll containers (`LeftRail.tsx`, `RightRail.tsx`,
+      `ChatCanvas.tsx`, `HumanChatCanvas.tsx`) were missing `min-h-0` —
+      a flex item's default `min-height: auto` lets it grow past its
+      allotted space along the flex-column main axis instead of
+      clipping, so overflow escaped to the page instead of scrolling
+      internally. `DietitianProfileModal.tsx` already used the correct
+      `min-h-0 flex-1` pattern; applied it to the other four. Also added
+      `overflow-hidden` to `AppShell.tsx`'s root container as a second
+      line of defense.
+  - Exit criteria met: live-verified in a real browser against a fresh
+    Docker backend (registered a user through the actual UI, not just a
+    raw API call) — `document.documentElement.scrollHeight ===
+    clientHeight` confirmed no page-level scrollbar with a populated
+    dietitian list and empty conversation history both on screen; the
+    new empty-state copy rendered exactly as specified. Docker stack
+    torn down after. Affected component tests (48) + full frontend
+    suite pass.
+
+  **Follow-up found during this same live check**: collapsing the right
+  rail hid the Mycelo mushroom icon entirely whenever there were zero
+  unread notifications — `MyceloNotificationBadge` returned `null` in
+  that case instead of showing the idle-colored icon, so it only ever
+  worked as a pure unread-alert, not as the persistent way to reopen a
+  collapsed panel. Fixed to always render (alert coloring/count pill
+  layered on only when `unreadCount > 0`), matching `RightRail.tsx`'s
+  own always-visible `NotificationsBell` trigger — and dropped
+  `MyceloNotificationBadge`'s border/background classes to match that
+  same borderless style. Kept both auth-gated (`isAuthenticated &&`), so
+  a guest sees neither the collapsed-panel badge nor the expanded-panel
+  bell — only a logged-in user sees the mushroom in both places.
+  Live-verified in the browser for both auth states × both panel
+  states; `ChatCanvas.test.tsx` and `RightRail.test.tsx` updated/added
+  accordingly. Full frontend suite: 148 passed.
+- [x] **Stage 5 — Tests + docs sync — DONE**: closing stage for this
+      etap. Synced `docs/api.md` (new `PATCH /conversations/{id}` and
+      `PATCH /diet-plans/{diet_plan_id}` sections; `name` field added to
+      every diet-plan response shape), `docs/domain-model.md`
+      (`Conversation.rename()`/`DietPlan.name`+`rename()` rules), and
+      `docs/architecture.md` (Conversation Module's responsibility list
+      and the "one mutation `DietPlan` ever undergoes" note, now two).
+      `README.md` needed no changes (it only links to this roadmap for
+      Phase 13).
+
+  Exit criteria met: full suite run at etap close (per the tightened
+  test-scope rule — each stage only ran its own directly-affected files
+  or a full run when the change was cross-cutting). Full backend suite
+  **637 passed**, full frontend suite **148 passed**, clean
+  `tsc --noEmit`.
+
+  A guest-visibility question came up mid-etap during Stage 4's
+  follow-up work (whether the dietitian marketplace should stay visible
+  to a logged-out user) — verified live that it already does
+  (`RightRail.tsx`'s `dietitiansQuery` was never auth-gated, and
+  `DietitianProfileModal.tsx`'s offer buttons already disable with
+  "Zaloguj się, aby się zgłosić" for a guest); no code change needed.
 
 ---
 

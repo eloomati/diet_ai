@@ -5,6 +5,7 @@ from .diet_plan_schemas import (
     DietPlanSummaryResponse,
     GenerateDietPlanRequest,
     MealResponse,
+    RenameDietPlanRequest,
     RescheduleMealRequest,
 )
 from .nutrition_schemas import (
@@ -23,6 +24,7 @@ __all__ = [
     "WeeklyObligationResponse",
     "GenerateDietPlanRequest",
     "RescheduleMealRequest",
+    "RenameDietPlanRequest",
     "DietPlanResponse",
     "DietPlanSummaryResponse",
     "DietDayResponse",

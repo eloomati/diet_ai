@@ -12,6 +12,7 @@ from backend.modules.nutrition.api.dependencies import (
     get_generate_diet_plan_use_case,
     get_list_diet_plan_exports_use_case,
     get_list_diet_plans_use_case,
+    get_rename_diet_plan_use_case,
     get_reschedule_meal_use_case,
 )
 from backend.modules.nutrition.api.schemas import (
@@ -19,6 +20,7 @@ from backend.modules.nutrition.api.schemas import (
     DietPlanResponse,
     DietPlanSummaryResponse,
     GenerateDietPlanRequest,
+    RenameDietPlanRequest,
     RescheduleMealRequest,
 )
 from backend.modules.nutrition.application import (
@@ -37,6 +39,8 @@ from backend.modules.nutrition.application import (
     ListDietPlansQuery,
     ListDietPlansUseCase,
     NutritionProfileNotFoundError,
+    RenameDietPlanCommand,
+    RenameDietPlanUseCase,
     RescheduleMealCommand,
     RescheduleMealUseCase,
 )
@@ -98,6 +102,27 @@ async def get_diet_plan(
 ) -> DietPlanResponse:
     try:
         result = await use_case.execute(GetDietPlanQuery(user_id=current_user.id, plan_id=diet_plan_id))
+    except DietPlanNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message=str(exc),
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+    return DietPlanResponse.from_result(result)
+
+
+@router.patch("/{diet_plan_id}", response_model=DietPlanResponse, status_code=status.HTTP_200_OK)
+async def rename_diet_plan(
+    diet_plan_id: UUID,
+    request: RenameDietPlanRequest,
+    current_user: User = Depends(get_current_user),
+    use_case: RenameDietPlanUseCase = Depends(get_rename_diet_plan_use_case),
+) -> DietPlanResponse:
+    try:
+        result = await use_case.execute(
+            RenameDietPlanCommand(user_id=current_user.id, plan_id=diet_plan_id, name=request.name)
+        )
     except DietPlanNotFoundError as exc:
         raise AppException(
             code=ErrorCode.NOT_FOUND,

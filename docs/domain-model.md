@@ -310,6 +310,8 @@ role
 
 emailVerified
 
+displayName
+
 createdAt
 
 updatedAt
@@ -338,6 +340,11 @@ Business rules:
   domain invariant about the entity's own state. There is no
   self-escalation path anywhere in the API — the only way to change a
   role is `PATCH /admin/users/{user_id}/role`, itself `SUPER_ADMIN`-only.
+- `displayName` (Phase 13, optional) — set/cleared via
+  `set_display_name()`, validated by the shared `is_valid_human_name()`
+  validator (Polish letters, digits, single spaces, max 50 chars).
+  `resolved_display_name` is `displayName` if set, else `email` — the
+  identity every read model shows for this user elsewhere in the app.
 
 ---
 
@@ -531,6 +538,9 @@ updatedAt
   be steered by more than one category at once (e.g. `DIET` + `RUNNING`).
 - Messages cannot exist without a conversation.
 - Archived conversations cannot receive new messages.
+- `title` can be changed any time via `rename()` (Phase 13) — a plain
+  mutation, no restriction tied to `status` (an archived conversation can
+  still be renamed, unlike sending it a new message).
 
 ---
 
@@ -716,18 +726,20 @@ requirements    — tuple of free-text hints supplied at generation time
 
 days            — tuple of DietDay
 
+name            — Phase 13; optional custom title, None until renamed
+
 created_at
 
-updated_at      — Phase 9; starts equal to created_at, moves only on reschedule_meal()
+updated_at      — Phase 9; starts equal to created_at, moves on reschedule_meal() or rename()
 ```
 
 `create()` validates `duration_days` is between 1 and 14, that `days` has
 exactly that many entries, and that no meal has a negative macro value.
 Regenerating always produces a new `DietPlan` (a user can have many) — that
-part hasn't changed. What changed in Phase 9: a plan is **not** fully
-immutable anymore. `reschedule_meal(day_number, meal_name, new_time)` is
-the one mutation it supports — everything else about a plan (macros, meal
-identity, day count) still can't change after generation.
+part hasn't changed. A plan is **not** fully immutable: `reschedule_meal
+(day_number, meal_name, new_time)` (Phase 9) and `rename(name)` (Phase 13)
+are the only two mutations it supports — everything else about a plan
+(macros, meal identity, day count) still can't change after generation.
 
 ---
 
@@ -745,6 +757,10 @@ identity, day count) still can't change after generation.
   `dataclasses.replace` — the value objects it touches are frozen, so this
   is reconstruction, not in-place mutation of them); an unknown
   `day_number`/`meal_name` raises `MealNotFoundError`.
+- `rename(name)` (Phase 13) sets `name` to the given string, or `None` to
+  clear it back to the frontend's default composed
+  `goal · diet_type · duration_days` label — same "explicit `None` clears
+  it" convention as `User.set_display_name()`.
 
 ---
 
@@ -911,6 +927,10 @@ description
 
 photos
 
+firstName
+
+lastName
+
 createdAt
 
 updatedAt
@@ -925,6 +945,13 @@ Rules:
 - `update_details()` changes only the given fields (same partial-update
   shape as `NutritionProfile.update_details()`),
 - `experience`/`description` cannot be blanked out via `update_details()`,
+- `firstName`/`lastName` (Phase 13, both optional and independent of
+  `User.displayName`) — validated by the same shared
+  `is_valid_human_name()` validator when set. Filling in both is itself
+  the dietitian's choice to show a real name publicly; `resolve_dietitian_name()`
+  (Dietitian Context application layer) resolves the name shown
+  elsewhere as `firstName + lastName` (only if both set) →
+  `user.resolved_display_name`,
 - none of the entities in this domain currently emit domain events
   (unlike `User.change_role()` → `UserRoleChanged`) — their state
   transitions are plain mutations for now; add events here if a future
@@ -979,10 +1006,12 @@ Rules:
 - **no gate on having a prior paid transaction with the dietitian** — a
   deliberate scope decision (nothing in this etap's own goal calls for
   tying reviews to completed engagements), not an oversight,
-- reviews returned by the public profile endpoint omit the reviewer's
-  identity entirely (`rating`/`comment`/`createdAt` only) — that
-  endpoint needs no authentication to view, so this protects any
-  visitor, not just the dietitian, from being identified as a reviewer.
+- reviews returned by the public profile endpoint include a resolved
+  `reviewerName` (Phase 13 Etap 1) — the reviewer's `display_name` or
+  email, looked up via `reviewerId` at read time; `reviewerId` itself
+  was already exposed raw by the submit-review response since Phase 12,
+  so full anonymity was never actually in effect — this just makes the
+  identity human-readable everywhere it was already technically visible.
 
 ---
 

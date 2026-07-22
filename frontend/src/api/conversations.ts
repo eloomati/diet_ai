@@ -77,6 +77,10 @@ export function archiveConversation(conversationId: string): Promise<Conversatio
   return apiFetch(`/conversations/${conversationId}/archive`, { method: 'POST' })
 }
 
+export function renameConversation(conversationId: string, title: string): Promise<ConversationDetail> {
+  return apiFetch(`/conversations/${conversationId}`, { method: 'PATCH', body: { title } })
+}
+
 export function deleteConversation(conversationId: string): Promise<void> {
   return apiFetch(`/conversations/${conversationId}`, { method: 'DELETE' })
 }

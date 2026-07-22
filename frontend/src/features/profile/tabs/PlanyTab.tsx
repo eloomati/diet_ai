@@ -1,6 +1,6 @@
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { ClipboardX } from 'lucide-react'
-import { useState, type FormEvent } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ClipboardX, Pencil } from 'lucide-react'
+import { useState, type FormEvent, type KeyboardEvent } from 'react'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -10,7 +10,22 @@ import { FieldError } from '@/components/FieldError'
 import { DietPlanCard } from '@/features/dietPlans/DietPlanCard'
 import { ApiError } from '@/lib/apiFetch'
 import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
-import { downloadDietPlanExport, exportDietPlan, getDietPlan, listDietPlans } from '@/api/dietPlans'
+import { notifyError } from '@/lib/toast'
+import {
+  downloadDietPlanExport,
+  exportDietPlan,
+  getDietPlan,
+  listDietPlans,
+  renameDietPlan,
+} from '@/api/dietPlans'
+import type { DietPlanSummary } from '@/api/dietPlans'
+
+function planDisplayName(plan: DietPlanSummary): string {
+  if (plan.name) return plan.name
+  return `${goalLabel(plan.goal)} · ${dietTypeLabel(plan.diet_type)} · ${plan.duration_days} ${
+    plan.duration_days === 1 ? 'dzień' : 'dni'
+  }`
+}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pl-PL', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -44,10 +59,13 @@ async function exportAndDownloadPlan(planId: string) {
 }
 
 export function PlanyTab() {
+  const queryClient = useQueryClient()
   const [fromInput, setFromInput] = useState('')
   const [toInput, setToInput] = useState('')
   const [appliedRange, setAppliedRange] = useState<{ from?: string; to?: string }>({})
   const [expandedPlanId, setExpandedPlanId] = useState<string | null>(null)
+  const [editingPlanId, setEditingPlanId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
 
   const plansQuery = useQuery({
     queryKey: ['diet-plans', appliedRange.from, appliedRange.to],
@@ -66,6 +84,17 @@ export function PlanyTab() {
     mutationFn: exportAndDownloadPlan,
   })
 
+  const renameMutation = useMutation({
+    mutationFn: ({ planId, name }: { planId: string; name: string }) => renameDietPlan(planId, name),
+    onSuccess: (updated) => {
+      queryClient.setQueriesData<DietPlanSummary[]>({ queryKey: ['diet-plans'] }, (old) =>
+        old?.map((p) => (p.plan_id === updated.plan_id ? { ...p, name: updated.name } : p)),
+      )
+    },
+    onError: () => notifyError('Nie udało się zmienić nazwy planu. Spróbuj ponownie.'),
+    onSettled: () => setEditingPlanId(null),
+  })
+
   function handleFilter(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setAppliedRange({ from: fromInput || undefined, to: toInput || undefined })
@@ -73,6 +102,30 @@ export function PlanyTab() {
 
   function toggleExpand(planId: string) {
     setExpandedPlanId((current) => (current === planId ? null : planId))
+  }
+
+  function startEditingPlan(plan: DietPlanSummary) {
+    setEditingPlanId(plan.plan_id)
+    setEditValue(plan.name ?? '')
+  }
+
+  function commitPlanEdit(planId: string) {
+    const name = editValue.trim()
+    if (!name) {
+      setEditingPlanId(null)
+      return
+    }
+    renameMutation.mutate({ planId, name })
+  }
+
+  function handlePlanEditKeyDown(event: KeyboardEvent<HTMLInputElement>, planId: string) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      commitPlanEdit(planId)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      setEditingPlanId(null)
+    }
   }
 
   return (
@@ -112,16 +165,45 @@ export function PlanyTab() {
             return (
             <li key={plan.plan_id} className="rounded-xl border border-border">
               <div className="flex items-center gap-2 px-3 py-2.5 hover:bg-muted/60">
-                <button
-                  onClick={() => toggleExpand(plan.plan_id)}
-                  className="flex flex-1 flex-wrap items-center justify-between gap-2 text-left"
-                >
-                  <span className="text-[13px] font-bold">
-                    {goalLabel(plan.goal)} · {dietTypeLabel(plan.diet_type)} · {plan.duration_days}{' '}
-                    {plan.duration_days === 1 ? 'dzień' : 'dni'}
-                  </span>
-                  <span className="text-[12px] text-muted-foreground">{formatDate(plan.created_at)}</span>
-                </button>
+                {editingPlanId === plan.plan_id ? (
+                  <Input
+                    autoFocus
+                    value={editValue}
+                    onChange={(event) => setEditValue(event.target.value)}
+                    onKeyDown={(event) => handlePlanEditKeyDown(event, plan.plan_id)}
+                    onBlur={() => commitPlanEdit(plan.plan_id)}
+                    disabled={renameMutation.isPending}
+                    className="h-8 flex-1 text-[13px] font-bold"
+                  />
+                ) : (
+                  <button
+                    onClick={() => toggleExpand(plan.plan_id)}
+                    className="group/plan flex flex-1 flex-wrap items-center justify-between gap-2 text-left"
+                  >
+                    <span className="flex items-center gap-1.5 text-[13px] font-bold">
+                      {planDisplayName(plan)}
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          startEditingPlan(plan)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Enter' && event.key !== ' ') return
+                          event.preventDefault()
+                          event.stopPropagation()
+                          startEditingPlan(plan)
+                        }}
+                        aria-label="Zmień nazwę planu"
+                        className="inline-flex rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-hover/plan:opacity-100"
+                      >
+                        <Pencil className="size-3" />
+                      </span>
+                    </span>
+                    <span className="text-[12px] text-muted-foreground">{formatDate(plan.created_at)}</span>
+                  </button>
+                )}
                 <Button
                   type="button"
                   variant="outline"

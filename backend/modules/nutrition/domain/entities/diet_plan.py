@@ -22,6 +22,7 @@ class DietPlan:
     duration_days: int
     requirements: tuple[str, ...]
     days: tuple[DietDay, ...]
+    name: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -48,6 +49,13 @@ class DietPlan:
             created_at=now,
             updated_at=now,
         )
+
+    def rename(self, name: str | None) -> None:
+        # `None` clears back to the auto-generated goal/diet_type/duration
+        # display — same "explicit None clears it" convention as
+        # `User.set_display_name()`.
+        self.name = name
+        self.updated_at = datetime.now(UTC)
 
     def reschedule_meal(self, day_number: int, meal_name: str, new_time: time) -> None:
         day_index = next(

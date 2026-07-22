@@ -7,6 +7,7 @@ from .get_conversation_history_dto import (
     MessageView,
 )
 from .list_conversations_dto import ConversationSummary, ListConversationsQuery
+from .rename_conversation_dto import RenameConversationCommand
 from .send_message_dto import SendMessageCommand, SendMessageResult
 
 __all__ = [
@@ -21,4 +22,5 @@ __all__ = [
     "ConversationSummary",
     "ArchiveConversationCommand",
     "DeleteConversationCommand",
+    "RenameConversationCommand",
 ]

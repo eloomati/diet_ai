@@ -4,6 +4,7 @@ from .conversation_schemas import (
     CreateConversationRequest,
     CreateConversationResponse,
     MessageResponse,
+    RenameConversationRequest,
     SendMessageRequest,
     SendMessageResponse,
 )
@@ -16,4 +17,5 @@ __all__ = [
     "ConversationHistoryResponse",
     "SendMessageRequest",
     "SendMessageResponse",
+    "RenameConversationRequest",
 ]

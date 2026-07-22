@@ -23,6 +23,7 @@ export interface DietPlan {
   duration_days: number
   requirements: string[]
   days: DietDay[]
+  name: string | null
   created_at: string
   updated_at: string
 }
@@ -32,6 +33,7 @@ export interface DietPlanSummary {
   goal: Goal
   diet_type: DietType
   duration_days: number
+  name: string | null
   created_at: string
 }
 
@@ -71,6 +73,10 @@ export function getDietPlan(planId: string): Promise<DietPlan> {
 
 export function rescheduleMeal(planId: string, payload: RescheduleMealRequest): Promise<DietPlan> {
   return apiFetch(`/diet-plans/${planId}/meals`, { method: 'PATCH', body: payload })
+}
+
+export function renameDietPlan(planId: string, name: string | null): Promise<DietPlan> {
+  return apiFetch(`/diet-plans/${planId}`, { method: 'PATCH', body: { name } })
 }
 
 export function exportDietPlan(planId: string): Promise<DietPlanExport> {

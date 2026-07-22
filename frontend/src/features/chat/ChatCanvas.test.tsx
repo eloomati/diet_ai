@@ -1,15 +1,16 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useRef } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { AuthProvider } from '@/lib/auth'
-import { notifyError } from '@/lib/toast'
+import { AuthProvider, useAuth } from '@/lib/auth'
+import { notifyError, notifyInfo } from '@/lib/toast'
 
 import { ChatCanvas } from './ChatCanvas'
 
-vi.mock('@/lib/toast', () => ({ notifyError: vi.fn() }))
+vi.mock('@/lib/toast', () => ({ notifyError: vi.fn(), notifyInfo: vi.fn() }))
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -20,19 +21,47 @@ function jsonResponse(status: number, body: unknown): Response {
 
 const noop = () => {}
 
-function renderCanvas(conversationId?: string) {
+function LoggedInChatCanvas(props: { conversationId?: string; rightCollapsed: boolean }) {
+  const { login } = useAuth()
+  const didLogin = useRef(false)
+  if (!didLogin.current) {
+    didLogin.current = true
+    void login('user@example.com', 'StrongPass123')
+  }
+  return (
+    <ChatCanvas
+      leftCollapsed={false}
+      rightCollapsed={props.rightCollapsed}
+      onExpandLeft={noop}
+      onExpandRight={noop}
+      conversationId={props.conversationId}
+    />
+  )
+}
+
+function renderCanvas(
+  conversationId?: string,
+  options?: { rightCollapsed?: boolean; loggedIn?: boolean },
+) {
   const queryClient = new QueryClient()
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <AuthProvider>
-          <ChatCanvas
-            leftCollapsed={false}
-            rightCollapsed={false}
-            onExpandLeft={noop}
-            onExpandRight={noop}
-            conversationId={conversationId}
-          />
+          {options?.loggedIn ? (
+            <LoggedInChatCanvas
+              conversationId={conversationId}
+              rightCollapsed={options?.rightCollapsed ?? false}
+            />
+          ) : (
+            <ChatCanvas
+              leftCollapsed={false}
+              rightCollapsed={options?.rightCollapsed ?? false}
+              onExpandLeft={noop}
+              onExpandRight={noop}
+              conversationId={conversationId}
+            />
+          )}
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -43,6 +72,7 @@ describe('ChatCanvas', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.mocked(notifyError).mockClear()
+    vi.mocked(notifyInfo).mockClear()
   })
 
   it('shows the hero when there is no active conversation', () => {
@@ -50,6 +80,36 @@ describe('ChatCanvas', () => {
 
     expect(screen.getByText('Cześć! W czym mogę Ci dziś pomóc?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Wyślij' })).toBeDisabled()
+  })
+
+  it('keeps the Mycelo notification badge visible next to the collapsed right rail for a logged-in user, even with zero unread notifications', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/me')) {
+        return Promise.resolve(
+          jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true }),
+        )
+      }
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      if (url.includes('/notifications')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas(undefined, { rightCollapsed: true, loggedIn: true })
+
+    expect(await screen.findByRole('button', { name: 'Powiadomienia' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rozwiń panel' })).toBeInTheDocument()
+  })
+
+  it('hides the Mycelo notification badge next to the collapsed right rail for a guest', () => {
+    renderCanvas(undefined, { rightCollapsed: true })
+
+    expect(screen.queryByRole('button', { name: 'Powiadomienia' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rozwiń panel' })).toBeInTheDocument()
   })
 
   it('shows the hero for a freshly created conversation with no messages yet', async () => {
@@ -178,6 +238,9 @@ describe('ChatCanvas', () => {
     await user.type(screen.getByPlaceholderText('Napisz wiadomość…'), 'Cześć')
     await user.click(screen.getByRole('button', { name: 'Wyślij' }))
 
+    // The user's own bubble appears immediately, before the AI response
+    // resolves — not only once the round trip completes.
+    expect(await screen.findByText('Cześć')).toBeInTheDocument()
     expect(await screen.findByText('Mycelo pisze odpowiedź…')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Napisz wiadomość…')).toBeDisabled()
 
@@ -387,6 +450,7 @@ describe('ChatCanvas', () => {
     expect(await screen.findByText('Wygenerowany plan')).toBeInTheDocument()
     expect(screen.getByText(/Budowa masy mięśniowej · Wegetariańska · 3 dni/)).toBeInTheDocument()
     expect(screen.getByText(/08:00 · Owsianka białkowa/)).toBeInTheDocument()
+    expect(notifyInfo).toHaveBeenCalledWith('Plan wygenerowany! Zobacz go poniżej.')
 
     const generateCall = fetchMock.mock.calls.find(([url]) => (url as string).includes('/diet-plans/generate'))
     expect(generateCall).toBeDefined()
@@ -445,9 +509,11 @@ describe('ChatCanvas', () => {
 
     await user.click(screen.getByRole('button', { name: 'Generuj plan' }))
 
-    expect(
-      await screen.findByText('Uzupełnij najpierw profil żywieniowy (zakładka Profil), żeby wygenerować plan.'),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(notifyError).toHaveBeenCalledWith(
+        'Uzupełnij najpierw profil żywieniowy (zakładka Profil), żeby wygenerować plan.',
+      ),
+    )
   })
 
   it('shows a pending state while a plan is being generated', async () => {
@@ -498,6 +564,8 @@ describe('ChatCanvas', () => {
 
     await user.click(screen.getByRole('button', { name: 'Generuj plan' }))
 
-    expect(await screen.findByText('Nie udało się wygenerować planu. Spróbuj ponownie.')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(notifyError).toHaveBeenCalledWith('Nie udało się wygenerować planu. Spróbuj ponownie.'),
+    )
   })
 })
