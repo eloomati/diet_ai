@@ -354,13 +354,46 @@ thing anywhere in this codebase to read the request's client IP):
   /auth/verify-email/confirm` with the real code from that email, then
   retried the same purchase with the same already-issued token — `201
   Created`. `docker compose down` after.
-- [ ] **Stage 4 — Frontend session/cache reset across account
-      switches**: `queryClient.clear()` called on login, logout, and
-      register in `AuthContext.tsx` — so a newly-logged-in session never
-      shows a previous account's cached profile/conversations/plans/etc.
-  - Exit criteria: logging out of account A and into account B shows no
-    stale data from A anywhere in the app (verified live, not just by
-    code inspection).
+- **Stage 4 — Frontend session/cache reset across account switches —
+  DONE**: built exactly per the plan — `AuthContext.tsx`'s `AuthProvider`
+  now calls `useQueryClient()` (resolved from React context, not the
+  `@/lib/queryClient` singleton import directly — the same client every
+  `useQuery` elsewhere in the tree actually reads, and the only way this
+  is exercisable in tests, which each construct their own local
+  `QueryClient`) and calls `.clear()` in `login`, `register`, and
+  `logout`, right where each already mutates the token store.
+
+  Fixing `AuthContext.test.tsx` for this surfaced a real gap in the test
+  itself: its `wrapper` rendered `<AuthProvider>` with no
+  `QueryClientProvider` around it at all — harmless before, since nothing
+  in `AuthContext` touched React Query, but `useQueryClient()` throws
+  without one. Fixed by wrapping `wrapper` in a `QueryClientProvider`,
+  matching every other test file in this codebase that renders
+  `AuthProvider`.
+
+  Exit criteria met: 3 new tests in `AuthContext.test.tsx` (login clears
+  a previous session's cached data before the new session's own queries
+  populate it; logout clears whatever the just-ended session cached;
+  register clears cached guest-mode data) — each seeds
+  `queryClient.setQueryData(...)` directly and asserts
+  `queryClient.getQueryData(...)` is `undefined` afterward, rather than
+  only inferring it from UI state. Full frontend suite run (a change to
+  `AuthProvider` is as cross-cutting as this codebase gets — every
+  authenticated screen sits under it): **139 passed** across 21 files,
+  up from 136 after Stage 3 (this etap added no frontend tests until
+  now). `npx tsc -b`, `npm run build`, and `oxlint` all clean (only
+  pre-existing warnings).
+
+  Live-verified against the real Docker stack in the browser — the exact
+  scenario the user originally reported: registered account A, filled in
+  and saved a nutrition profile (age 31, height 180cm, weight 77kg,
+  confirmed "Zapisano ✓"), logged out via the profile modal's own
+  "Wyloguj się", registered a brand-new account B, and reopened the
+  profile modal — showed "Zalogowano jako cachecheck-b@example.com" with
+  a completely empty profile form ("Nie masz jeszcze profilu
+  żywieniowego", blank Wiek/Wzrost/Waga fields) — no trace of account
+  A's 31/180/77 anywhere. `docker compose down` after.
+- [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
 - [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
 
 ---
