@@ -44,7 +44,7 @@ export interface GeneratePlanRequest {
 
 export interface RescheduleMealRequest {
   day_number: number
-  meal_name: string
+  meal_index: number
   new_time: string
   new_day_number?: number
 }
@@ -52,6 +52,13 @@ export interface RescheduleMealRequest {
 export interface DietPlanExport {
   export_id: string
   diet_plan_id: string
+  filename: string
+  created_at: string
+}
+
+export interface CombinedDietPlanExport {
+  export_id: string
+  diet_plan_ids: string[]
   filename: string
   created_at: string
 }
@@ -90,4 +97,12 @@ export function listDietPlanExports(planId: string): Promise<DietPlanExport[]> {
 
 export function downloadDietPlanExport(planId: string, exportId: string): Promise<Blob> {
   return apiFetchBlob(`/diet-plans/${planId}/exports/${exportId}/download`)
+}
+
+export function saveCombinedDietPlanExport(planIds: string[]): Promise<CombinedDietPlanExport> {
+  return apiFetch('/diet-plans/export-combined', { method: 'POST', body: { plan_ids: planIds } })
+}
+
+export function downloadCombinedDietPlanExport(exportId: string): Promise<Blob> {
+  return apiFetchBlob(`/diet-plans/exports-combined/${exportId}/download`)
 }

@@ -1,6 +1,7 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { CalendarOff, Check } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -9,8 +10,15 @@ import { EmptyState } from '@/components/EmptyState'
 import { FieldError } from '@/components/FieldError'
 import { ApiError } from '@/lib/apiFetch'
 import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
+import { saveBlob } from '@/lib/saveBlob'
 import { cn } from '@/lib/utils'
-import { getDietPlan, listDietPlans, rescheduleMeal } from '@/api/dietPlans'
+import {
+  downloadCombinedDietPlanExport,
+  getDietPlan,
+  listDietPlans,
+  rescheduleMeal,
+  saveCombinedDietPlanExport,
+} from '@/api/dietPlans'
 import type { DietDay, DietPlan, DietPlanSummary, Meal } from '@/api/dietPlans'
 
 const DAY_LABELS = ['Pon', 'Wt', 'Śr', 'Czw', 'Pt', 'Sob', 'Ndz']
@@ -22,6 +30,7 @@ const NO_TIME = ''
 interface DraggedMeal {
   planId: string
   dayNumber: number
+  mealIndex: number
   mealName: string
   originTime: string
 }
@@ -44,8 +53,26 @@ function rescheduleErrorMessage(error: unknown): string {
   return 'Nie udało się zmienić godziny posiłku. Spróbuj ponownie.'
 }
 
+function combinedExportSaveErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === 'NOT_FOUND') {
+    return 'Nie udało się zapisać — jeden z wybranych planów mógł zostać usunięty.'
+  }
+  return 'Nie udało się zapisać eksportu. Spróbuj ponownie.'
+}
+
+function combinedExportDownloadErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === 'NOT_FOUND') {
+    return 'Nie udało się pobrać — zapisany eksport mógł zostać usunięty.'
+  }
+  return 'Nie udało się pobrać pliku. Spróbuj ponownie.'
+}
+
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('pl-PL', { year: 'numeric', month: 'long', day: 'numeric' })
+  return new Date(iso).toLocaleDateString('pl-PL', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  })
 }
 
 function planOptionLabel(plan: DietPlanSummary): string {
@@ -106,7 +133,11 @@ function formatWeekRange(start: Date, end: Date): string {
   // (nominative, what {month:'long'} alone would give) — Polish date
   // ranges read naturally in genitive: "12-18 stycznia", not "12-18 styczeń".
   const sameMonth = start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()
-  const endFormatted = end.toLocaleDateString('pl-PL', { day: 'numeric', month: 'long', year: 'numeric' })
+  const endFormatted = end.toLocaleDateString('pl-PL', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  })
   if (sameMonth) {
     return `${start.getDate()}–${endFormatted}`
   }
@@ -135,7 +166,10 @@ function buildHourRows(days: DietDay[]): string[] {
       const [h, m] = meal.time.split(':').map(Number)
       const total = h * 60 + m
       minMinutes = Math.min(minMinutes, Math.floor(total / ROW_STEP_MINUTES) * ROW_STEP_MINUTES)
-      maxMinutes = Math.max(maxMinutes, Math.ceil((total + 1) / ROW_STEP_MINUTES) * ROW_STEP_MINUTES)
+      maxMinutes = Math.max(
+        maxMinutes,
+        Math.ceil((total + 1) / ROW_STEP_MINUTES) * ROW_STEP_MINUTES,
+      )
     }
   }
   const rows: string[] = []
@@ -154,7 +188,14 @@ interface MealChipProps {
   draggable?: boolean
 }
 
-function MealChip({ meal, testId, time, isDragging, onDragStart, draggable = true }: MealChipProps) {
+function MealChip({
+  meal,
+  testId,
+  time,
+  isDragging,
+  onDragStart,
+  draggable = true,
+}: MealChipProps) {
   return (
     <div
       data-testid={testId}
@@ -174,13 +215,21 @@ function MealChip({ meal, testId, time, isDragging, onDragStart, draggable = tru
   )
 }
 
+interface IndexedMeal {
+  meal: Meal
+  idx: number
+}
+
 /** Time-of-day order for the "Ogólny" overview column — meals without a
- * time (still "Bez pory") sort after every timed meal, not intermixed. */
-function sortMealsForOverview(meals: Meal[]): Meal[] {
+ * time (still "Bez pory") sort after every timed meal, not intermixed.
+ * Carries each meal's original index in `day.meals` along through the
+ * sort, since that index (not the name) is what identifies the meal to
+ * the reschedule API — two meals can share a name (e.g. two "Snack"s). */
+function sortMealsForOverview(meals: IndexedMeal[]): IndexedMeal[] {
   return [...meals].sort((a, b) => {
-    if (a.time && b.time) return a.time.localeCompare(b.time)
-    if (a.time) return -1
-    if (b.time) return 1
+    if (a.meal.time && b.meal.time) return a.meal.time.localeCompare(b.meal.time)
+    if (a.meal.time) return -1
+    if (b.meal.time) return 1
     return 0
   })
 }
@@ -231,6 +280,7 @@ export function KalendarzTab() {
   const [dragging, setDragging] = useState<DraggedMeal | null>(null)
   const [hoverCell, setHoverCell] = useState<HoverCell | null>(null)
   const [confirmation, setConfirmation] = useState<string | null>(null)
+  const [dropRejectedMessage, setDropRejectedMessage] = useState<string | null>(null)
 
   // Refs mirror the drag state so the window-level "pointerup anywhere"
   // safety net (added once on mount) always reads the latest values —
@@ -243,7 +293,7 @@ export function KalendarzTab() {
     mutationFn: (payload: {
       planId: string
       day_number: number
-      meal_name: string
+      meal_index: number
       new_time: string
       new_day_number?: number
     }) => {
@@ -263,7 +313,14 @@ export function KalendarzTab() {
     const validTarget =
       !!activeDrag && !!target && target.planId === activeDrag.planId && target.dayNumber !== null
     const somethingChanged =
-      validTarget && (target!.time !== activeDrag!.originTime || target!.dayNumber !== activeDrag!.dayNumber)
+      validTarget &&
+      (target!.time !== activeDrag!.originTime || target!.dayNumber !== activeDrag!.dayNumber)
+
+    if (activeDrag && target && !validTarget) {
+      setDropRejectedMessage(
+        'Posiłek można przenieść tylko na dzień i godzinę w obrębie planu, z którego pochodzi.',
+      )
+    }
 
     if (activeDrag && validTarget && somethingChanged) {
       const dayChanged = target!.dayNumber !== activeDrag.dayNumber
@@ -271,12 +328,13 @@ export function KalendarzTab() {
         {
           planId: activeDrag.planId,
           day_number: activeDrag.dayNumber,
-          meal_name: activeDrag.mealName,
+          meal_index: activeDrag.mealIndex,
           new_time: `${target!.time}:00`,
           ...(dayChanged ? { new_day_number: target!.dayNumber! } : {}),
         },
         {
           onSuccess: () => {
+            setDropRejectedMessage(null)
             setConfirmation(
               dayChanged
                 ? `Przeniesiono „${activeDrag.mealName}” na inny dzień, godzina ${target!.time}.`
@@ -306,6 +364,11 @@ export function KalendarzTab() {
 
   function togglePlanSelection(plan: DietPlanSummary) {
     setOverlapError(null)
+    // A previously saved export refers to the *old* selection — once that
+    // changes, "Pobierz" would silently download stale data if left enabled.
+    setSavedExport(null)
+    saveExportMutation.reset()
+    downloadExportMutation.reset()
     const isSelected = effectiveSelectedIds.includes(plan.plan_id)
 
     if (isSelected) {
@@ -331,9 +394,35 @@ export function KalendarzTab() {
     setWeekIndex(0)
   }
 
+  // Two explicit steps, not one combined action: "Zapisz" archives the
+  // current selection on the server (so it can be re-downloaded later,
+  // same as a single plan's own export flow); "Pobierz" only becomes
+  // available once something's actually been saved, and downloads that
+  // specific saved export.
+  const [savedExport, setSavedExport] = useState<{ exportId: string; filename: string } | null>(
+    null,
+  )
+
+  const downloadExportMutation = useMutation({
+    mutationFn: () => downloadCombinedDietPlanExport(savedExport!.exportId),
+    onSuccess: (blob) => {
+      saveBlob(blob, savedExport!.filename)
+    },
+  })
+
+  const saveExportMutation = useMutation({
+    mutationFn: () => saveCombinedDietPlanExport(effectiveSelectedIds),
+    onSuccess: (result) => {
+      setSavedExport({ exportId: result.export_id, filename: result.filename })
+      downloadExportMutation.reset()
+    },
+  })
+
   function startDrag(meal: DraggedMeal) {
     draggingRef.current = meal
     setDragging(meal)
+    setDropRejectedMessage(null)
+    rescheduleMutationRef.current.reset()
   }
 
   function setHover(cell: HoverCell | null) {
@@ -350,7 +439,9 @@ export function KalendarzTab() {
     )
   }
   if (plansQuery.isError) {
-    return <p className="text-sm text-destructive">Nie udało się wczytać planów. Spróbuj ponownie.</p>
+    return (
+      <p className="text-sm text-destructive">Nie udało się wczytać planów. Spróbuj ponownie.</p>
+    )
   }
   if (plansQuery.data.length === 0) {
     return (
@@ -375,7 +466,10 @@ export function KalendarzTab() {
     for (const p of plans) {
       const planStartDate = startOfDay(new Date(p.created_at))
       for (const day of p.days) {
-        dayByDateKey.set(dateKey(addDays(planStartDate, day.day_number - 1)), { planId: p.plan_id, day })
+        dayByDateKey.set(dateKey(addDays(planStartDate, day.day_number - 1)), {
+          planId: p.plan_id,
+          day,
+        })
       }
       const planFirstMonday = startOfWeek(planStartDate)
       const planLastMonday = startOfWeek(addDays(planStartDate, p.duration_days - 1))
@@ -404,250 +498,298 @@ export function KalendarzTab() {
   // owning plan too.
   const multiplePlansActive = plans.length > 1
   function cellTestId(planId: string, dayNumber: number, suffix: string): string {
-    return multiplePlansActive ? `cell-${planId}-day${dayNumber}-${suffix}` : `cell-day${dayNumber}-${suffix}`
+    return multiplePlansActive
+      ? `cell-${planId}-day${dayNumber}-${suffix}`
+      : `cell-day${dayNumber}-${suffix}`
   }
   function mealTestId(planId: string, dayNumber: number, mealName: string): string {
-    return multiplePlansActive ? `meal-${planId}-day${dayNumber}-${mealName}` : `meal-day${dayNumber}-${mealName}`
+    return multiplePlansActive
+      ? `meal-${planId}-day${dayNumber}-${mealName}`
+      : `meal-day${dayNumber}-${mealName}`
   }
   function overviewTestId(planId: string, dayNumber: number): string {
     return multiplePlansActive ? `overview-${planId}-day${dayNumber}` : `overview-day${dayNumber}`
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="relative">
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full justify-between font-normal"
-          data-testid="plan-picker-trigger"
-          onClick={() => setPickerOpen((wasOpen) => !wasOpen)}
-        >
-          <span className="truncate">
-            {effectiveSelectedIds
-              .map((id) => plansQuery.data.find((p) => p.plan_id === id))
-              .filter((p): p is DietPlanSummary => !!p)
-              .map((p) => planOptionLabel(p))
-              .join('  +  ') || 'Wybierz plan'}
-          </span>
-        </Button>
+    <>
+      {(rescheduleMutation.isError || dropRejectedMessage) &&
+        createPortal(
+          <div
+            data-testid="reschedule-banner"
+            className="fixed top-6 left-1/2 z-[60] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-2.5 shadow-lg"
+          >
+            <FieldError
+              message={
+                rescheduleMutation.isError
+                  ? rescheduleErrorMessage(rescheduleMutation.error)
+                  : dropRejectedMessage!
+              }
+            />
+          </div>,
+          document.body,
+        )}
+      <div className="flex flex-col gap-4">
+        <div className="relative">
+          <Button
+            type="button"
+            variant="outline"
+            className="w-full justify-between font-normal"
+            data-testid="plan-picker-trigger"
+            onClick={() => setPickerOpen((wasOpen) => !wasOpen)}
+          >
+            <span className="truncate">
+              {effectiveSelectedIds
+                .map((id) => plansQuery.data.find((p) => p.plan_id === id))
+                .filter((p): p is DietPlanSummary => !!p)
+                .map((p) => planOptionLabel(p))
+                .join('  +  ') || 'Wybierz plan'}
+            </span>
+          </Button>
 
-        {pickerOpen && (
-          <div className="absolute top-[calc(100%+6px)] right-0 left-0 z-20 flex flex-col gap-0.5 rounded-2xl border border-border bg-popover p-1.5 shadow-lg">
-            <p className="px-2.5 pt-1.5 pb-1 text-[10.5px] font-bold tracking-wide text-muted-foreground uppercase">
-              Wybierz plany do wyświetlenia (nienakładające się)
-            </p>
-            {plansQuery.data.map((p) => {
-              const checked = effectiveSelectedIds.includes(p.plan_id)
-              return (
-                <button
-                  key={p.plan_id}
-                  type="button"
-                  data-testid={`plan-option-${p.plan_id}`}
-                  onClick={() => togglePlanSelection(p)}
-                  className={cn(
-                    'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-bold',
-                    checked ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/60',
-                  )}
-                >
-                  <span
+          {pickerOpen && (
+            <div className="absolute top-[calc(100%+6px)] right-0 left-0 z-20 flex flex-col gap-0.5 rounded-2xl border border-border bg-popover p-1.5 shadow-lg">
+              <p className="px-2.5 pt-1.5 pb-1 text-[10.5px] font-bold tracking-wide text-muted-foreground uppercase">
+                Wybierz plany do wyświetlenia (nienakładające się)
+              </p>
+              {plansQuery.data.map((p) => {
+                const checked = effectiveSelectedIds.includes(p.plan_id)
+                return (
+                  <button
+                    key={p.plan_id}
+                    type="button"
+                    data-testid={`plan-option-${p.plan_id}`}
+                    onClick={() => togglePlanSelection(p)}
                     className={cn(
-                      'flex size-4 shrink-0 items-center justify-center rounded border',
-                      checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
+                      'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-bold',
+                      checked
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-foreground hover:bg-accent/60',
                     )}
                   >
-                    {checked && <Check className="size-3" />}
-                  </span>
-                  {planOptionLabel(p)}
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </div>
-      {overlapError && <FieldError message={overlapError} />}
-
-      {plansPending ? (
-        <div className="flex flex-col gap-3" role="status" aria-label="Ładowanie kalendarza…">
-          <Skeleton className="h-9 w-full rounded-lg" />
-          <Skeleton className="h-72 w-full rounded-xl" />
-        </div>
-      ) : plansErrored ? (
-        <p className="text-sm text-destructive">Nie udało się wczytać tego planu.</p>
-      ) : plans.length > 0 ? (
-        <>
-          <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-            <div className="flex items-center gap-1.5">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setWeekIndex((w) => Math.max(0, w - 1))}
-                disabled={weekIndex === 0}
-              >
-                ← Poprzedni tydzień
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setWeekIndex((w) => Math.min(totalWeeks - 1, w + 1))}
-                disabled={weekIndex >= totalWeeks - 1}
-              >
-                Następny tydzień →
-              </Button>
+                    <span
+                      className={cn(
+                        'flex size-4 shrink-0 items-center justify-center rounded border',
+                        checked
+                          ? 'border-primary bg-primary text-primary-foreground'
+                          : 'border-border',
+                      )}
+                    >
+                      {checked && <Check className="size-3" />}
+                    </span>
+                    {planOptionLabel(p)}
+                  </button>
+                )
+              })}
             </div>
+          )}
+        </div>
+        {overlapError && <FieldError message={overlapError} />}
+
+        {plansPending ? (
+          <div className="flex flex-col gap-3" role="status" aria-label="Ładowanie kalendarza…">
+            <Skeleton className="h-9 w-full rounded-lg" />
+            <Skeleton className="h-72 w-full rounded-xl" />
+          </div>
+        ) : plansErrored ? (
+          <p className="text-sm text-destructive">Nie udało się wczytać tego planu.</p>
+        ) : plans.length > 0 ? (
+          <>
             <span className="text-[12.5px] font-bold text-muted-foreground">
               {formatWeekRange(visibleDates[0], visibleDates[6])}
               {dietTypes.length > 0 && ` · ${dietTypes.map(dietTypeLabel).join(', ')}`}
             </span>
-            <label className="flex items-center gap-2 text-[11px] font-bold">
-              <span className={cn(viewMode === 'szczegolowy' ? 'text-foreground' : 'text-muted-foreground')}>
-                Szczegółowy
-              </span>
-              <Switch
-                size="sm"
-                checked={viewMode === 'ogolny'}
-                onCheckedChange={(checked) => setViewMode(checked ? 'ogolny' : 'szczegolowy')}
-              />
-              <span className={cn(viewMode === 'ogolny' ? 'text-foreground' : 'text-muted-foreground')}>Ogólny</span>
-            </label>
-          </div>
-
-          {viewMode === 'ogolny' ? (
-            <div className="grid overflow-hidden rounded-xl border border-border" style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}>
-              {visibleDates.map((date, i) => (
-                <div
-                  key={i}
+            <div className="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={() => setWeekIndex((w) => Math.max(0, w - 1))}
+                  disabled={weekIndex === 0}
+                >
+                  ← Poprzedni tydzień
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  onClick={() => setWeekIndex((w) => Math.min(totalWeeks - 1, w + 1))}
+                  disabled={weekIndex >= totalWeeks - 1}
+                >
+                  Następny tydzień →
+                </Button>
+              </div>
+              <label className="flex items-center gap-2 text-[11px] font-bold">
+                <span
                   className={cn(
-                    'border-b border-border bg-muted p-2 text-center text-[12px] font-bold',
-                    i > 0 && 'border-l',
+                    viewMode === 'szczegolowy' ? 'text-foreground' : 'text-muted-foreground',
                   )}
                 >
-                  <div>{DAY_LABELS[i]}</div>
-                  <div className="text-[10px] font-normal text-muted-foreground">
-                    {date.getDate()}.{String(date.getMonth() + 1).padStart(2, '0')}
-                  </div>
-                </div>
-              ))}
-              {visibleDates.map((date, i) => {
-                const entry = dayByDateKey.get(dateKey(date))
-                const day = entry?.day
-                const mealsHere = day ? sortMealsForOverview(day.meals) : []
-                return (
-                  <div
-                    key={i}
-                    data-testid={day ? overviewTestId(entry!.planId, day.day_number) : `overview-empty${i}`}
-                    className={cn('flex flex-col gap-1 p-1.5', i > 0 && 'border-l border-border')}
-                  >
-                    {mealsHere.length === 0 ? (
-                      <span className="text-[10px] text-muted-foreground">—</span>
-                    ) : (
-                      mealsHere.map((meal) => (
-                        <MealChip
-                          key={meal.name}
-                          meal={meal}
-                          testId={mealTestId(entry!.planId, day!.day_number, meal.name)}
-                          time={meal.time ?? NO_TIME}
-                          isDragging={false}
-                          onDragStart={() => {}}
-                          draggable={false}
-                        />
-                      ))
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-          <div className="overflow-x-auto rounded-xl border border-border">
-            <div className="grid min-w-[700px]" style={{ gridTemplateColumns: '88px repeat(7, 1fr)' }}>
-              <div className="border-b border-border bg-muted p-2" />
-              {visibleDates.map((date, i) => (
-                <div
-                  key={i}
-                  className="border-b border-l border-border bg-muted p-2 text-center text-[12px] font-bold"
+                  Szczegółowy
+                </span>
+                <Switch
+                  size="sm"
+                  checked={viewMode === 'ogolny'}
+                  onCheckedChange={(checked) => setViewMode(checked ? 'ogolny' : 'szczegolowy')}
+                />
+                <span
+                  className={cn(
+                    viewMode === 'ogolny' ? 'text-foreground' : 'text-muted-foreground',
+                  )}
                 >
-                  <div>{DAY_LABELS[i]}</div>
-                  <div className="text-[10px] font-normal text-muted-foreground">
-                    {date.getDate()}.{String(date.getMonth() + 1).padStart(2, '0')}
-                  </div>
-                </div>
-              ))}
+                  Ogólny
+                </span>
+              </label>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={saveExportMutation.isPending}
+                onClick={() => saveExportMutation.mutate()}
+              >
+                {saveExportMutation.isPending ? 'Zapisywanie…' : 'Zapisz'}
+              </Button>
+              {savedExport && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={downloadExportMutation.isPending}
+                  onClick={() => downloadExportMutation.mutate()}
+                >
+                  {downloadExportMutation.isPending ? 'Pobieranie…' : 'Pobierz'}
+                </Button>
+              )}
+            </div>
+            {saveExportMutation.isError && (
+              <FieldError message={combinedExportSaveErrorMessage(saveExportMutation.error)} />
+            )}
+            {downloadExportMutation.isError && (
+              <FieldError
+                message={combinedExportDownloadErrorMessage(downloadExportMutation.error)}
+              />
+            )}
+            {savedExport && !downloadExportMutation.isSuccess && (
+              <p className="text-[12.5px] font-bold text-secondary-foreground">
+                Zapisano ✓ — kliknij „Pobierz”, aby zapisać plik na dysku.
+              </p>
+            )}
 
-              {/* "Bez pory" row — meals with no AI-suggested time; not a
-                  valid drop target (the API requires a real new_time). */}
-              <div className="border-b border-border p-2 text-[11px] font-bold text-muted-foreground">Bez pory</div>
-              {visibleDates.map((date, i) => {
-                const entry = dayByDateKey.get(dateKey(date))
-                const day = entry?.day
-                const mealsHere = day ? day.meals.filter((m) => !m.time) : []
-                return (
+            {viewMode === 'ogolny' ? (
+              <div
+                className="grid overflow-hidden rounded-xl border border-border"
+                style={{ gridTemplateColumns: 'repeat(7, 1fr)' }}
+              >
+                {visibleDates.map((date, i) => (
                   <div
                     key={i}
-                    data-testid={day ? cellTestId(entry!.planId, day.day_number, 'none') : `cell-empty${i}-none`}
-                    className="border-b border-l border-border p-1.5"
+                    className={cn(
+                      'border-b border-border bg-muted p-2 text-center text-[12px] font-bold',
+                      i > 0 && 'border-l',
+                    )}
                   >
-                    <div className="flex flex-col gap-1">
-                      {mealsHere.map((meal) => (
-                        <MealChip
-                          key={meal.name}
-                          meal={meal}
-                          testId={mealTestId(entry!.planId, day!.day_number, meal.name)}
-                          time={NO_TIME}
-                          isDragging={dragging?.planId === entry!.planId && dragging.dayNumber === day!.day_number && dragging.mealName === meal.name}
-                          onDragStart={() =>
-                            startDrag({ planId: entry!.planId, dayNumber: day!.day_number, mealName: meal.name, originTime: NO_TIME })
-                          }
-                        />
-                      ))}
+                    <div>{DAY_LABELS[i]}</div>
+                    <div className="text-[10px] font-normal text-muted-foreground">
+                      {date.getDate()}.{String(date.getMonth() + 1).padStart(2, '0')}
                     </div>
                   </div>
-                )
-              })}
+                ))}
+                {visibleDates.map((date, i) => {
+                  const entry = dayByDateKey.get(dateKey(date))
+                  const day = entry?.day
+                  const mealsHere = day
+                    ? sortMealsForOverview(day.meals.map((meal, idx) => ({ meal, idx })))
+                    : []
+                  return (
+                    <div
+                      key={i}
+                      data-testid={
+                        day ? overviewTestId(entry!.planId, day.day_number) : `overview-empty${i}`
+                      }
+                      className={cn('flex flex-col gap-1 p-1.5', i > 0 && 'border-l border-border')}
+                    >
+                      {mealsHere.length === 0 ? (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      ) : (
+                        mealsHere.map(({ meal, idx }) => (
+                          <MealChip
+                            key={idx}
+                            meal={meal}
+                            testId={mealTestId(entry!.planId, day!.day_number, meal.name)}
+                            time={meal.time ?? NO_TIME}
+                            isDragging={false}
+                            onDragStart={() => {}}
+                            draggable={false}
+                          />
+                        ))
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-border">
+                <div
+                  className="grid min-w-[700px]"
+                  style={{ gridTemplateColumns: '88px repeat(7, 1fr)' }}
+                >
+                  <div className="border-b border-border bg-muted p-2" />
+                  {visibleDates.map((date, i) => (
+                    <div
+                      key={i}
+                      className="border-b border-l border-border bg-muted p-2 text-center text-[12px] font-bold"
+                    >
+                      <div>{DAY_LABELS[i]}</div>
+                      <div className="text-[10px] font-normal text-muted-foreground">
+                        {date.getDate()}.{String(date.getMonth() + 1).padStart(2, '0')}
+                      </div>
+                    </div>
+                  ))}
 
-              {hourRows.map((time) => (
-                <Fragment key={time}>
-                  <div className="border-b border-border p-2 text-[11px] font-bold text-muted-foreground">{time}</div>
+                  {/* "Bez pory" row — meals with no AI-suggested time; not a
+                  valid drop target (the API requires a real new_time). */}
+                  <div className="border-b border-border p-2 text-[11px] font-bold text-muted-foreground">
+                    Bez pory
+                  </div>
                   {visibleDates.map((date, i) => {
                     const entry = dayByDateKey.get(dateKey(date))
                     const day = entry?.day
-                    const mealsHere = day ? day.meals.filter((m) => m.time && rowTimeForMeal(m.time) === time) : []
-                    const cellPlanId = entry?.planId ?? null
-                    const cellDayNumber = day?.day_number ?? null
-                    const isHovered =
-                      hoverCell?.time === time &&
-                      hoverCell.dayNumber === cellDayNumber &&
-                      hoverCell.planId === cellPlanId
-                    const isInvalidDropTarget =
-                      !!dragging && (cellPlanId === null || cellPlanId !== dragging.planId)
+                    const mealsHere = day
+                      ? day.meals
+                          .map((meal, idx) => ({ meal, idx }))
+                          .filter(({ meal }) => !meal.time)
+                      : []
                     return (
                       <div
                         key={i}
-                        data-testid={day ? cellTestId(entry!.planId, day.day_number, time) : `cell-empty${i}-${time}`}
-                        onPointerEnter={() => dragging && setHover({ planId: cellPlanId, dayNumber: cellDayNumber, time })}
-                        onPointerLeave={() =>
-                          hoverCellRef.current?.time === time &&
-                          hoverCellRef.current.dayNumber === cellDayNumber &&
-                          hoverCellRef.current.planId === cellPlanId &&
-                          setHover(null)
+                        data-testid={
+                          day
+                            ? cellTestId(entry!.planId, day.day_number, 'none')
+                            : `cell-empty${i}-none`
                         }
-                        className={cn(
-                          'min-h-[34px] border-b border-l border-border p-1.5',
-                          isHovered && !isInvalidDropTarget && 'bg-accent/40 ring-2 ring-inset ring-primary',
-                          isHovered && isInvalidDropTarget && 'bg-destructive/10 ring-2 ring-inset ring-destructive/50',
-                        )}
+                        className="border-b border-l border-border p-1.5"
                       >
                         <div className="flex flex-col gap-1">
-                          {mealsHere.map((meal) => (
+                          {mealsHere.map(({ meal, idx }) => (
                             <MealChip
-                              key={meal.name}
+                              key={idx}
                               meal={meal}
                               testId={mealTestId(entry!.planId, day!.day_number, meal.name)}
-                              time={time}
-                              isDragging={dragging?.planId === entry!.planId && dragging.dayNumber === day!.day_number && dragging.mealName === meal.name}
+                              time={NO_TIME}
+                              isDragging={
+                                dragging?.planId === entry!.planId &&
+                                dragging.dayNumber === day!.day_number &&
+                                dragging.mealIndex === idx
+                              }
                               onDragStart={() =>
-                                startDrag({ planId: entry!.planId, dayNumber: day!.day_number, mealName: meal.name, originTime: time })
+                                startDrag({
+                                  planId: entry!.planId,
+                                  dayNumber: day!.day_number,
+                                  mealIndex: idx,
+                                  mealName: meal.name,
+                                  originTime: NO_TIME,
+                                })
                               }
                             />
                           ))}
@@ -655,27 +797,106 @@ export function KalendarzTab() {
                       </div>
                     )
                   })}
-                </Fragment>
-              ))}
-            </div>
-          </div>
-          )}
 
-          {rescheduleMutation.isError && <FieldError message={rescheduleErrorMessage(rescheduleMutation.error)} />}
-          {confirmation && <p className="text-[12.5px] font-bold text-secondary-foreground">{confirmation} ✓</p>}
-          <p className="text-[11px] text-muted-foreground">
-            {viewMode === 'ogolny'
-              ? 'To podgląd bez godzin — przełącz na widok szczegółowy, żeby przeciągnięciem zmienić dzień lub godzinę posiłku.'
-              : 'Przeciągnij posiłek na inną komórkę, by zmienić jego dzień i/lub godzinę.'}
-          </p>
+                  {hourRows.map((time) => (
+                    <Fragment key={time}>
+                      <div className="border-b border-border p-2 text-[11px] font-bold text-muted-foreground">
+                        {time}
+                      </div>
+                      {visibleDates.map((date, i) => {
+                        const entry = dayByDateKey.get(dateKey(date))
+                        const day = entry?.day
+                        const mealsHere = day
+                          ? day.meals
+                              .map((meal, idx) => ({ meal, idx }))
+                              .filter(({ meal }) => meal.time && rowTimeForMeal(meal.time) === time)
+                          : []
+                        const cellPlanId = entry?.planId ?? null
+                        const cellDayNumber = day?.day_number ?? null
+                        const isHovered =
+                          hoverCell?.time === time &&
+                          hoverCell.dayNumber === cellDayNumber &&
+                          hoverCell.planId === cellPlanId
+                        const isInvalidDropTarget =
+                          !!dragging && (cellPlanId === null || cellPlanId !== dragging.planId)
+                        return (
+                          <div
+                            key={i}
+                            data-testid={
+                              day
+                                ? cellTestId(entry!.planId, day.day_number, time)
+                                : `cell-empty${i}-${time}`
+                            }
+                            onPointerEnter={() =>
+                              dragging &&
+                              setHover({ planId: cellPlanId, dayNumber: cellDayNumber, time })
+                            }
+                            onPointerLeave={() =>
+                              hoverCellRef.current?.time === time &&
+                              hoverCellRef.current.dayNumber === cellDayNumber &&
+                              hoverCellRef.current.planId === cellPlanId &&
+                              setHover(null)
+                            }
+                            className={cn(
+                              'min-h-[34px] border-b border-l border-border p-1.5',
+                              isHovered &&
+                                !isInvalidDropTarget &&
+                                'bg-accent/40 ring-2 ring-inset ring-primary',
+                              isHovered &&
+                                isInvalidDropTarget &&
+                                'bg-destructive/10 ring-2 ring-inset ring-destructive/50',
+                            )}
+                          >
+                            <div className="flex flex-col gap-1">
+                              {mealsHere.map(({ meal, idx }) => (
+                                <MealChip
+                                  key={idx}
+                                  meal={meal}
+                                  testId={mealTestId(entry!.planId, day!.day_number, meal.name)}
+                                  time={time}
+                                  isDragging={
+                                    dragging?.planId === entry!.planId &&
+                                    dragging.dayNumber === day!.day_number &&
+                                    dragging.mealIndex === idx
+                                  }
+                                  onDragStart={() =>
+                                    startDrag({
+                                      planId: entry!.planId,
+                                      dayNumber: day!.day_number,
+                                      mealIndex: idx,
+                                      mealName: meal.name,
+                                      originTime: time,
+                                    })
+                                  }
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </Fragment>
+                  ))}
+                </div>
+              </div>
+            )}
 
-          {allRequirements.length > 0 && (
+            {confirmation && (
+              <p className="text-[12.5px] font-bold text-secondary-foreground">{confirmation} ✓</p>
+            )}
             <p className="text-[11px] text-muted-foreground">
-              Uwzględnione wskazówki: {allRequirements.join(', ')}
+              {viewMode === 'ogolny'
+                ? 'To podgląd bez godzin — przełącz na widok szczegółowy, żeby przeciągnięciem zmienić dzień lub godzinę posiłku.'
+                : 'Przeciągnij posiłek na inną komórkę, by zmienić jego dzień i/lub godzinę.'}
             </p>
-          )}
-        </>
-      ) : null}
-    </div>
+
+            {allRequirements.length > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                Uwzględnione wskazówki: {allRequirements.join(', ')}
+              </p>
+            )}
+          </>
+        ) : null}
+      </div>
+    </>
   )
 }

@@ -1092,10 +1092,16 @@ meal identity, day count) is immutable.
 ```json
 {
   "day_number": 1,
-  "meal_name": "Protein oatmeal",
+  "meal_index": 0,
   "new_time": "07:30:00"
 }
 ```
+
+`meal_index`: the meal's position within that day's `meals` array (as
+returned by `GET /diet-plans/{id}`) — not its name. The AI planner
+routinely produces two meals named the same thing (e.g. two "Snack"s) on
+one day, so identifying the target by name alone is ambiguous; the index
+is the only reliable way to say which one.
 
 ### Response
 
@@ -1112,12 +1118,12 @@ Errors:
 
 ```
 404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another user
-400 Bad Request code=BAD_REQUEST — day_number or meal_name doesn't exist
-                within this plan (the plan itself is fine, so this is 400,
-                not 404 — see architecture.md)
+400 Bad Request code=BAD_REQUEST — day_number doesn't exist, or meal_index is
+                out of range for that day (the plan itself is fine, so
+                this is 400, not 404 — see architecture.md)
 422 Unprocessable Entity code=VALIDATION_ERROR — day_number < 1, or
-                meal_name is empty — request-shape validation, checked
-                before the day/meal lookup above ever runs
+                meal_index < 0 — request-shape validation, checked before
+                the day/meal lookup above ever runs
 ```
 
 ---

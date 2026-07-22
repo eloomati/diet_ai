@@ -49,6 +49,26 @@ function twoMealPlan() {
   }
 }
 
+function duplicateMealNamePlan() {
+  return {
+    ...PLAN_SUMMARY,
+    plan_id: 'p1',
+    duration_days: 1,
+    user_id: 'u1',
+    requirements: [],
+    days: [
+      {
+        day_number: 1,
+        meals: [
+          { name: 'Snack', calories: 200, protein: 10, carbohydrates: 15, fat: 8, time: '07:00' },
+          { name: 'Snack', calories: 250, protein: 15, carbohydrates: 20, fat: 10, time: '09:00' },
+        ],
+      },
+    ],
+    updated_at: '2026-01-15T10:00:00Z',
+  }
+}
+
 function tenDayPlan() {
   const days = Array.from({ length: 10 }, (_, i) => ({
     day_number: i + 1,
@@ -364,7 +384,7 @@ describe('KalendarzTab', () => {
     })
     const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
     const body = JSON.parse(patchCall![1].body as string)
-    expect(body).toEqual({ day_number: 1, meal_name: 'Owsianka', new_time: '12:00:00' })
+    expect(body).toEqual({ day_number: 1, meal_index: 0, new_time: '12:00:00' })
 
     expect(await screen.findByText(/Przeniesiono „Owsianka” na 12:00/)).toBeInTheDocument()
   })
@@ -408,7 +428,7 @@ describe('KalendarzTab', () => {
     const body = JSON.parse(patchCall![1].body as string)
     expect(body).toEqual({
       day_number: 1,
-      meal_name: 'Owsianka',
+      meal_index: 0,
       new_time: '13:00:00',
       new_day_number: 2,
     })
@@ -417,6 +437,43 @@ describe('KalendarzTab', () => {
       await screen.findByText(/Przeniesiono „Owsianka” na inny dzień, godzina 13:00\./),
     ).toBeInTheDocument()
     expect(await screen.findByTestId('meal-day2-Owsianka')).toBeInTheDocument()
+  })
+
+  it('drags the correct meal when two meals on the same day share a name', async () => {
+    // AI-generated plans routinely produce two meals named "Snack" on the
+    // same day — the drag must identify the target by its position in
+    // `day.meals`, not by name, or dragging the second chip would silently
+    // reschedule the first one instead.
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/diet-plans/p1/meals') && init?.method === 'PATCH') {
+        const plan = duplicateMealNamePlan()
+        plan.days[0].meals[1].time = '10:00'
+        return Promise.resolve(jsonResponse(200, plan))
+      }
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(200, duplicateMealNamePlan()))
+      }
+      return Promise.resolve(jsonResponse(200, [{ ...PLAN_SUMMARY, duration_days: 1 }]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+    await screen.findByTestId('cell-day1-09:00')
+
+    const snackChips = screen.getAllByTestId('meal-day1-Snack')
+    expect(snackChips).toHaveLength(2)
+
+    fireEvent.pointerDown(snackChips[1])
+    fireEvent.pointerEnter(screen.getByTestId('cell-day1-10:00'))
+    fireEvent.pointerUp(window)
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([, reqInit]) => reqInit?.method === 'PATCH')
+      expect(patchCall).toBeDefined()
+    })
+    const patchCall = fetchMock.mock.calls.find(([, reqInit]) => reqInit?.method === 'PATCH')
+    const body = JSON.parse(patchCall![1].body as string)
+    expect(body).toEqual({ day_number: 1, meal_index: 1, new_time: '10:00:00' })
   })
 
   it('rejects a drop onto a date the plan does not cover', async () => {
@@ -437,6 +494,9 @@ describe('KalendarzTab', () => {
 
     const patchCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')
     expect(patchCall).toBeUndefined()
+    expect(
+      await screen.findByText('Posiłek można przenieść tylko na dzień i godzinę w obrębie planu, z którego pochodzi.'),
+    ).toBeInTheDocument()
   })
 
   it('does not persist a drop back onto the same cell', async () => {
@@ -657,6 +717,130 @@ describe('KalendarzTab', () => {
       // Both meals stay exactly where they started.
       expect(screen.getByTestId('meal-p1-day1-Owsianka')).toBeInTheDocument()
       expect(screen.getByTestId('meal-p2-day1-Kurczak')).toBeInTheDocument()
+      expect(
+        await screen.findByText('Posiłek można przenieść tylko na dzień i godzinę w obrębie planu, z którego pochodzi.'),
+      ).toBeInTheDocument()
+    })
+  })
+
+  describe('combined export — save then download (Etap 3 Stage 4)', () => {
+    function combinedExportFetchMock(saveResponse: () => Promise<Response>) {
+      return vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/diet-plans/export-combined') && init?.method === 'POST') {
+          return saveResponse()
+        }
+        if (url.includes('/diet-plans/exports-combined/exp-1/download')) {
+          return Promise.resolve(new Response(new Blob(['plan_id,day_number\np1,1'], { type: 'text/csv' }), { status: 200 }))
+        }
+        if (url.includes('/diet-plans/p1')) return Promise.resolve(jsonResponse(200, twoMealPlan()))
+        return Promise.resolve(jsonResponse(200, [{ ...PLAN_SUMMARY, duration_days: 2 }]))
+      })
+    }
+
+    it('"Zapisz" archives the selection without downloading, then "Pobierz" downloads it', async () => {
+      const user = userEvent.setup()
+      const createObjectURL = vi.fn(() => 'blob:mock-url')
+      const revokeObjectURL = vi.fn()
+      vi.stubGlobal('URL', { ...URL, createObjectURL, revokeObjectURL })
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+      const fetchMock = combinedExportFetchMock(() =>
+        Promise.resolve(
+          jsonResponse(201, {
+            export_id: 'exp-1',
+            diet_plan_ids: ['p1'],
+            filename: 'combined.csv',
+            created_at: '2026-01-15T10:00:00Z',
+          }),
+        ),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderKalendarzTab()
+      await screen.findByTestId('meal-day1-Owsianka')
+
+      expect(screen.queryByRole('button', { name: 'Pobierz' })).not.toBeInTheDocument()
+      await user.click(screen.getByRole('button', { name: 'Zapisz' }))
+
+      // Saving alone must not trigger a download.
+      expect(await screen.findByText(/Zapisano ✓/)).toBeInTheDocument()
+      expect(createObjectURL).not.toHaveBeenCalled()
+      const saveCall = fetchMock.mock.calls.find(
+        ([url, init]) => (url as string).includes('/diet-plans/export-combined') && (init as RequestInit)?.method === 'POST',
+      )
+      expect(JSON.parse(saveCall![1].body as string)).toEqual({ plan_ids: ['p1'] })
+
+      await user.click(screen.getByRole('button', { name: 'Pobierz' }))
+
+      await waitFor(() => expect(clickSpy).toHaveBeenCalled())
+      expect(createObjectURL).toHaveBeenCalled()
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:mock-url')
+
+      clickSpy.mockRestore()
+    })
+
+    it('shows a friendly error when saving the combined export fails', async () => {
+      const user = userEvent.setup()
+      const fetchMock = combinedExportFetchMock(() =>
+        Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'plan not found' })),
+      )
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderKalendarzTab()
+      await screen.findByTestId('meal-day1-Owsianka')
+
+      await user.click(screen.getByRole('button', { name: 'Zapisz' }))
+
+      expect(
+        await screen.findByText('Nie udało się zapisać — jeden z wybranych planów mógł zostać usunięty.'),
+      ).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Pobierz' })).not.toBeInTheDocument()
+    })
+
+    it('hides "Pobierz" again once the plan selection changes after saving', async () => {
+      const user = userEvent.setup()
+      const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+        if (url.includes('/diet-plans/export-combined') && init?.method === 'POST') {
+          return Promise.resolve(
+            jsonResponse(201, {
+              export_id: 'exp-1',
+              diet_plan_ids: ['p1'],
+              filename: 'combined.csv',
+              created_at: '2026-01-15T10:00:00Z',
+            }),
+          )
+        }
+        if (url.includes('/diet-plans/p1')) return Promise.resolve(jsonResponse(200, twoMealPlan()))
+        if (url.includes('/diet-plans/p2')) {
+          return Promise.resolve(
+            jsonResponse(200, {
+              ...twoMealPlan(),
+              plan_id: 'p2',
+              created_at: '2026-02-01T10:00:00Z',
+              duration_days: 1,
+              days: [twoMealPlan().days[0]],
+            }),
+          )
+        }
+        return Promise.resolve(
+          jsonResponse(200, [
+            { ...PLAN_SUMMARY, plan_id: 'p1', duration_days: 2 },
+            { ...PLAN_SUMMARY, plan_id: 'p2', created_at: '2026-02-01T10:00:00Z', duration_days: 1 },
+          ]),
+        )
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderKalendarzTab()
+      await screen.findByTestId('meal-day1-Owsianka')
+
+      await user.click(screen.getByRole('button', { name: 'Zapisz' }))
+      await screen.findByRole('button', { name: 'Pobierz' })
+
+      await user.click(screen.getByTestId('plan-picker-trigger'))
+      await user.click(screen.getByTestId('plan-option-p2'))
+
+      expect(screen.queryByRole('button', { name: 'Pobierz' })).not.toBeInTheDocument()
     })
   })
 })

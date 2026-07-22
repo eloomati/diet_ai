@@ -942,14 +942,19 @@ a cosmetic field.
 **Rescheduling — one of two mutations `DietPlan` ever undergoes.** Before
 Phase 9, a `DietPlan` was fully immutable after `create()` — no
 `updated_at` even existed, since nothing ever changed. `PATCH
-/diet-plans/{id}/meals` → `DietPlan.reschedule_meal(day_number, meal_name,
+/diet-plans/{id}/meals` → `DietPlan.reschedule_meal(day_number, meal_index,
 new_time)` rebuilds the `Meal`/`DietDay`/`days` tuple chain (everything is
 frozen value objects, so this is reconstruction via `dataclasses.replace`,
-never in-place mutation) and bumps the now-meaningful `updated_at`. An
-unknown day/meal raises `MealNotFoundError` → **400** (not 404 — the plan
-itself exists and belongs to the caller; it's a sub-part of it that
-doesn't, the same distinction `InvalidWeeklyObligationError` draws on the
-profile side). Phase 13 added a second, unrelated mutation: `PATCH
+never in-place mutation) and bumps the now-meaningful `updated_at`. The
+meal is identified by its position in `day.meals`, not by name — the AI
+planner routinely produces two meals named "Snack" on the same day, and a
+name-based lookup would always resolve to the first one regardless of
+which the caller meant (found via live testing in Phase 13's calendar
+drag-and-drop work). An unknown day or an out-of-range `meal_index` raises
+`MealNotFoundError` → **400** (not 404 — the plan itself exists and
+belongs to the caller; it's a sub-part of it that doesn't, the same
+distinction `InvalidWeeklyObligationError` draws on the profile side).
+Phase 13 added a second, unrelated mutation: `PATCH
 /diet-plans/{id}` → `DietPlan.rename(name)`, setting or clearing (`None`)
 an optional custom `name` — same shape as `Conversation.rename(title)`
 below, and same "`None` clears it" convention as `User.set_display_name()`.

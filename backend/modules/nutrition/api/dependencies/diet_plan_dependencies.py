@@ -6,7 +6,9 @@ from backend.modules.nutrition.api.dependencies.nutrition_dependencies import (
     get_nutrition_profile_repository,
 )
 from backend.modules.nutrition.application import (
+    DownloadCombinedDietPlanExportUseCase,
     DownloadDietPlanExportUseCase,
+    ExportCombinedDietPlansUseCase,
     ExportDietPlanUseCase,
     GenerateDietPlanUseCase,
     GetDietPlanUseCase,
@@ -17,9 +19,13 @@ from backend.modules.nutrition.application import (
 )
 from backend.modules.nutrition.application.ports.sftp_client import SftpClient
 from backend.modules.nutrition.domain import (
+    CombinedDietPlanExportRepository,
     DietPlanExportRepository,
     DietPlanRepository,
     NutritionProfileRepository,
+)
+from backend.modules.nutrition.infrastructure.repository.mongo_combined_diet_plan_export_repository import (
+    MongoCombinedDietPlanExportRepository,
 )
 from backend.modules.nutrition.infrastructure.repository.mongo_diet_plan_export_repository import (
     MongoDietPlanExportRepository,
@@ -37,6 +43,10 @@ def get_diet_plan_repository() -> DietPlanRepository:
 
 def get_diet_plan_export_repository() -> DietPlanExportRepository:
     return MongoDietPlanExportRepository()
+
+
+def get_combined_diet_plan_export_repository() -> CombinedDietPlanExportRepository:
+    return MongoCombinedDietPlanExportRepository()
 
 
 def get_sftp_client() -> SftpClient:
@@ -82,6 +92,27 @@ def get_export_diet_plan_use_case(
     sftp_client: SftpClient = Depends(get_sftp_client),
 ) -> ExportDietPlanUseCase:
     return ExportDietPlanUseCase(diet_plan_repository, diet_plan_export_repository, sftp_client)
+
+
+def get_export_combined_diet_plans_use_case(
+    diet_plan_repository: DietPlanRepository = Depends(get_diet_plan_repository),
+    combined_diet_plan_export_repository: CombinedDietPlanExportRepository = Depends(
+        get_combined_diet_plan_export_repository
+    ),
+    sftp_client: SftpClient = Depends(get_sftp_client),
+) -> ExportCombinedDietPlansUseCase:
+    return ExportCombinedDietPlansUseCase(
+        diet_plan_repository, combined_diet_plan_export_repository, sftp_client
+    )
+
+
+def get_download_combined_diet_plan_export_use_case(
+    combined_diet_plan_export_repository: CombinedDietPlanExportRepository = Depends(
+        get_combined_diet_plan_export_repository
+    ),
+    sftp_client: SftpClient = Depends(get_sftp_client),
+) -> DownloadCombinedDietPlanExportUseCase:
+    return DownloadCombinedDietPlanExportUseCase(combined_diet_plan_export_repository, sftp_client)
 
 
 def get_list_diet_plan_exports_use_case(

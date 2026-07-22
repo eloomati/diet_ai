@@ -246,7 +246,7 @@ def test_reschedule_meal_updates_only_that_meal(client: TestClient) -> None:
 
     response = client.patch(
         f"/api/v1/diet-plans/{created['plan_id']}/meals",
-        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        json={"day_number": 1, "meal_index": 0, "new_time": "08:00:00"},
         headers=_auth_headers(token),
     )
 
@@ -271,7 +271,7 @@ def test_reschedule_meal_moves_it_to_a_different_day(client: TestClient) -> None
         f"/api/v1/diet-plans/{created['plan_id']}/meals",
         json={
             "day_number": 1,
-            "meal_name": "Mock meal",
+            "meal_index": 0,
             "new_time": "08:00:00",
             "new_day_number": 2,
         },
@@ -301,7 +301,7 @@ def test_reschedule_meal_to_an_unknown_day_returns_400(client: TestClient) -> No
         f"/api/v1/diet-plans/{created['plan_id']}/meals",
         json={
             "day_number": 1,
-            "meal_name": "Mock meal",
+            "meal_index": 0,
             "new_time": "08:00:00",
             "new_day_number": 99,
         },
@@ -316,7 +316,7 @@ def test_reschedule_meal_on_unknown_plan_returns_404(client: TestClient) -> None
 
     response = client.patch(
         "/api/v1/diet-plans/00000000-0000-0000-0000-000000000000/meals",
-        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        json={"day_number": 1, "meal_index": 0, "new_time": "08:00:00"},
         headers=_auth_headers(token),
     )
 
@@ -334,7 +334,7 @@ def test_reschedule_meal_on_other_users_plan_returns_404(client: TestClient) -> 
 
     response = client.patch(
         f"/api/v1/diet-plans/{created['plan_id']}/meals",
-        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        json={"day_number": 1, "meal_index": 0, "new_time": "08:00:00"},
         headers=_auth_headers(other_token),
     )
 
@@ -402,7 +402,7 @@ def test_reschedule_unknown_meal_returns_400(client: TestClient) -> None:
 
     response = client.patch(
         f"/api/v1/diet-plans/{created['plan_id']}/meals",
-        json={"day_number": 1, "meal_name": "Nonexistent", "new_time": "08:00:00"},
+        json={"day_number": 1, "meal_index": 99, "new_time": "08:00:00"},
         headers=_auth_headers(token),
     )
 

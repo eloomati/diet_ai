@@ -17,7 +17,7 @@ class RescheduleMealUseCase:
 
         plan.reschedule_meal(
             command.day_number,
-            command.meal_name,
+            command.meal_index,
             command.new_time,
             new_day_number=command.new_day_number,
         )

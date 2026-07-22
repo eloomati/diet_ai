@@ -7,7 +7,9 @@ from backend.modules.identity.api.dependencies import get_current_user
 from backend.modules.identity.domain import User
 from backend.modules.nutrition.api.dependencies import (
     get_diet_plan_use_case,
+    get_download_combined_diet_plan_export_use_case,
     get_download_diet_plan_export_use_case,
+    get_export_combined_diet_plans_use_case,
     get_export_diet_plan_use_case,
     get_generate_diet_plan_use_case,
     get_list_diet_plan_exports_use_case,
@@ -16,9 +18,11 @@ from backend.modules.nutrition.api.dependencies import (
     get_reschedule_meal_use_case,
 )
 from backend.modules.nutrition.api.schemas import (
+    CombinedDietPlanExportResponse,
     DietPlanExportResponse,
     DietPlanResponse,
     DietPlanSummaryResponse,
+    ExportCombinedDietPlansRequest,
     GenerateDietPlanRequest,
     RenameDietPlanRequest,
     RescheduleMealRequest,
@@ -26,8 +30,12 @@ from backend.modules.nutrition.api.schemas import (
 from backend.modules.nutrition.application import (
     DietPlanExportNotFoundError,
     DietPlanNotFoundError,
+    DownloadCombinedDietPlanExportQuery,
+    DownloadCombinedDietPlanExportUseCase,
     DownloadDietPlanExportQuery,
     DownloadDietPlanExportUseCase,
+    ExportCombinedDietPlansCommand,
+    ExportCombinedDietPlansUseCase,
     ExportDietPlanCommand,
     ExportDietPlanUseCase,
     GenerateDietPlanCommand,
@@ -94,6 +102,56 @@ async def list_diet_plans(
     return [DietPlanSummaryResponse.from_result(result) for result in results]
 
 
+@router.post(
+    "/export-combined",
+    response_model=CombinedDietPlanExportResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def export_combined_diet_plans(
+    request: ExportCombinedDietPlansRequest,
+    current_user: User = Depends(get_current_user),
+    use_case: ExportCombinedDietPlansUseCase = Depends(get_export_combined_diet_plans_use_case),
+) -> CombinedDietPlanExportResponse:
+    try:
+        result = await use_case.execute(
+            ExportCombinedDietPlansCommand(user_id=current_user.id, plan_ids=tuple(request.plan_ids))
+        )
+    except DietPlanNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message=str(exc),
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+    return CombinedDietPlanExportResponse.from_result(result)
+
+
+@router.get("/exports-combined/{export_id}/download", status_code=status.HTTP_200_OK)
+async def download_combined_diet_plan_export(
+    export_id: UUID,
+    current_user: User = Depends(get_current_user),
+    use_case: DownloadCombinedDietPlanExportUseCase = Depends(
+        get_download_combined_diet_plan_export_use_case
+    ),
+) -> Response:
+    try:
+        content = await use_case.execute(
+            DownloadCombinedDietPlanExportQuery(user_id=current_user.id, export_id=export_id)
+        )
+    except DietPlanExportNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message=str(exc),
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+    return Response(
+        content=content.content,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{content.filename}"'},
+    )
+
+
 @router.get("/{diet_plan_id}", response_model=DietPlanResponse, status_code=status.HTTP_200_OK)
 async def get_diet_plan(
     diet_plan_id: UUID,
@@ -146,7 +204,7 @@ async def reschedule_meal(
                 user_id=current_user.id,
                 plan_id=diet_plan_id,
                 day_number=request.day_number,
-                meal_name=request.meal_name,
+                meal_index=request.meal_index,
                 new_time=request.new_time,
                 new_day_number=request.new_day_number,
             )

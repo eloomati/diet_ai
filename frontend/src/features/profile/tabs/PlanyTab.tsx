@@ -10,6 +10,7 @@ import { FieldError } from '@/components/FieldError'
 import { DietPlanCard } from '@/features/dietPlans/DietPlanCard'
 import { ApiError } from '@/lib/apiFetch'
 import { dietTypeLabel, goalLabel } from '@/lib/profileOptions'
+import { saveBlob } from '@/lib/saveBlob'
 import { notifyError } from '@/lib/toast'
 import {
   downloadDietPlanExport,
@@ -36,20 +37,6 @@ function listErrorMessage(error: unknown): string {
     return 'Data początkowa musi być wcześniejsza niż data końcowa.'
   }
   return 'Nie udało się wczytać planów. Spróbuj ponownie.'
-}
-
-/** Saves a blob to disk via a throwaway `<a download>` — no server-side
- * presigned URL exists (SFTP has no equivalent), so the file arrives as a
- * blob in memory and has to be handed to the browser this way. */
-function saveBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = filename
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(url)
 }
 
 async function exportAndDownloadPlan(planId: string) {

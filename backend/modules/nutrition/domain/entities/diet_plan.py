@@ -60,7 +60,7 @@ class DietPlan:
     def reschedule_meal(
         self,
         day_number: int,
-        meal_name: str,
+        meal_index: int,
         new_time: time,
         new_day_number: int | None = None,
     ) -> None:
@@ -71,11 +71,8 @@ class DietPlan:
             raise MealNotFoundError(f"Day {day_number} not found in this plan.")
 
         day = self.days[day_index]
-        meal_index = next(
-            (i for i, meal in enumerate(day.meals) if meal.name == meal_name), None
-        )
-        if meal_index is None:
-            raise MealNotFoundError(f"Meal '{meal_name}' not found on day {day_number}.")
+        if not (0 <= meal_index < len(day.meals)):
+            raise MealNotFoundError(f"Meal at index {meal_index} not found on day {day_number}.")
 
         target_day_number = new_day_number if new_day_number is not None else day_number
 

@@ -737,9 +737,12 @@ updated_at      — Phase 9; starts equal to created_at, moves on reschedule_mea
 exactly that many entries, and that no meal has a negative macro value.
 Regenerating always produces a new `DietPlan` (a user can have many) — that
 part hasn't changed. A plan is **not** fully immutable: `reschedule_meal
-(day_number, meal_name, new_time)` (Phase 9) and `rename(name)` (Phase 13)
-are the only two mutations it supports — everything else about a plan
-(macros, meal identity, day count) still can't change after generation.
+(day_number, meal_index, new_time)` (Phase 9; switched from `meal_name` to
+`meal_index` in Phase 13 once duplicate meal names on the same day — e.g.
+two "Snack"s — proved the name-based lookup ambiguous) and `rename(name)`
+(Phase 13) are the only two mutations it supports — everything else about
+a plan (macros, meal identity, day count) still can't change after
+generation.
 
 ---
 
@@ -755,8 +758,10 @@ are the only two mutations it supports — everything else about a plan
 - `reschedule_meal()` (Phase 9) locates the target day/meal and rebuilds
   the `Meal`/`DietDay`/`days` chain with the new time (via
   `dataclasses.replace` — the value objects it touches are frozen, so this
-  is reconstruction, not in-place mutation of them); an unknown
-  `day_number`/`meal_name` raises `MealNotFoundError`.
+  is reconstruction, not in-place mutation of them); the meal is identified
+  by its `meal_index` (position within `day.meals`), not by name, since
+  duplicate meal names on the same day are common; an unknown `day_number`
+  or an out-of-range `meal_index` raises `MealNotFoundError`.
 - `rename(name)` (Phase 13) sets `name` to the given string, or `None` to
   clear it back to the frontend's default composed
   `goal · diet_type · duration_days` label — same "explicit `None` clears

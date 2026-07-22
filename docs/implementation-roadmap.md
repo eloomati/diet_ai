@@ -802,6 +802,23 @@ days, and export the combined selection directly from that view.
     couldn't start; deferred rather than chasing an unrelated
     system-level issue. Full suites: backend 643 passed, frontend 149
     passed, clean `tsc --noEmit`.
+  - **Follow-up (live-verified in a later session):** dragging meals in
+    the browser surfaced a real bug the automated coverage above hadn't
+    caught — the AI planner routinely puts two meals named "Snack" on
+    the same day, and both `reschedule_meal()`'s lookup and the frontend
+    drag state identified the target meal by `meal_name` alone. `next()`
+    always resolved to the *first* same-named match, so dragging the
+    second "Snack" silently rescheduled the first one instead (and
+    React logged a duplicate-key warning, since `KalendarzTab.tsx`'s
+    meal-chip `key` was also `meal.name`). Fixed by switching
+    identification to `meal_index` (the meal's position in `day.meals`)
+    end to end: `DietPlan.reschedule_meal(day_number, meal_index,
+    new_time, new_day_number=None)`, `RescheduleMealCommand`/
+    `RescheduleMealRequest`, the frontend `DraggedMeal`/`isDragging`
+    check, and the React `key` on each meal chip. Added a
+    same-day-duplicate-name regression test at every layer (domain,
+    use case, API, `KalendarzTab.test.tsx`). Backend 660 passed,
+    frontend 27/27 for `KalendarzTab.test.tsx`.
 - [x] **Stage 2 — Multi-select plan picker — DONE**: replaced
       `KalendarzTab`'s single Radix `<Select>` with a custom checklist
       popover (same toggle-panel pattern as `CategoryMenu.tsx`'s
@@ -849,14 +866,56 @@ days, and export the combined selection directly from that view.
     and a cross-plan drop is rejected with no PATCH sent. Full frontend
     suite: 155 passed, clean `tsc --noEmit`. Frontend-only change, no
     backend run needed this stage.
-- [ ] **Stage 4 — Combined export**: a new backend endpoint exporting
-      several selected plans' meals combined into one CSV (given a list
-      of plan ids); an export action added directly in `KalendarzTab`
-      (today it only exists in Plany) calling this new endpoint with
-      whichever plans are currently selected.
-  - Exit criteria: exporting from the calendar view with 2+ selected
-    plans produces one correct combined CSV, live-verified; exporting
-    with a single plan selected still works.
+- [x] **Stage 4 — Combined export — DONE**: first built as a one-shot
+      direct-CSV-response endpoint, then revised per user feedback to
+      match the single-plan export's own "save, then download
+      separately" shape instead — a genuine two-step flow, not a rename.
+      New `CombinedDietPlanExport` entity/repository/Mongo document
+      (`diet_plan_ids: tuple[UUID, ...]`, mirroring `DietPlanExport` but
+      for a set of plans instead of one) alongside the existing
+      single-plan export machinery, not merged into it. `POST
+      /diet-plans/export-combined` (request: `{"plan_ids": [...]}`, min
+      1) → `ExportCombinedDietPlansUseCase` loads every given plan (404
+      if any doesn't exist or isn't the caller's), builds the CSV via
+      `build_combined_diet_plan_csv()` (unchanged from the first pass —
+      `plan_id` column, chronologically sorted across all included
+      plans, not grouped plan-by-plan), uploads it to SFTP, and persists
+      a `CombinedDietPlanExport` record — returning metadata only
+      (`201`), no file content. New `GET
+      /diet-plans/exports-combined/{export_id}/download` retrieves the
+      archived CSV by export id later, same as the single-plan
+      download endpoint but not nested under any one plan's path, since
+      a combined export doesn't belong to a single plan. Wired the new
+      repository into `DeleteUserUseCase`'s existing Mongo-cascade
+      cleanup (`delete_by_user_id`) alongside the other nutrition
+      repositories, per that use case's own documented rule that every
+      Mongo collection keyed by user id must be cleaned up explicitly.
+      Frontend: `KalendarzTab.tsx` now has two buttons — "Zapisz"
+      (archives the current selection, shows "Zapisano ✓") and a
+      "Pobierz" that only appears once something's been saved,
+      downloading that specific saved export; changing the plan
+      selection hides "Pobierz" again since it would otherwise download
+      a stale selection. Extracted the existing `saveBlob()` helper out
+      of `PlanyTab.tsx` into a shared `lib/saveBlob.ts` (this part
+      unchanged from the first pass).
+  - Exit criteria met: live-verified end to end against a real Docker
+    backend, including the revised two-step flow — clicked "Zapisz"
+    and confirmed no file downloaded (network tab showed only the
+    `POST .../export-combined` call, `201`), then clicked the
+    newly-appeared "Pobierz" and confirmed a separate `GET
+    .../exports-combined/{id}/download` request fired and the correct
+    combined CSV landed on disk. Also re-verified the underlying
+    combined-CSV correctness (both plans' meals, sorted, tagged with
+    `plan_id`) and that a single-plan selection still works. Tests:
+    CSV-builder tests unchanged (still valid, builder logic untouched);
+    rewrote the use-case and API tests for the new two-call shape (15
+    use-case tests, 15 API-route tests) and added a fake
+    `InMemoryCombinedDietPlanExportRepository`; extended
+    `test_delete_user_use_case.py` for the new cascade cleanup;
+    rewrote the 3 frontend tests for the Zapisz/Pobierz split. Full
+    backend suite: 660 passed; full frontend suite: 158 passed, clean
+    `tsc --noEmit`.
+- [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
 - [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
 
 ---
