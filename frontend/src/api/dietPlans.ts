@@ -46,6 +46,7 @@ export interface RescheduleMealRequest {
   day_number: number
   meal_name: string
   new_time: string
+  new_day_number?: number
 }
 
 export interface DietPlanExport {

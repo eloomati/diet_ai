@@ -341,11 +341,19 @@ describe('KalendarzTab', () => {
     expect(await screen.findByText(/Przeniesiono „Owsianka” na 12:00/)).toBeInTheDocument()
   })
 
-  it('forces a cross-day drop back onto the meal\'s own day, keeping only the time change', async () => {
+  it('moves a meal to a different day and time on a cross-day drop', async () => {
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url.includes('/diet-plans/p1/meals') && init?.method === 'PATCH') {
         const plan = twoMealPlan()
-        plan.days[0].meals[0].time = '13:00'
+        plan.days[0].meals = []
+        plan.days[1].meals.push({
+          name: 'Owsianka',
+          calories: 500,
+          protein: 30,
+          carbohydrates: 60,
+          fat: 12,
+          time: '13:00',
+        })
         return Promise.resolve(jsonResponse(200, plan))
       }
       if (url.includes('/diet-plans/p1')) {
@@ -370,13 +378,37 @@ describe('KalendarzTab', () => {
     })
     const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH')
     const body = JSON.parse(patchCall![1].body as string)
-    // day_number stays 1 (Owsianka's own day) — the API has no way to move
-    // it to day 2, so only the time (13:00, from wherever was hovered) applies.
-    expect(body).toEqual({ day_number: 1, meal_name: 'Owsianka', new_time: '13:00:00' })
+    expect(body).toEqual({
+      day_number: 1,
+      meal_name: 'Owsianka',
+      new_time: '13:00:00',
+      new_day_number: 2,
+    })
 
     expect(
-      await screen.findByText(/Zmieniono godzinę na 13:00 — dnia nie można zmienić przez przeciąganie\./),
+      await screen.findByText(/Przeniesiono „Owsianka” na inny dzień, godzina 13:00\./),
     ).toBeInTheDocument()
+    expect(await screen.findByTestId('meal-day2-Owsianka')).toBeInTheDocument()
+  })
+
+  it('rejects a drop onto a date the plan does not cover', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/diet-plans/p1')) {
+        return Promise.resolve(jsonResponse(200, twoMealPlan()))
+      }
+      return Promise.resolve(jsonResponse(200, [{ ...PLAN_SUMMARY, duration_days: 2 }]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderKalendarzTab()
+    await screen.findByTestId('meal-day1-Owsianka')
+
+    fireEvent.pointerDown(screen.getByTestId('meal-day1-Owsianka'))
+    fireEvent.pointerEnter(screen.getByTestId('cell-empty2-13:00'))
+    fireEvent.pointerUp(window)
+
+    const patchCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')
+    expect(patchCall).toBeUndefined()
   })
 
   it('does not persist a drop back onto the same cell', async () => {

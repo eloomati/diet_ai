@@ -199,11 +199,11 @@ export function KalendarzTab() {
   })
 
   // Dragging is pointer-events-based (not native HTML5 drag/drop), matching
-  // the mechanic already proven in the approved mockup. The backend's
-  // PATCH .../meals can only change a meal's *time* within its existing
-  // day — there's no field to move it to a different day — so a cross-day
-  // drop is allowed visually (matching the mockup's free-canvas feel) but
-  // always resolves back onto the meal's own day, keeping only the new time.
+  // the mechanic already proven in the approved mockup. A drop onto a cell
+  // that belongs to a different day (but still within the plan's own
+  // duration_days) moves the meal to that day *and* sets the dropped-on
+  // time; a drop onto a date the plan doesn't cover at all is rejected —
+  // `HoverCell.dayNumber` is `null` for those, styled as an invalid target.
   const [dragging, setDragging] = useState<DraggedMeal | null>(null)
   const [hoverCell, setHoverCell] = useState<HoverCell | null>(null)
   const [confirmation, setConfirmation] = useState<string | null>(null)
@@ -216,8 +216,12 @@ export function KalendarzTab() {
   const hoverCellRef = useRef<HoverCell | null>(null)
 
   const rescheduleMutation = useMutation({
-    mutationFn: (payload: { day_number: number; meal_name: string; new_time: string }) =>
-      rescheduleMeal(effectivePlanId!, payload),
+    mutationFn: (payload: {
+      day_number: number
+      meal_name: string
+      new_time: string
+      new_day_number?: number
+    }) => rescheduleMeal(effectivePlanId!, payload),
     onSuccess: (updatedPlan) => {
       queryClient.setQueryData(['diet-plan', effectivePlanId], updatedPlan)
     },
@@ -228,15 +232,25 @@ export function KalendarzTab() {
   function finishDrag() {
     const activeDrag = draggingRef.current
     const target = hoverCellRef.current
-    if (activeDrag && target && target.time !== activeDrag.originTime) {
+    const droppedOnRealDay = target !== null && target.dayNumber !== null
+    const somethingChanged =
+      droppedOnRealDay &&
+      (target.time !== activeDrag?.originTime || target.dayNumber !== activeDrag?.dayNumber)
+
+    if (activeDrag && droppedOnRealDay && somethingChanged) {
       const dayChanged = target.dayNumber !== activeDrag.dayNumber
       rescheduleMutationRef.current.mutate(
-        { day_number: activeDrag.dayNumber, meal_name: activeDrag.mealName, new_time: `${target.time}:00` },
+        {
+          day_number: activeDrag.dayNumber,
+          meal_name: activeDrag.mealName,
+          new_time: `${target.time}:00`,
+          ...(dayChanged ? { new_day_number: target.dayNumber! } : {}),
+        },
         {
           onSuccess: () => {
             setConfirmation(
               dayChanged
-                ? `Zmieniono godzinę na ${target.time} — dnia nie można zmienić przez przeciąganie.`
+                ? `Przeniesiono „${activeDrag.mealName}” na inny dzień, godzina ${target.time}.`
                 : `Przeniesiono „${activeDrag.mealName}” na ${target.time}.`,
             )
           },
@@ -482,7 +496,7 @@ export function KalendarzTab() {
                     const mealsHere = day ? day.meals.filter((m) => m.time && rowTimeForMeal(m.time) === time) : []
                     const cellDayNumber = day?.day_number ?? null
                     const isHovered = hoverCell?.time === time && hoverCell.dayNumber === cellDayNumber
-                    const isForeignDay = !!dragging && cellDayNumber !== dragging.dayNumber
+                    const isInvalidDropTarget = !!dragging && cellDayNumber === null
                     return (
                       <div
                         key={i}
@@ -495,8 +509,8 @@ export function KalendarzTab() {
                         }
                         className={cn(
                           'min-h-[34px] border-b border-l border-border p-1.5',
-                          isHovered && !isForeignDay && 'bg-accent/40 ring-2 ring-inset ring-primary',
-                          isHovered && isForeignDay && 'bg-destructive/10 ring-2 ring-inset ring-destructive/50',
+                          isHovered && !isInvalidDropTarget && 'bg-accent/40 ring-2 ring-inset ring-primary',
+                          isHovered && isInvalidDropTarget && 'bg-destructive/10 ring-2 ring-inset ring-destructive/50',
                         )}
                       >
                         <div className="flex flex-col gap-1">
@@ -526,8 +540,8 @@ export function KalendarzTab() {
           {confirmation && <p className="text-[12.5px] font-bold text-secondary-foreground">{confirmation} ✓</p>}
           <p className="text-[11px] text-muted-foreground">
             {viewMode === 'ogolny'
-              ? 'To podgląd bez godzin — przełącz na widok szczegółowy, żeby przeciągnięciem zmienić godzinę posiłku.'
-              : 'Przeciągnij posiłek, by zmienić godzinę — dnia nie można zmienić przez przeciąganie.'}
+              ? 'To podgląd bez godzin — przełącz na widok szczegółowy, żeby przeciągnięciem zmienić dzień lub godzinę posiłku.'
+              : 'Przeciągnij posiłek na inną komórkę, by zmienić jego dzień i/lub godzinę.'}
           </p>
 
           {plan.requirements.length > 0 && (

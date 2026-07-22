@@ -148,6 +148,7 @@ async def reschedule_meal(
                 day_number=request.day_number,
                 meal_name=request.meal_name,
                 new_time=request.new_time,
+                new_day_number=request.new_day_number,
             )
         )
     except DietPlanNotFoundError as exc:

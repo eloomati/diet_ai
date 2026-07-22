@@ -72,6 +72,31 @@ async def test_reschedule_meal_updates_the_time() -> None:
 
 
 @pytest.mark.asyncio
+async def test_reschedule_meal_moves_it_to_a_different_day() -> None:
+    plan_repo = InMemoryDietPlanRepository()
+    user_id = uuid4()
+    created = await _generate_plan(plan_repo, InMemoryNutritionProfileRepository(), user_id, duration_days=2)
+
+    result = await RescheduleMealUseCase(plan_repo).execute(
+        RescheduleMealCommand(
+            user_id=user_id,
+            plan_id=UUID(created.plan_id),
+            day_number=1,
+            meal_name="Oatmeal",
+            new_time=time(8, 0),
+            new_day_number=2,
+        )
+    )
+
+    # _plan_dict gives every day its own "Oatmeal" meal, so day 2 now holds
+    # both its original meal and the one moved over from day 1.
+    assert result.days[0].meals == ()
+    assert len(result.days[1].meals) == 2
+    moved = next(meal for meal in result.days[1].meals if meal.time == "08:00")
+    assert moved.name == "Oatmeal"
+
+
+@pytest.mark.asyncio
 async def test_reschedule_meal_persists_the_change() -> None:
     plan_repo = InMemoryDietPlanRepository()
     user_id = uuid4()

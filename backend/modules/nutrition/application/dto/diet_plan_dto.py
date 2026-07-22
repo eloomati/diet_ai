@@ -34,6 +34,7 @@ class RescheduleMealCommand:
     day_number: int
     meal_name: str
     new_time: time
+    new_day_number: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

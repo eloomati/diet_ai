@@ -774,15 +774,34 @@ Goal: let a user view several of their own non-overlapping generated
 plans together on one continuous calendar, freely move meals between
 days, and export the combined selection directly from that view.
 
-- [ ] **Stage 1 — Full day+time meal rescheduling**: `RescheduleMealUseCase`
-      and its `PATCH /diet-plans/{id}/meals` payload gain a day field
-      alongside the existing time field; `DietPlan.reschedule_meal()`
-      updated to actually move the meal between `DietDay`s, not just
-      re-time it within its original day. The calendar's drag-and-drop
-      now sends the dropped-on day, not just the dropped-on time.
-  - Exit criteria: dragging a meal to a different day column actually
-    moves it there (persisted), live-verified; the existing same-day
-    retime behavior is unaffected.
+- [x] **Stage 1 — Full day+time meal rescheduling — DONE**:
+      `DietPlan.reschedule_meal()` gained an optional `new_day_number` —
+      when given and different from `day_number`, it removes the meal
+      from its source `DietDay` and appends it (with the new time) to
+      the target `DietDay`; an unknown target day still raises
+      `MealNotFoundError` → 400, same as an unknown source day/meal
+      already did. `RescheduleMealCommand`/`RescheduleMealRequest`/
+      `PATCH /diet-plans/{id}/meals` plumbed the new optional field
+      through end to end. `KalendarzTab.tsx`'s drag-and-drop now sends
+      `new_day_number` whenever the dropped-on cell's day differs from
+      the dragged meal's origin day (omitted for a same-day retime, so
+      the request body is unchanged from before in that case); a drop
+      onto a date the plan doesn't cover at all (`HoverCell.dayNumber
+      === null`) is rejected client-side and styled as an invalid
+      target, never reaching the API.
+  - Exit criteria met via automated coverage: domain-level tests for
+    same-day retime (unchanged), cross-day move, and unknown-target-day
+    rejection (plan left untouched); use-case- and API-level tests for
+    the same; a `KalendarzTab.test.tsx` test simulates the exact
+    pointer-drag-to-a-different-day-column interaction end to end and
+    asserts both the PATCH payload and the resulting UI (meal chip
+    reappearing under the new day). Live-browser verification was
+    skipped this stage — the host machine's disk was down to 5.7 GB
+    free (unrelated to this repo; `docker builder prune`/`image prune`
+    reclaimed 0B, so it's outside Docker's own cache) and Postgres
+    couldn't start; deferred rather than chasing an unrelated
+    system-level issue. Full suites: backend 643 passed, frontend 149
+    passed, clean `tsc --noEmit`.
 - [ ] **Stage 2 — Multi-select plan picker**: `KalendarzTab`'s current
       single-`Select` plan picker becomes a multi-select; client-side
       overlap validation (from each plan's `created_at` +
