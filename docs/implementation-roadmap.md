@@ -30,7 +30,7 @@ Phase 13    - Quality, Security &           IN PROGRESS —
                                               Etap 2 (Chat & diet-plan
                                                 UX polish): DONE
                                               Etap 3 (Multi-plan
-                                                calendar): not started
+                                                calendar): DONE
                                               Etap 4 (Admin panel
                                                 pagination): not started
 ```
@@ -768,7 +768,7 @@ the app.
 
 ---
 
-### Etap 3 — Multi-Plan Calendar
+### Etap 3 — Multi-Plan Calendar — DONE
 
 Goal: let a user view several of their own non-overlapping generated
 plans together on one continuous calendar, freely move meals between
@@ -915,8 +915,25 @@ days, and export the combined selection directly from that view.
     rewrote the 3 frontend tests for the Zapisz/Pobierz split. Full
     backend suite: 660 passed; full frontend suite: 158 passed, clean
     `tsc --noEmit`.
-- [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
-- [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
+- [x] **Stage 5 — Docs sync — DONE**: closing stage for this etap. No new
+      tests this stage — every prior stage (plus the two live-browser
+      follow-ups above) was already verified continuously as it landed,
+      including a full backend+frontend suite run per stage. Docs sync
+      only: `docs/api.md` gained the previously-undocumented
+      `new_day_number` field on `PATCH /diet-plans/{id}/meals`, and two
+      entirely new sections — `POST /diet-plans/export-combined` and
+      `GET /diet-plans/exports-combined/{export_id}/download` — that had
+      shipped in Stage 4 but were never written up. `docs/domain-model.md`
+      gained a `CombinedDietPlanExport` entity section (mirroring
+      `DietPlanExport`'s existing treatment). `docs/architecture.md`
+      gained two new sections: "Multi-plan calendar" (the Stage 2/3
+      plan-picker non-overlap invariant, the `useQueries` per-date merge,
+      the full-year-scroll-vs-real-plan-data split, the `meal_index`
+      identification bug and fix, and the drop-rule `createPortal`
+      banner) and "Combined export across several plans" (the Stage 4
+      two-endpoint shape and its mid-stage revision). `docs/openapi.json`
+      already reflected all of the above (auto-generated from the live
+      FastAPI schema, re-exported during the `meal_index` fix).
 
 ---
 

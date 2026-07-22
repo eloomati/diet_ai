@@ -1019,6 +1019,95 @@ granularity question). The router validates `from <= to` itself (400
 otherwise) — FastAPI's parameter name uses `Query(alias="from")` since
 `from` is a reserved Python keyword and can't be a literal parameter name.
 
+## Multi-plan calendar (Phase 13 / Etap 3)
+
+`KalendarzTab.tsx` originally rendered one plan at a time (a single
+Radix `<Select>`). Etap 3 replaced that with a checklist popover backing
+`selectedPlanIds: string[]`, with a client-side-only invariant: a newly
+toggled-on plan is rejected (inline error, checkbox stays unchecked) if
+its `[created_at, created_at + duration_days - 1]` date span overlaps
+any already-selected plan's own span (`planDateRange()`/
+`rangesOverlap()`). This isn't an API-level constraint — the backend
+happily allows a user's plans to overlap in real life — it exists purely
+so the combined calendar's per-date merge below never has to arbitrate
+"which plan owns this date" between two plans that both claim it.
+
+Every selected plan is fetched in parallel via one `useQueries` call
+(not N separate `useQuery` hooks — keeps hook count stable across
+selection changes) and merged into a single `Map<dateKey,
+{planId, day}>`; the non-overlap invariant above guarantees at most one
+plan ever claims a given calendar date, so the merge itself never has to
+resolve a conflict. The visible date range (`totalWeeks`) is
+deliberately decoupled from the plans' own data: it always spans at
+least a full year from the earliest selected plan's first Monday (so a
+user can freely scroll through empty future/past weeks), while a plan is
+still only ever generated for the exact days it covers — nothing is
+fabricated to fill the empty weeks, they just render as blank cells.
+
+Dragging a meal chip carries the meal's own `planId` and `dayNumber`
+(and, since the `meal_index` fix below, its `mealIndex`); a drop is only
+accepted onto a cell covered by that *same* plan — a cell with no plan
+at all, or one covered by a *different* selected plan, is rejected and
+styled as an invalid (red) target, exactly the same as an out-of-range
+date. Two different plans' days can both be "day 1" and land in the same
+visible week near a plan boundary, so cell/meal `data-testid`s embed the
+owning plan id once 2+ plans are actually loaded together (unchanged,
+simple format for the common single-plan case, so no pre-existing test
+needed to change).
+
+**Meal identification bug, found via live browser testing.** The AI
+planner routinely puts two meals with the same name (e.g. two "Snack"s)
+on one day. Both `DietPlan.reschedule_meal()`'s lookup and the frontend's
+drag state originally identified the target meal by `meal_name` alone —
+`next()` on the backend side always resolved to the *first* same-named
+match, so dragging the *second* "Snack" silently rescheduled the first
+one instead, and React logged a duplicate-key warning (the meal-chip
+`key` was also `meal.name`). Fixed by switching identification to
+`meal_index` — the meal's position within `day.meals` — end to end:
+`reschedule_meal(day_number, meal_index, new_time, new_day_number=None)`,
+`RescheduleMealCommand`/`RescheduleMealRequest`, and the frontend's
+`DraggedMeal`/`isDragging` check and React `key`.
+
+**Drop-rule messaging.** Rather than silently rejecting an invalid drop
+(the red-cell styling alone didn't make the *rule* obvious — user
+feedback after live-testing), `KalendarzTab` shows an explanatory message
+("posiłek można przenieść tylko na dzień i godzinę w obrębie planu, z
+którego pochodzi") when a drop lands on an invalid cell, and the same
+reschedule-API-error message on a failed request. Both render through a
+`createPortal(..., document.body)` — a fixed-position banner above the
+entire Profil/Plany/Kalendarz `Dialog`, not inside the tab's own scroll
+area — since the dialog itself is portaled to `document.body` with
+`z-50` and a message tucked inside the tab content (competing with the
+dialog's own internal scroll/overflow) wasn't visible enough. The banner
+clears on the next drag start or a successful reschedule.
+
+## Combined export across several plans (Phase 13 / Etap 3)
+
+`POST /diet-plans/export-combined` (request: `plan_ids: UUID[]`, min 1) +
+`GET /diet-plans/exports-combined/{export_id}/download` mirror the
+single-plan export's own "archive now, download later" shape (see CSV
+export above) but for a **set** of plans — a new `CombinedDietPlanExport`
+entity/repository/Mongo document, kept deliberately separate from
+`DietPlanExport` rather than merged into it, since a combined export
+doesn't belong to any single plan and isn't nested under one's URL path.
+`build_combined_diet_plan_csv()` sorts every included plan's meals
+chronologically across the whole set (not grouped plan-by-plan), with a
+`plan_id` column disambiguating rows since `day_number` alone resets to
+1 per plan. Wired into `DeleteUserUseCase`'s existing Mongo-cascade
+cleanup alongside the other nutrition repositories, per that use case's
+own documented rule that every Mongo collection keyed by user id must be
+cleaned up explicitly on account deletion.
+
+First built as a one-shot direct-CSV-download endpoint; revised
+mid-implementation (user feedback, after live-verifying that first
+version worked) to match the two-step shape instead — "Zapisz" archives
+the current plan selection and shows a confirmation, a "Pobierz" button
+then appears to download that specific saved export; changing the plan
+selection hides "Pobierz" again so it can never download a stale
+selection. The combined-CSV-building logic itself
+(`build_combined_diet_plan_csv()`) was untouched by that revision — only
+the endpoint/UI shape around it changed.
+
 ---
 
 # AI Module
