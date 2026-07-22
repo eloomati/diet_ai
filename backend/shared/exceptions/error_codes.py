@@ -9,6 +9,7 @@ class ErrorCode(StrEnum):
     FORBIDDEN = "FORBIDDEN"
     CONFLICT = "CONFLICT"
     BAD_REQUEST = "BAD_REQUEST"
+    RATE_LIMITED = "RATE_LIMITED"
 
     # Identity / auth specific
     USER_ALREADY_EXISTS = "USER_ALREADY_EXISTS"

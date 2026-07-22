@@ -11,6 +11,7 @@ from backend.modules.identity.api.dependencies import (
     get_refresh_access_token_use_case,
     get_register_user_use_case,
     get_request_password_reset_use_case,
+    rate_limited,
 )
 from backend.modules.identity.api.schemas import (
     ConfirmEmailVerificationRequest,
@@ -65,6 +66,7 @@ router = APIRouter(prefix="/auth", tags=["identity-auth"])
 async def register(
     request: RegisterRequest,
     use_case: RegisterUserUseCase = Depends(get_register_user_use_case),
+    _rate_limit: None = Depends(rate_limited("register")),
 ) -> RegisterResponse:
     try:
         result = await use_case.execute(
@@ -99,6 +101,7 @@ async def register(
 async def login(
     request: LoginRequest,
     use_case: LoginUserUseCase = Depends(get_login_user_use_case),
+    _rate_limit: None = Depends(rate_limited("login")),
 ) -> LoginResponse:
     try:
         result = await use_case.execute(
@@ -185,6 +188,7 @@ async def me(current_user: User = Depends(get_current_user)) -> MeResponse:
 async def request_password_reset(
     request: RequestPasswordResetRequest,
     use_case: RequestPasswordResetUseCase = Depends(get_request_password_reset_use_case),
+    _rate_limit: None = Depends(rate_limited("password-reset-request")),
 ) -> PasswordResetRequestedResponse:
     try:
         # Always 200 with a generic body — never reveals whether the email exists.

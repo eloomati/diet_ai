@@ -157,27 +157,136 @@ Goal: close the concrete security/safety gaps found — a weak JWT
 secret, no auth rate limiting, no buyer-status check on purchases, and
 stale cross-account session data in the browser.
 
-- [ ] **Stage 1 — JWT secret hardening**: replace the under-32-byte
-      placeholders in `docker-compose.yml` and `.env.example` with a
-      properly generated 32+ byte secret (documented as a placeholder
-      to rotate in any real deployment, same spirit as every other
-      "change-me" dev default in this codebase); add a `Settings`-level
-      startup check that raises (or at minimum logs a clear warning) if
-      `jwt_secret_key` is under 32 bytes when `app_env != "dev"`.
-  - Exit criteria: `docker compose up` no longer produces
-    `InsecureKeyLengthWarning`; a short key outside dev mode fails fast
-    with a clear error instead of a buried library warning.
-- [ ] **Stage 2 — Redis-backed auth rate limiting**: new `redis`
-      service (`docker-compose.yml` + `docker-compose.test.yml`, same
-      ephemeral-test-stack pattern as Postgres/Mongo/Kafka), a
-      `RateLimiter` port + `NoOpRateLimiter` (default, tests never need
-      a real Redis) + `RedisRateLimiter`, gated behind
-      `rate_limit_provider: mock | redis`; wired into
-      `POST /auth/login`, `/auth/register`, `/auth/password-reset/request`.
-  - Exit criteria: repeated rapid requests to any of the three
-    endpoints get a `429` past a defined threshold when
-    `rate_limit_provider=redis`; `pytest` still runs with zero real
-    Redis dependency by default.
+- **Stage 1 — JWT secret hardening — DONE**: replaced the under-32-byte
+  placeholders in `docker-compose.yml` (17 bytes), `.env.example` (9
+  bytes), and `Settings.jwt_secret_key`'s own Python default (21 bytes)
+  with three distinct, properly `secrets.token_urlsafe(32)`-generated
+  values (each 53-64 bytes as a UTF-8 string) — still clearly
+  "change-me" dev placeholders, just long enough to stop triggering the
+  warning; added a new `Settings` `@model_validator(mode="after")`
+  (`_reject_weak_jwt_secret_outside_dev`) that raises a clear
+  `ValueError` if `jwt_secret_key` is under 32 bytes, skipped only when
+  `app_env == "dev"` or `testing` — so a short key is merely tolerated
+  locally but fails fast anywhere else, rather than only ever producing
+  a library warning easy to miss in a log stream.
+
+  Built exactly per the Stage 1 plan — no new design decisions needed,
+  the fix was mechanical once the three weak-default locations were
+  confirmed.
+
+  Exit criteria met: added `backend/tests/test_settings.py` (4 new
+  tests — rejects a short key outside dev/testing, accepts one in dev,
+  accepts one when `testing=True`, accepts a long-enough key outside
+  dev) — ran alongside `backend/tests/test_app_startup.py` since both
+  touch `Settings`/app creation, 7 passed, 0 failed. `PYTHONPATH=. python
+  -c "from backend.app.main import create_app; create_app()"` confirms
+  the app still boots cleanly with the new defaults.
+
+  Live-verified against the real Docker stack: brought up
+  `backend`+its dependencies, registered and logged in a user (forcing a
+  real JWT encode/decode round trip), then `docker compose logs backend
+  | grep -i InsecureKeyLength` — no match, confirming the warning is
+  actually gone end-to-end, not just absent from a unit test. `docker
+  compose down` after.
+Design decisions settled right before building Stage 2 (none of this was
+in the codebase to mirror exactly — rate limiting is the first
+cross-cutting infra this project has added since Kafka, and the first
+thing anywhere in this codebase to read the request's client IP):
+
+- **Port location**: `backend/modules/identity/application/ports/rate_limiter.py`
+  — same directory as `EmailSender`'s port, since both endpoints it
+  guards live in `identity`. Signature: `async def hit(self, key: str,
+  max_attempts: int, window_seconds: int) -> bool` (`True` = allowed),
+  not a raise-on-exceeded exception — keeps the port a plain check, with
+  the 429 decision made once, in the FastAPI dependency that calls it,
+  not duplicated per call site.
+- **Redis connection is a shared singleton, not per-request** — unlike
+  `EmailSender` (deliberately per-request, no persistent connection
+  worth reusing), Redis needs a long-lived connection the same way
+  Postgres/Mongo/the Kafka producer already do. `backend/shared/redis/client.py`
+  gets the same `init_redis_client`/`close_redis_client`/`get_redis_client`
+  shape as `shared/messaging/kafka.py`, wired into `main.py`'s lifespan
+  only when `rate_limit_provider == "redis"` (same conditional-startup
+  pattern Kafka already uses).
+- **Fixed-window counter via `INCR` + `EXPIRE`-on-first-hit** — the
+  standard simple Redis rate-limit pattern (`INCR key`; if the result is
+  `1`, `EXPIRE key window_seconds`; block once the count exceeds
+  `max_attempts`). Not a sliding-window/token-bucket algorithm — a small
+  window-boundary imprecision is an acceptable tradeoff against the
+  extra complexity for a demo-scoped anti-brute-force guard, not a
+  billing-grade limiter.
+- **Rate-limit key is `f"{action}:{client_ip}"`** — one counter bucket
+  per endpoint per IP (a login flood doesn't also throttle registration
+  from the same IP, and vice versa). `RedisRateLimiter` takes the Redis
+  client via constructor injection against a narrow Protocol (`incr`,
+  `expire`) — same testability pattern as
+  `KafkaTransactionEventPublisher`'s `_KafkaProducerLike` Protocol —
+  rather than reaching into the global singleton directly.
+- **`NoOpRateLimiter` always returns `True`** (never blocks) — the
+  default (`rate_limit_provider: mock`), so `pytest` never needs a real
+  Redis, matching `ai_provider`/`email_provider`/`sftp_provider`/
+  `kafka_provider`'s exact mock/real split.
+- **New `ErrorCode.RATE_LIMITED`**, raised as `AppException(code=...,
+  status_code=429)` directly inside the FastAPI dependency that calls
+  `RateLimiter.hit()` — same "router/dependency raises `AppException`
+  with an explicit status code" convention already used everywhere else
+  in this codebase, not a new mapping table.
+- **`redis-test` in `docker-compose.test.yml` is on-demand, not
+  autouse** — exactly the `kafka_test_broker` precedent from Etap 5: a
+  new non-autouse `redis_test_broker` session fixture, requested only by
+  the one new rate-limiting integration test, so the always-on
+  Postgres+Mongo fixture stays untaxed.
+
+- **Stage 2 — Redis-backed auth rate limiting — DONE**: built exactly
+  per the design decisions above. `backend/modules/identity/application/ports/rate_limiter.py`
+  (`RateLimiter.hit(key, max_attempts, window_seconds) -> bool`) +
+  `NoOpRateLimiter` (always allows, the default) +
+  `RedisRateLimiter` (fixed-window `INCR`+`EXPIRE`-on-first-hit, takes
+  the client via a narrow `_RedisLike` Protocol) +
+  `build_rate_limiter(settings)` factory, gated on the new
+  `rate_limit_provider: mock | redis` setting. A new
+  `backend/shared/redis/client.py` singleton
+  (`init_redis_client`/`close_redis_client`/`get_redis_client`) mirrors
+  `shared/messaging/kafka.py`'s exact shape, wired into `main.py`'s
+  lifespan only when `rate_limit_provider == "redis"`. A new
+  `rate_limited(action)` FastAPI dependency factory
+  (`backend/modules/identity/api/dependencies/rate_limit_dependency.py`,
+  same "factory returning a dependency" shape as `require_role`) reads
+  `request.client.host`, calls `RateLimiter.hit()` with a
+  `f"{action}:{client_ip}"` key, and raises a new
+  `AppException(code=ErrorCode.RATE_LIMITED, status_code=429)` when
+  blocked — added as a fourth `Depends(...)` parameter on
+  `register`/`login`/`request_password_reset` in `auth_router.py`,
+  changing nothing else about those handlers. New `redis`/`redis-test`
+  Docker services (dev: always-on, real by default like Kafka/AI/Email
+  in dev; test: on-demand via a new `redis_test_broker` fixture,
+  mirroring `kafka_test_broker` exactly). Filled in two related gaps
+  found while touching these same files: Kafka's own settings were
+  missing from `.env.example` entirely since Etap 5 — added alongside
+  the new rate-limit settings.
+
+  Exit criteria met: 5 new unit tests
+  (`backend/modules/identity/tests/test_rate_limiter.py` — `NoOpRateLimiter`
+  always allows; `RedisRateLimiter` against a fake in-memory Redis-like
+  stub: allows up to the max, blocks past it, sets expiry only on the
+  first hit, keeps independent counters per key) + 2 new integration
+  tests against a real on-demand Redis broker
+  (`test_rate_limit_integration.py` — repeated `/auth/login` attempts
+  actually get `429`'d past the threshold; flooding `/auth/login`
+  doesn't block `/auth/register` from the same IP). Full backend suite
+  run (cross-cutting — this stage's endpoints are used by nearly every
+  other module's own tests via `register_and_login`-style helpers):
+  **572 passed, 0 failed**, up from 565 after Stage 1. `pytest` still
+  needs zero real Redis by default (`redis_test_broker` only starts for
+  the 2 tests that request it).
+
+  Live-verified against the real Docker stack: 5 rapid `/auth/login`
+  attempts with wrong credentials all returned `401`, the 6th returned
+  `429 RATE_LIMITED`; a `/auth/register` call from the same blocked IP
+  still succeeded (`201`) — confirming the separate-bucket-per-action
+  design; `docker compose exec redis redis-cli KEYS "*"` showed exactly
+  `login:<ip>` and `register:<ip>`, confirming the key shape matches the
+  design. `docker compose down` after.
 - [ ] **Stage 3 — Buyer account-status safeguard**:
       `CreateTransactionUseCase` resolves the buyer via `UserRepository`
       and rejects (`403` or similar) unless the buyer's own `status` is

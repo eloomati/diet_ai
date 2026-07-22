@@ -80,10 +80,22 @@ class Settings(BaseSettings):
     kafka_notifications_consumer_group_id: str = "mycelo-notifications"
     kafka_messaging_consumer_group_id: str = "mycelo-messaging"
 
-    jwt_secret_key: str = "dev-secret-change-me"
+    jwt_secret_key: str = "dev-secret-change-me-Ysg2MEUxZebf-3yT-9mIO2bBSNvhsNLTXYtwNOCv8nI"
     jwt_algorithm: str = "HS256"
     jwt_access_ttl_minutes: int = 15
     jwt_refresh_ttl_days: int = 7
+
+    # Rate limiting — provider selection: "mock" | "redis". Same
+    # mock/real split as ai_provider/email_provider/sftp_provider/
+    # kafka_provider: pytest never needs a real Redis either, so the
+    # mock (NoOpRateLimiter, always allows) stays the default. Guards
+    # POST /auth/login, /auth/register, /auth/password-reset/request
+    # against brute-force/spam — one counter bucket per action per
+    # client IP, fixed-window (INCR + EXPIRE-on-first-hit).
+    rate_limit_provider: str = "mock"
+    redis_url: str = "redis://localhost:6379/0"
+    rate_limit_max_attempts: int = 5
+    rate_limit_window_seconds: int = 60
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -96,6 +108,22 @@ class Settings(BaseSettings):
     def _disable_debug_when_testing(self) -> "Settings":
         if self.testing or self.app_env == "test":
             self.app_debug = False
+        return self
+
+    @model_validator(mode="after")
+    def _reject_weak_jwt_secret_outside_dev(self) -> "Settings":
+        # PyJWT itself only warns (InsecureKeyLengthWarning) on a short
+        # HS256 key — easy to miss in a log stream. Fail fast instead,
+        # everywhere except local dev, where a short placeholder is
+        # merely annoying, not a real exposure.
+        if self.testing or self.app_env == "dev":
+            return self
+        if len(self.jwt_secret_key.encode("utf-8")) < 32:
+            raise ValueError(
+                "jwt_secret_key must be at least 32 bytes outside app_env=dev "
+                "(PyJWT's own recommended minimum for HS256) — generate one with "
+                "`python -c \"import secrets; print(secrets.token_urlsafe(32))\"`."
+            )
         return self
 
 
