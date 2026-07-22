@@ -37,3 +37,37 @@ services:
       interval: 2s
       timeout: 3s
       retries: 20
+
+  # Only started on demand by the `kafka_test_broker` fixture (one
+  # integration test needs it) — never part of the always-on autouse
+  # fixture, so it adds no startup tax to every other test run. Same
+  # KRaft single-node combined-mode config as the dev `kafka` service in
+  # docker-compose.yml, on its own ports/container so it can never touch
+  # dev data; tmpfs instead of a named volume, same ephemeral-by-design
+  # reasoning as db-test/mongo-test above.
+  kafka-test:
+    image: apache/kafka:3.8.0
+    container_name: diet_ai_kafka_test
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-test:9093
+      KAFKA_LISTENERS: PLAINTEXT://kafka-test:9092,CONTROLLER://kafka-test:9093,PLAINTEXT_HOST://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-test:9092,PLAINTEXT_HOST://localhost:9095
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    ports:
+      - "9095:9094"
+    tmpfs:
+      - /tmp/kraft-combined-logs
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9094"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s

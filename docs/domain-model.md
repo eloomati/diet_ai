@@ -209,6 +209,64 @@ stand-ins elsewhere. An admin manually marks a transaction paid/unpaid
 
 ---
 
+## Notifications Context
+
+Responsible for:
+
+- one unread/read marker per recipient, backing the right-rail badge
+  (Phase 12 Etap 5).
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+Notification
+```
+
+Populated from two independent sources — a Kafka consumer reacting to
+`TransactionPaid` (Transactions Context, via the Admin Context's
+mark-paid action), and a direct synchronous call from the Messaging
+Context whenever a message is sent. Never produces its own domain
+events the other contexts react to; it's purely a consumer of theirs.
+
+---
+
+## Messaging Context
+
+Responsible for:
+
+- the one-thread-per-buyer/dietitian-pair channel a `TransactionPaid`
+  event auto-creates,
+- the messages exchanged on it, optionally carrying a reference to a
+  generated diet plan (Phase 12 Etap 5).
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+DietitianThread
+
+DietitianMessage
+```
+
+Thread creation has no endpoint of its own — a Kafka consumer
+(`EnsureDietitianThreadUseCase`, reacting to the same `TransactionPaid`
+event the Notifications Context's consumer also reacts to) is the only
+way one comes into existence. Thread existence is itself the access
+gate to send/read messages on it, and it's permanent once granted.
+
+---
+
 ## AI Context
 
 Responsible for:
@@ -972,10 +1030,12 @@ Rules:
   layer instead,
 - neither `mark_paid()` nor `mark_unpaid()` emits a domain event — the
   business event that matters (`TransactionPaid`, for Phase 12 Etap 5's
-  Kafka consumer) is published through a separate
+  two Kafka consumers) is published through a separate
   `TransactionEventPublisher` port, not the domain-events list below,
-  since it's cross-context (Admin context calls it, not this one) and
-  currently a no-op (see docs/architecture.md).
+  since it's cross-context (Admin context calls it, not this one).
+  A real Kafka-backed implementation exists as of Etap 5, but a no-op
+  implementation stays the *default* (`kafka_provider: mock`) so tests
+  never need a real broker (see docs/architecture.md).
 
 ---
 
@@ -1061,7 +1121,126 @@ executionTime
 
 ---
 
-# 10. Aggregates
+# 10. Notifications Domain
+
+## Notification
+
+Aggregate Root.
+
+A single unread/read marker for one recipient — the backing model for
+Phase 12 Etap 5's right-rail badge.
+
+Example:
+
+```
+Notification
+
+id
+
+recipientUserId
+
+type            — TRANSACTION_PAID | NEW_MESSAGE
+
+referenceId     — UUID, no FK — points at a Transaction id or a
+                   DietitianThread id depending on type; deliberately
+                   polymorphic since one entity can't carry two mutually
+                   exclusive foreign keys cleanly
+
+createdAt
+
+readAt          — null until mark_read()
+```
+
+Rules:
+
+- `create()` factory, `mark_read()` idempotent — same
+  no-op-on-redundant-call spirit as `Transaction.mark_paid()`, not an
+  error,
+- produced by two independent sources, never the reverse: the
+  `notifications` module's own Kafka consumer (`TransactionPaid` →
+  `TRANSACTION_PAID`) and `messaging`'s `SendDietitianMessageUseCase`
+  calling `notifications`' `CreateNotificationUseCase` directly
+  (`NEW_MESSAGE`) — a message being sent and its recipient being
+  notified happen in the same request, so this one is a plain
+  synchronous call, not a second Kafka topic,
+- `recipientUserId` is `ON DELETE CASCADE` — a deleted user's own
+  unread markers have nothing left to point back to.
+
+---
+
+# 11. Messaging Domain
+
+## DietitianThread
+
+Aggregate Root.
+
+One conversation channel per `(userId, dietitianId)` pair — the
+prerequisite for a buyer and a dietitian to exchange messages at all.
+
+Example:
+
+```
+DietitianThread
+
+id
+
+userId          — ON DELETE CASCADE
+
+dietitianId     — ON DELETE CASCADE
+
+createdAt
+```
+
+Rules:
+
+- unique on `(userId, dietitianId)` — at most one thread per pair, ever,
+- **no endpoint creates one directly** — `EnsureDietitianThreadUseCase`
+  get-or-creates it, called only from `messaging`'s own Kafka consumer
+  reacting to `TransactionPaid`; thread existence *is* the access gate,
+  and it's permanent once granted — never re-checked against the
+  transaction's live `status` (unlike the dietitian-facing contact
+  reveal in the Transactions Domain section above, which *is* derived
+  live and reverses with `mark_unpaid()`),
+- both sides are `ON DELETE CASCADE`, unlike `Transaction`'s asymmetric
+  `userId CASCADE` / `dietitianId SET NULL` — an orphaned one-sided
+  thread serves no purpose, so it goes with either party.
+
+## DietitianMessage
+
+Child entity of `DietitianThread`, same status as `Message` under
+`Conversation` — not a separate aggregate root.
+
+Example:
+
+```
+DietitianMessage
+
+id
+
+threadId        — FK to DietitianThread, ON DELETE CASCADE
+
+sender          — USER | DIETITIAN
+
+content
+
+dietPlanId      — nullable UUID, no FK — cross-database pointer into a
+                   Mongo-held DietPlan, same pattern as every other
+                   Postgres-row-points-at-Mongo-data case in this system
+
+createdAt
+```
+
+Rules:
+
+- `create()` rejects blank `content`,
+- `sender` is **always derived server-side** from which participant the
+  caller is (`callerId == thread.userId` → `USER`, `== dietitianId` →
+  `DIETITIAN`, neither → access denied) — never accepted from the
+  client.
+
+---
+
+# 12. Aggregates
 
 Current aggregate roots:
 
@@ -1081,6 +1260,10 @@ DietitianProfile
 Review
 
 Transaction
+
+Notification
+
+DietitianThread
 ```
 
 Rules:
@@ -1090,7 +1273,7 @@ Rules:
 
 ---
 
-# 11. Domain Events
+# 13. Domain Events
 
 Possible domain events:
 
@@ -1120,7 +1303,7 @@ Domain events represent important business facts.
 
 ---
 
-# 12. Relationships
+# 14. Relationships
 
 High-level relationship diagram:
 
@@ -1179,9 +1362,18 @@ sides are `ON DELETE CASCADE` (a review has no reason to outlive either
 party, unlike a transaction's asymmetric buyer/dietitian delete rules).
 See the Dietitian Domain section above.
 
+`User` also has a **many** relationship to `Notification` (as
+`recipientUserId`, `ON DELETE CASCADE`) and a third **many-with-two-roles**
+relationship to `DietitianThread` (`userId` and `dietitianId`, both `ON
+DELETE CASCADE` this time, unlike `Transaction`'s asymmetric pair) — see
+the Notifications and Messaging Domain sections above. `DietitianThread`
+in turn has a **many** relationship to `DietitianMessage`
+(`threadId`, `ON DELETE CASCADE`) — the same child-entity shape as
+`Conversation` → `Message`.
+
 ---
 
-# 13. Persistence Mapping
+# 15. Persistence Mapping
 
 ## PostgreSQL
 
@@ -1215,6 +1407,20 @@ Transactions context:
 transactions
 ```
 
+Notifications context:
+
+```
+notifications
+```
+
+Messaging context:
+
+```
+dietitian_threads
+
+dietitian_messages
+```
+
 ---
 
 ## MongoDB
@@ -1237,7 +1443,7 @@ diet_plan_exports   — Phase 9; metadata only, files live on SFTP
 
 ---
 
-# 14. Domain Rules
+# 16. Domain Rules
 
 The following rules must always be respected:
 
@@ -1255,7 +1461,7 @@ The following rules must always be respected:
 
 ---
 
-# 15. Future Extensions
+# 17. Future Extensions
 
 Possible future domain extensions:
 
@@ -1275,12 +1481,13 @@ BodyMeasurementHistory
 AllergyProfile
 ```
 
-Already in progress (Phase 12, see `docs/implementation-roadmap.md`):
-admin panel + roles (Etap 0, done), dietitian applications and profile
-management (Etap 1, done), the admin backend module + `frontend-admin`
-app (Etap 2, done), fixed-price dietitian-offer transactions (Etap 3,
-done), reviews + marketplace listing/profile (this domain — Etap 4,
-done through Stage 4), a Kafka-backed human chat with dietitians
-(Etaps 5-6, not yet started).
+Phase 12 (see `docs/implementation-roadmap.md`) is **done**: admin
+panel + roles (Etap 0), dietitian applications and profile management
+(Etap 1), the admin backend module + `frontend-admin` app (Etap 2),
+fixed-price dietitian-offer transactions (Etap 3), reviews + marketplace
+listing/profile (Etap 4), Kafka-backed notifications + human-dietitian
+chat (these two domains — Etap 5). Etap 6 (a closing consistency-pass
+stage) was explicitly skipped — every etap above already did continuous
+live verification and its own docs sync along the way.
 
 These should be introduced only when supported by real business requirements.

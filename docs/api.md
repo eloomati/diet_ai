@@ -19,7 +19,9 @@ The API provides functionality for:
 - dietitian applications and (once approved) dietitian profile management, including up to 3 photos,
 - public marketplace browsing (dietitian listing + profile, no authentication required) and reviews,
 - admin user management and dietitian-application review (ADMIN/SUPER_ADMIN-only),
-- purchasing a dietitian's offer and admin-toggled paid/unpaid transaction records (no real payment gateway).
+- purchasing a dietitian's offer and admin-toggled paid/unpaid transaction records (no real payment gateway),
+- notifications (a right-rail badge, populated via Kafka + a direct call from sending a message) and mark-all-read,
+- a human-to-human chat thread between a buyer and their dietitian, auto-created when a transaction is marked paid.
 
 Base URL:
 
@@ -1906,7 +1908,8 @@ Body:
   "amount": "49.00",
   "status": "UNPAID",
   "created_at": "2026-07-19T12:00:00+00:00",
-  "paid_at": null
+  "paid_at": null,
+  "buyer_email": null
 }
 ```
 
@@ -1914,7 +1917,8 @@ Body:
 not a one-way approval state. `dietitian_id` can be `null` on an
 *existing* transaction if that dietitian's account has since been
 deleted (the row itself is never deleted when that happens — see
-docs/architecture.md's Data Ownership Rules).
+docs/architecture.md's Data Ownership Rules). `buyer_email` is always
+`null` here — only `GET /transactions/me` below ever resolves it.
 
 ### Errors
 
@@ -1933,11 +1937,16 @@ Lists every transaction where the caller is the *dietitian* side —
 "my sales". See `GET /transactions/me/purchases` below for the buyer
 side.
 
-Deliberately does **not** expose the buyer's identity beyond
-`user_id` — no endpoint available to a `DIET_USER` can resolve that UUID
-into anything identifying, and Phase 12 Etap 5's own design frames
-revealing the paying user's contact as the specific thing a
-`TransactionPaid` event triggers, not something available upfront.
+`buyer_email` is `null` while `status` is `UNPAID`, and resolved to the
+buyer's real email the moment `status` is `PAID` — a synchronous
+derived property computed in this same endpoint (`GET
+/transactions/me`), **not** something a `TransactionPaid` Kafka event
+sets or that persists as its own flag. That makes it correctly
+reversible on `POST /admin/transactions/{id}/mark-unpaid` (the email
+disappears again) and immune to the Kafka consumer's own lag or
+downtime (Phase 12 Etap 5's separate `notifications`/`messaging`
+consumers only ever produce a notification badge and auto-create a
+chat thread from the same event — they have no bearing on this field).
 
 ### Response
 
@@ -1947,7 +1956,8 @@ Status:
 200 OK
 ```
 
-Body: an array in the same shape as `POST /transactions`'s response.
+Body: an array in the same shape as `POST /transactions`'s response,
+with `buyer_email` populated per the rule above.
 
 ### Errors
 
@@ -1982,6 +1992,256 @@ Body: an array in the same shape as `POST /transactions`'s response.
 
 ```
 401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+```
+
+---
+
+# Notifications API
+
+Module:
+
+```
+Notifications
+```
+
+Database:
+
+```
+PostgreSQL
+```
+
+One unread/read marker per recipient, backing Phase 12 Etap 5's
+right-rail badge. Populated from two independent sources — a Kafka
+consumer reacting to `TransactionPaid` (`TRANSACTION_PAID`), and a
+direct call from `POST /messaging/threads/{id}/messages` (`NEW_MESSAGE`)
+— never created directly through an endpoint of its own. Both endpoints
+below are open to any authenticated user (no role gate — everyone has
+notifications).
+
+---
+
+## GET /notifications
+
+Lists the caller's own notifications, most recent first.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+[
+  {
+    "id": "uuid",
+    "type": "TRANSACTION_PAID",
+    "reference_id": "uuid",
+    "created_at": "2026-07-22T12:00:00+00:00",
+    "read_at": null
+  }
+]
+```
+
+`type` is one of `TRANSACTION_PAID`, `NEW_MESSAGE`. `reference_id` is
+deliberately polymorphic — a transaction id for `TRANSACTION_PAID`, a
+`DietitianThread` id for `NEW_MESSAGE` — and carries no FK of its own.
+`recipient_user_id` is intentionally omitted from the response — it's
+always the caller.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+```
+
+---
+
+## POST /notifications/mark-all-read
+
+Marks every one of the caller's currently-unread notifications as read,
+in one bulk action — not a per-notification mark-read endpoint. A
+small-badge UI has few enough notifications that "mark everything I can
+currently see as read" is the only action that makes sense; already-read
+notifications are left untouched (idempotent, same spirit as
+`Transaction.mark_paid()`/`mark_unpaid()`).
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: the caller's full notification list, in the same shape as `GET
+/notifications`, with `read_at` now set on every entry.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+```
+
+---
+
+# Messaging API
+
+Module:
+
+```
+Messaging
+```
+
+Database:
+
+```
+PostgreSQL
+```
+
+A one-thread-per-buyer/dietitian-pair channel, auto-created by a Kafka
+consumer reacting to `TransactionPaid` — there is **no** endpoint to
+create a thread directly. Thread existence is itself the access gate to
+the two endpoints below it; it's permanent once granted, never
+re-checked against the transaction's live `status` (unlike the
+dietitian-facing buyer-contact reveal on `GET /transactions/me`, which
+*is* live and reversible — see the Transactions API section above).
+
+---
+
+## GET /messaging/threads
+
+Lists every thread the caller is a participant of — symmetric by
+design, since the same endpoint serves a buyer's "my dietitians" list
+and a dietitian's "my clients" list with no role branching.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+[
+  {
+    "id": "uuid",
+    "user_id": "uuid",
+    "dietitian_id": "uuid",
+    "created_at": "2026-07-22T12:00:00+00:00",
+    "other_participant_email": "dietitian@example.com"
+  }
+]
+```
+
+`other_participant_email` resolves to whichever side the caller *isn't*
+— the dietitian's email for a buyer calling this, the buyer's email for
+a dietitian calling this. `null` if that user's account has since been
+deleted (the thread itself outlives them either way — both `user_id`
+and `dietitian_id` are `ON DELETE CASCADE`, so a thread is only ever
+actually removed once *both* participants are gone).
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+```
+
+---
+
+## GET /messaging/threads/{thread_id}/messages
+
+Lists every message on a thread, oldest first. Caller must be a
+participant of the thread.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+[
+  {
+    "id": "uuid",
+    "thread_id": "uuid",
+    "sender": "USER",
+    "content": "Cześć, mam pytanie odnośnie mojego planu.",
+    "diet_plan_id": null,
+    "created_at": "2026-07-22T12:00:00+00:00"
+  }
+]
+```
+
+`sender` is one of `USER`, `DIETITIAN` — always the value the message
+was created with server-side (see `POST` below), never client-editable
+after the fact. `diet_plan_id` is set only on messages sent via the
+"send my plan" action (carries no FK — a cross-database pointer into a
+Mongo-held `DietPlan`).
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+404 Not Found code=NOT_FOUND — thread_id doesn't exist
+403 Forbidden code=FORBIDDEN — caller is not a participant of this thread
+```
+
+---
+
+## POST /messaging/threads/{thread_id}/messages
+
+Sends a message on a thread. Also creates a `NEW_MESSAGE` notification
+for the *other* participant — a direct, synchronous call to the
+Notifications module, not a second Kafka round-trip (see the
+Notifications API section above).
+
+### Request
+
+```json
+{
+  "content": "Cześć, mam pytanie odnośnie mojego planu.",
+  "diet_plan_id": "uuid"
+}
+```
+
+`diet_plan_id` is optional — omit it for a plain text message. When
+present, the frontend renders the message as a `DietPlanCard` instead of
+a text bubble.
+
+`sender` is **never** accepted from the client — it's derived
+server-side from which participant the caller is (`caller_id ==
+thread.user_id` → `USER`, `== thread.dietitian_id` → `DIETITIAN`,
+neither → `403`).
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body: the created message, in the same shape as `GET
+/messaging/threads/{thread_id}/messages`'s response items.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+404 Not Found code=NOT_FOUND — thread_id doesn't exist
+403 Forbidden code=FORBIDDEN — caller is not a participant of this thread
+400 Bad Request code=BAD_REQUEST — content is blank
 ```
 
 ---
@@ -2094,6 +2354,4 @@ Possible future endpoints:
 /recipes
 
 /reports
-
-/notifications
 ```

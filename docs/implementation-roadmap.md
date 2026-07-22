@@ -19,7 +19,7 @@ Phase 12.
 
 ```
 Phase 0-11  - Foundation through Testing   DONE — see the archived roadmap
-Phase 12    - Dietitian Marketplace,       IN PROGRESS —
+Phase 12    - Dietitian Marketplace,       DONE —
               Admin Panel & Roles           Etap 0 (Roles & RBAC): DONE
                                             Etap 1 (Dietitian applications
                                               & profile): DONE
@@ -31,8 +31,10 @@ Phase 12    - Dietitian Marketplace,       IN PROGRESS —
                                               reviews): DONE
                                             Etap 5 (Kafka notifications
                                               + human-dietitian chat):
-                                              Stage 4/5
-                                            Etap 6: not started
+                                              DONE
+                                            Etap 6: SKIPPED — see note
+                                              at the end of Phase 12
+                                              below
 ```
 
 ---
@@ -2128,32 +2130,163 @@ pre-Stage-1 revision):
   browser: collapsed the dietitian's right rail and confirmed the badge
   appears showing the correct unread count next to the expand button,
   and clicking it re-expands the rail.
-- **Stage 5 — Tests + docs sync**: this etap's tests need a
+- **Stage 5 — Tests + docs sync — DONE**: this etap's tests need a
   docker-compose.test.yml Kafka service too (the existing ephemeral
   Postgres/Mongo test-stack pattern in `conftest.py` extends to Kafka).
 
+  Design decisions settled right before building this stage:
+
+  - **The real Kafka round-trip (one `TransactionPaid` publish → both the
+    `notifications` and `messaging` consumer groups reacting
+    independently) has only ever been proven by hand** — live-verified
+    via `curl` against the real Docker stack in every stage of this etap,
+    but never by an automated test, since `kafka_provider` defaults to
+    `"mock"` precisely so `pytest` never needs a broker. This stage adds
+    exactly **one** new integration test closing that gap — not a
+    broader Kafka test suite, matching the user's own "minimum tests"
+    direction from Stage 4's follow-up.
+  - **The new `kafka-test` service is *not* added to the existing
+    always-on session fixture.** `conftest.py`'s autouse `test_database`
+    fixture already starts Postgres+Mongo for every single `pytest`
+    invocation; naively adding Kafka to that same `docker compose up`
+    call would tax every test run (Kafka's own healthcheck needs a
+    `start_period`) even though only one test file ever needs a real
+    broker. Instead: the autouse fixture's `up` call is narrowed to name
+    `db-test`/`mongo-test` explicitly, and a second, non-autouse
+    session-scoped fixture (`kafka_test_broker`) brings up just
+    `kafka-test` — requested only by the new integration test. The
+    existing `finally: _compose("down", "-v")` already tears down the
+    *whole* compose project, so `kafka_test_broker` needs no teardown of
+    its own.
+  - **The test spins up its own `TestClient` via a fresh `create_app()`
+    call, not the shared `app` singleton other tests import** — it needs
+    `kafka_provider=kafka` and a `kafka_bootstrap_servers` pointing at
+    the test broker's host port, set via environment variables and
+    `get_settings.cache_clear()` before entering the client's `with`
+    block (which is what actually triggers the producer/consumer
+    startup, same as any other lifespan-dependent test in this repo),
+    then restored to the mock defaults afterward so no other test in the
+    session is affected by import/fixture ordering.
+  - **Consumer processing is polled for, not assumed instant** — same
+    as the manual `curl`+`sleep` verification already done live, the
+    test retries `GET /notifications` and `GET /messaging/threads` in a
+    short bounded loop rather than asserting immediately after the
+    `mark-paid` call returns.
+
+  Built exactly per the design decisions above: `docker-compose.test.yml`
+  gained a `kafka-test` service (same KRaft single-node config as dev's
+  own `kafka`, on its own container/ports/tmpfs so it can never touch
+  dev data, host-mapped to `9095` to avoid clashing with dev's `9094`).
+  Root `conftest.py`'s autouse `test_database` fixture now names
+  `db-test`/`mongo-test` explicitly rather than bringing up the whole
+  compose file, and a new non-autouse `kafka_test_broker` fixture starts
+  `kafka-test` on demand. One new test,
+  `backend/tests/test_kafka_transaction_paid_integration.py::test_marking_a_transaction_paid_notifies_and_creates_a_thread_via_real_kafka`,
+  requests that fixture, flips `KAFKA_PROVIDER`/`KAFKA_BOOTSTRAP_SERVERS`
+  env vars + clears the settings cache, builds a fresh app via
+  `create_app()`, registers a buyer/dietitian/admin, creates and marks a
+  transaction paid through the real HTTP API, then polls `GET
+  /notifications` and `GET /messaging/threads` until both the
+  `TRANSACTION_PAID` notification and the auto-created thread appear —
+  proving, for the first time in an automated test rather than only by
+  hand, that one publish reaches both independent consumer groups.
+
+  Docs sync, same five-file scope as every prior etap's closing stage:
+  - **`docs/api.md`**: new `# Notifications API` (`GET /notifications`,
+    `POST /notifications/mark-all-read`) and `# Messaging API` (`GET
+    /messaging/threads`, `GET`/`POST
+    /messaging/threads/{id}/messages`) sections; fixed a real stale
+    claim found while writing this — `GET /transactions/me` said it
+    "deliberately does not expose the buyer's identity" and that a
+    `TransactionPaid` Kafka event "triggers" the reveal, but Stage 1
+    actually built `buyer_email` as a *synchronous* derived property of
+    `status == PAID`, computed in that same endpoint, with no
+    dependency on the Kafka consumer at all — corrected, and
+    `buyer_email` added to the response examples across the Transactions
+    API section; removed `/notifications` from Future Extensions (it's
+    real now); Overview bullet list gained the two new capabilities.
+  - **`docs/domain-model.md`**: new `# 10. Notifications Domain`
+    (`Notification` entity) and `# 11. Messaging Domain`
+    (`DietitianThread`, `DietitianMessage`) sections, with every
+    subsequent section renumbered (12 through 17); `Notification`/
+    `DietitianThread` added to Aggregates, Relationships, and
+    Persistence Mapping; Future Extensions' Phase-12 progress note
+    updated to "done" for this domain; fixed the `Transaction` entity's
+    own stale note that its event publisher was "currently a no-op" —
+    now correctly describes mock-as-default rather than
+    no-implementation-yet.
+  - **`docs/architecture.md`**: new `## Notifications Module (Phase 12)`
+    and `## Messaging Module (Phase 12)` sections; rewrote the
+    `TransactionEventPublisher` subsection (previously titled "a port
+    with no real implementation yet" — no longer true) to describe the
+    real `KafkaTransactionEventPublisher`, the shared producer
+    singleton + generic consumer-loop helper, and the two independent
+    consumer groups; Data Ownership Rules gained a paragraph on
+    `messaging`/`transactions`' Etap-5 use cases reusing `identity`'s
+    `UserRepository` directly (same established pattern) and a note that
+    `notifications` is the first module with no cross-module repository
+    calls of its own at all; Docker section gained the `kafka` service
+    and fixed the `db` service description (stale since Etap 1 — never
+    updated past "Identity module"). Found and fixed two unrelated stale
+    "in progress" mentions of `frontend-admin` (done since Etap 2) while
+    reading through this section.
+  - **`README.md`**: fixed a real gap found while checking it — the
+    Docker services table said "eight containers" and never listed
+    `kafka` at all, dating back to Stage 1 of this etap; added the
+    `kafka` row, corrected the count to nine, fixed the `db` row's
+    stale "Identity module" description, and the same stale
+    `frontend-admin` "in progress" mention as `architecture.md`. Overall
+    Phase 12 status line unchanged (whole-phase granularity only, same
+    finding as every prior etap's closing stage).
+  - **`docs/openapi.json`**: regenerated via
+    `PYTHONPATH=. python scripts/export_openapi.py`; confirmed via
+    `grep` that `/api/v1/notifications`,
+    `/api/v1/notifications/mark-all-read`, `/api/v1/messaging/threads`,
+    and `/api/v1/messaging/threads/{thread_id}/messages` are all
+    present (a 401-line diff — this hadn't been regenerated since
+    Etap 4's own close, so it also picked up `buyer_email` and every
+    other schema change from Stages 1-4 of this etap in one pass).
+
+  Exit criteria met — closing-gate full suites, run because this stage's
+  own changes (root `conftest.py`, `docker-compose.test.yml`) are
+  genuinely cross-cutting test infrastructure: backend **561 passed, 0
+  failed** (double-checked via `--collect-only` — up from 513 at Etap
+  4's close: 47 new across this etap's Stages 1-4, 1 more from this
+  stage's own Kafka integration test) — and confirmed the narrowed
+  autouse fixture keeps Kafka off the other 560 tests' critical path
+  (full run: ~118s, only the one Kafka test paying the broker's own
+  startup cost). Frontend: **136 passed** across 21 files (up from 120
+  at Etap 4's close — 16 new across this etap's Stages 1-4, none added
+  by this closing stage itself, per the user's own "minimum tests"
+  direction). `npx tsc -b` and `npm run build` both clean.
+
+  Live-verified: ran the new Kafka integration test standalone first
+  (`pytest backend/tests/test_kafka_transaction_paid_integration.py`),
+  confirmed both `mycelo-notifications` and `mycelo-messaging` consumer
+  groups actually joined the test broker and the test passed within its
+  polling window; then ran the full backend suite once more to confirm
+  the narrowed `db-test`/`mongo-test`-only autouse fixture didn't
+  regress any other test's access to Postgres/Mongo.
+
 ---
 
-### Etap 6 — Cross-cutting polish + docs/status sync
+### Etap 6 — Cross-cutting polish + docs/status sync — SKIPPED
 
-Goal: close out Phase 12 the same way Phase 10 closed out — once every
-piece above is live, a consistency pass + final doc sync, not a new
-feature.
+Originally planned as a closing consistency pass (design-system audit,
+a manual smoke-walkthrough doc, and a final `README.md`/roadmap/
+`architecture.md` status sync), mirroring how Phase 10 closed out.
 
-- **Stage 1 — Design-system consistency pass** on everything built in
-  this phase (reusing `Badge`/`FieldError`/`EmptyState`/`Skeleton` from
-  Phase 10 Etap 5 rather than reinventing per-screen patterns — a mirror
-  of that etap's own audit, scoped to the new screens this phase adds).
-- **Stage 2 — Manual smoke walkthrough**: a new
-  `docs/dietitian-marketplace-smoke-walkthrough.md` (same spirit as
-  Phase 10's own walkthrough doc) covering: apply as a dietitian → admin
-  approves → dietitian completes their profile → a second user browses
-  the marketplace → leaves a review → selects an offer → admin marks
-  the transaction paid → dietitian sees the contact reveal → both sides
-  chat and exchange a generated plan.
-- **Stage 3 — Docs & status sync**: `README.md`, this roadmap's own
-  status table, and `docs/architecture.md` all updated to reflect
-  Phase 12 as done — same closing move as Phase 10 Etap 6 Stage 3.
+The user explicitly decided to skip it (2026-07-22): every etap in this
+phase was already live-verified continuously — real Docker-stack +
+browser verification at the end of nearly every stage, not just at
+phase close — and every etap's own closing "Tests + docs sync" stage
+already carried out the same `README.md`/`architecture.md`/`api.md`/
+`domain-model.md` sync Etap 6 Stage 3 would have repeated. Stage 1's
+design-system audit and Stage 2's smoke-walkthrough doc were the only
+two genuinely non-redundant pieces, and the user chose to drop both
+rather than write them retroactively for a phase already fully
+verified. Phase 12 is marked **DONE** in the status block above on
+that basis.
 
 ---
 
