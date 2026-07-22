@@ -163,7 +163,7 @@ export function HumanChatCanvas({
           </Button>
         )}
         <span className="text-[13.5px] font-bold text-foreground">
-          {thread?.other_participant_email ?? 'Rozmowa z dietetykiem'}
+          {thread?.other_participant_name ?? 'Rozmowa z dietetykiem'}
         </span>
         {rightCollapsed && (
           <div className="absolute top-2 right-3.5 flex items-center gap-1.5">

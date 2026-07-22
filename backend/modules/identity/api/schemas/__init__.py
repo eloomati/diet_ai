@@ -13,7 +13,7 @@ from .email_verification_schemas import (
     ConfirmEmailVerificationRequest,
     EmailVerificationConfirmedResponse,
 )
-from .me_schemas import MeResponse
+from .me_schemas import MeResponse, UpdateMeRequest
 from .password_reset_schemas import (
     ConfirmPasswordResetRequest,
     PasswordResetConfirmedResponse,
@@ -33,6 +33,7 @@ __all__ = [
     "RefreshTokenRequest",
     "RefreshTokenResponse",
     "MeResponse",
+    "UpdateMeRequest",
     "RequestPasswordResetRequest",
     "PasswordResetRequestedResponse",
     "ConfirmPasswordResetRequest",

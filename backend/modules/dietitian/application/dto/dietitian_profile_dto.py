@@ -11,6 +11,8 @@ class UpdateDietitianProfileCommand:
     experience: str | None = None
     diplomas: tuple[str, ...] | None = None
     description: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +24,8 @@ class DietitianProfileResult:
     description: str
     photos: tuple[str, ...]
     created_at: datetime
+    first_name: str | None = None
+    last_name: str | None = None
 
     @classmethod
     def from_domain(cls, profile: DietitianProfile) -> "DietitianProfileResult":
@@ -33,4 +37,6 @@ class DietitianProfileResult:
             description=profile.description,
             photos=profile.photos,
             created_at=profile.created_at,
+            first_name=profile.first_name,
+            last_name=profile.last_name,
         )

@@ -43,6 +43,7 @@ class SqlAlchemyUserRepository(UserRepository):
             existing.status = user.status.value
             existing.role = user.role.value
             existing.email_verified = user.email_verified
+            existing.display_name = user.display_name.value if user.display_name else None
             existing.updated_at = user.updated_at
 
         await self._session.flush()

@@ -72,6 +72,33 @@ describe('DietitianProfileTab', () => {
     expect(await screen.findByText('Zapisano ✓')).toBeInTheDocument()
   })
 
+  it('saves an optional first/last name', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((_url: string, options?: RequestInit) => {
+      if (options?.method === 'PUT') {
+        const body = JSON.parse(options.body as string)
+        return Promise.resolve(
+          jsonResponse(200, { ...BASE_PROFILE, first_name: body.first_name, last_name: body.last_name }),
+        )
+      }
+      return Promise.resolve(jsonResponse(200, BASE_PROFILE))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderTab()
+    await screen.findByDisplayValue('5 lat doświadczenia')
+
+    await user.type(screen.getByLabelText('Imię (opcjonalnie)'), 'Jan')
+    await user.type(screen.getByLabelText('Nazwisko (opcjonalnie)'), 'Kowalski')
+    await user.click(screen.getByRole('button', { name: 'Zapisz zmiany' }))
+
+    expect(await screen.findByText('Zapisano ✓')).toBeInTheDocument()
+    const putCall = fetchMock.mock.calls.find(([, options]) => options?.method === 'PUT')
+    const body = JSON.parse(putCall![1].body as string)
+    expect(body.first_name).toBe('Jan')
+    expect(body.last_name).toBe('Kowalski')
+  })
+
   it('uploads a new photo and disables the button at the 3-photo cap', async () => {
     const user = userEvent.setup()
     const threePhotos = {

@@ -6,8 +6,10 @@ from .logout_dto import LogoutCommand
 from .refresh_token_dto import RefreshTokenCommand, RefreshTokenResult
 from .register_user_dto import RegisterUserCommand, RegisterUserResult
 from .request_password_reset_dto import RequestPasswordResetCommand
+from .update_display_name_dto import UpdateDisplayNameCommand
 
 __all__ = [
+    "UpdateDisplayNameCommand",
     "RegisterUserCommand",
     "RegisterUserResult",
     "LoginUserCommand",

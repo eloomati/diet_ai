@@ -36,12 +36,16 @@ export interface DietitianProfile {
   description: string
   photos: string[]
   created_at: string
+  first_name: string | null
+  last_name: string | null
 }
 
 export interface UpdateDietitianProfileRequest {
   experience?: string
   diplomas?: string[]
   description?: string
+  first_name?: string | null
+  last_name?: string | null
 }
 
 export function getMyDietitianProfile(): Promise<DietitianProfile> {
@@ -66,7 +70,7 @@ export function removeDietitianProfilePhoto(index: number): Promise<DietitianPro
 
 export interface DietitianListingItem {
   user_id: string
-  email: string
+  name: string
   experience: string
   description: string
   photos: string[]
@@ -83,11 +87,12 @@ export interface PublicReview {
   rating: number
   comment: string
   created_at: string
+  reviewer_name: string
 }
 
 export interface PublicDietitianProfile {
   user_id: string
-  email: string
+  name: string
   experience: string
   diplomas: string[]
   description: string

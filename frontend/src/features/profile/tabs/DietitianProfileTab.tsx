@@ -11,6 +11,7 @@ import {
 import type { DietitianProfile } from '@/api/dietitian'
 import { FieldError } from '@/components/FieldError'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ApiError, resolveStaticUrl } from '@/lib/apiFetch'
 import { notifyError } from '@/lib/toast'
@@ -21,6 +22,8 @@ interface FormState {
   experience: string
   diplomas: string
   description: string
+  firstName: string
+  lastName: string
 }
 
 function toFormState(profile: DietitianProfile): FormState {
@@ -28,6 +31,8 @@ function toFormState(profile: DietitianProfile): FormState {
     experience: profile.experience,
     diplomas: profile.diplomas.join('\n'),
     description: profile.description,
+    firstName: profile.first_name ?? '',
+    lastName: profile.last_name ?? '',
   }
 }
 
@@ -40,7 +45,13 @@ export function DietitianProfileTab() {
   const queryClient = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const profileQuery = useQuery({ queryKey: ['dietitian-profile'], queryFn: getMyDietitianProfile })
-  const [form, setForm] = useState<FormState>({ experience: '', diplomas: '', description: '' })
+  const [form, setForm] = useState<FormState>({
+    experience: '',
+    diplomas: '',
+    description: '',
+    firstName: '',
+    lastName: '',
+  })
 
   useEffect(() => {
     if (profileQuery.data) setForm(toFormState(profileQuery.data))
@@ -72,6 +83,8 @@ export function DietitianProfileTab() {
         .map((line) => line.trim())
         .filter(Boolean),
       description: form.description,
+      first_name: form.firstName.trim() || null,
+      last_name: form.lastName.trim() || null,
     })
   }
 
@@ -98,6 +111,33 @@ export function DietitianProfileTab() {
           Profil dietetyka
         </p>
         <form className="flex flex-col gap-3" onSubmit={handleSubmit}>
+          <p className="text-[12.5px] text-muted-foreground">
+            Podanie imienia i nazwiska jest opcjonalne — jeśli je uzupełnisz, będą
+            widoczne publicznie zamiast Twojej domyślnej nazwy wyświetlanej.
+          </p>
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label htmlFor="dietitian-profile-first-name" className="mb-1 block text-xs font-bold text-muted-foreground">
+                Imię (opcjonalnie)
+              </label>
+              <Input
+                id="dietitian-profile-first-name"
+                value={form.firstName}
+                onChange={(event) => setForm((current) => ({ ...current, firstName: event.target.value }))}
+              />
+            </div>
+            <div className="flex-1">
+              <label htmlFor="dietitian-profile-last-name" className="mb-1 block text-xs font-bold text-muted-foreground">
+                Nazwisko (opcjonalnie)
+              </label>
+              <Input
+                id="dietitian-profile-last-name"
+                value={form.lastName}
+                onChange={(event) => setForm((current) => ({ ...current, lastName: event.target.value }))}
+              />
+            </div>
+          </div>
+
           <div>
             <label htmlFor="dietitian-profile-experience" className="mb-1 block text-xs font-bold text-muted-foreground">
               Doświadczenie

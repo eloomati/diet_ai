@@ -319,16 +319,74 @@ Validated, and shown everywhere email/UUID currently leaks through.
   resolved name — the dietitian's real name from the buyer's call, the
   buyer's `display_name` from the dietitian's call. `docker compose
   down` after.
-- [ ] **Stage 3 — Frontend: set/edit + display everywhere**: a
+Design decisions settled right before building Stage 3 (a real backend
+gap Stage 2 didn't cover — it only touched read models):
+
+- **A new `PATCH /auth/me` endpoint** lets any user set/clear their own
+  `display_name` — no such self-service endpoint existed at all before
+  now (only registration/login/password-reset touch `User`). Request:
+  `{ display_name: string | null }`; response: the same `MeResponse`
+  shape `GET /auth/me` already returns, now including `display_name`.
+- **`PUT /dietitian/profile` gains optional `first_name`/`last_name`** —
+  `UpdateDietitianProfileCommand`/`DietitianProfile.update_details()`
+  already supported them since Stage 1; this stage only wires the
+  request/response schemas through, same optional-field shape as the
+  existing `experience`/`diplomas`/`description`.
+- **Frontend field renames match Stage 2's backend renames exactly** —
+  `other_participant_email` → `other_participant_name` (messaging),
+  `email` → `name` (dietitian listing/public profile) — updated in one
+  pass across API client types and every component reading them, not
+  left mismatched until something broke at runtime.
+
+- [x] **Stage 3 — Frontend: set/edit + display everywhere — DONE**: a
       `display_name` field in the profile UI for every account; an
       additional, clearly-optional first-name/last-name field pair in
       the dietitian profile editor. Every place in the UI currently
       showing an email or UUID (chat bubbles, messaging thread cards,
       review cards, marketplace dietitian cards) switches to showing the
       resolved name.
-  - Exit criteria: live-verified across chat, messaging, reviews, and
-    marketplace views — including a dietitian who has set a real name
-    showing that instead of their `display_name`/email.
+
+  New backend surfaces: `PATCH /auth/me` (`UpdateMeRequest` /
+  `UpdateDisplayNameUseCase`, `ErrorCode.INVALID_DISPLAY_NAME` on
+  invalid input) and `PUT /dietitian/profile` extended with optional
+  `first_name`/`last_name` (domain support already existed since
+  Stage 1 — this stage only wired the request/response schemas
+  through). Frontend: `updateMe()` in `api/auth.ts`,
+  `MeResponse.display_name`; `DietitianProfile.first_name/last_name` +
+  `UpdateDietitianProfileRequest` in `api/dietitian.ts`; field renames
+  matching Stage 2's backend renames (`other_participant_email` →
+  `other_participant_name`, `email` → `name`, `PublicReview` gains
+  `reviewer_name`) applied across `RightRail.tsx`,
+  `DietitianProfileModal.tsx`, `HumanChatCanvas.tsx`. New UI: a
+  "Nazwa wyświetlana" field + save action in `ProfilTab.tsx`; optional
+  imię/nazwisko inputs in `DietitianProfileTab.tsx`'s own form.
+
+  **Bug found and fixed while wiring the real write path**:
+  `SqlAlchemyUserRepository.save()`'s update branch (the one taken
+  whenever a row already exists) manually copied individual fields from
+  the domain entity onto the tracked SQLAlchemy row instead of using
+  the mapper, and that field list had silently gone stale — it never
+  included `display_name` at all. `UpdateDisplayNameUseCase` always
+  hits this exact branch (it loads an existing user via `get_by_id`,
+  mutates, then saves), so every `PATCH /auth/me` call was appearing to
+  succeed (the response serializes the in-memory mutated entity) while
+  the database row's `display_name` silently stayed `NULL` — the very
+  next `GET /auth/me` would show it gone. Fixed by adding the missing
+  `existing.display_name = ...` line; this class of bug (a manual
+  field-copy list quietly drifting from the mapper it duplicates) is
+  worth keeping in mind for any future field added to `User`. Caught by
+  the new `PATCH /auth/me` test asserting a follow-up `GET` reflects
+  the change — exactly the kind of gap unit tests of the use case alone
+  (which only assert against the in-memory returned entity) can't see.
+
+  Exit criteria met: automated tests only this stage (per the tightened
+  test-scope rule — thorough live-Docker verification deferred to
+  Stage 5's closing pass). Full backend suite **609 passed**; full
+  frontend suite **138 passed**, including new coverage for
+  `PATCH /auth/me` (set/clear/invalid/unauthenticated), the extended
+  `PUT /dietitian/profile` (first/last name set + validation, both at
+  the use-case and router level), and the new `ProfilTab`/
+  `DietitianProfileTab` UI.
 - [ ] **Stage 4 — Registration form**: adds a confirm-password field
       (client-side match validation before submit); optionally prompts
       for a display name at registration (design decision to confirm at

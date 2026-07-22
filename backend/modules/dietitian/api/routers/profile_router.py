@@ -69,6 +69,8 @@ async def update_profile(
                 experience=request.experience,
                 diplomas=tuple(request.diplomas) if request.diplomas is not None else None,
                 description=request.description,
+                first_name=request.first_name,
+                last_name=request.last_name,
             )
         )
     except DietitianProfileNotFoundError as exc:

@@ -10,6 +10,8 @@ class UpdateDietitianProfileRequest(BaseModel):
     experience: str | None = None
     diplomas: list[str] | None = None
     description: str | None = None
+    first_name: str | None = None
+    last_name: str | None = None
 
 
 class DietitianProfileResponse(BaseModel):
@@ -20,6 +22,8 @@ class DietitianProfileResponse(BaseModel):
     description: str
     photos: list[str]
     created_at: datetime
+    first_name: str | None = None
+    last_name: str | None = None
 
     @classmethod
     def from_result(cls, result: DietitianProfileResult) -> "DietitianProfileResponse":
@@ -31,4 +35,6 @@ class DietitianProfileResponse(BaseModel):
             description=result.description,
             photos=list(result.photos),
             created_at=result.created_at,
+            first_name=result.first_name,
+            last_name=result.last_name,
         )

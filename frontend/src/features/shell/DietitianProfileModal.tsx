@@ -161,11 +161,11 @@ export function DietitianProfileModal({ dietitianId, onOpenChange }: DietitianPr
                       <AvatarImage src={resolveStaticUrl(profileQuery.data.photos[0])} alt="" />
                     )}
                     <AvatarFallback className="bg-gradient-to-br from-primary to-accent-foreground/40 font-bold text-primary-foreground">
-                      {profileQuery.data.email.slice(0, 2).toUpperCase()}
+                      {profileQuery.data.name.slice(0, 2).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
                   <div>
-                    <p className="font-heading text-lg font-extrabold">{profileQuery.data.email}</p>
+                    <p className="font-heading text-lg font-extrabold">{profileQuery.data.name}</p>
                     {profileQuery.data.average_rating !== null ? (
                       <Badge
                         variant="secondary"
@@ -266,6 +266,9 @@ export function DietitianProfileModal({ dietitianId, onOpenChange }: DietitianPr
                               {new Date(review.created_at).toLocaleDateString('pl-PL')}
                             </span>
                           </div>
+                          <p className="mt-1 text-xs font-bold text-muted-foreground">
+                            {review.reviewer_name}
+                          </p>
                           <p className="mt-1 text-sm">{review.comment}</p>
                         </div>
                       ))}

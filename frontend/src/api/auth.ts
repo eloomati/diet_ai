@@ -30,6 +30,11 @@ export interface MeResponse {
   status: string
   email_verified: boolean
   role: UserRole
+  display_name: string | null
+}
+
+export interface UpdateMeRequest {
+  display_name: string | null
 }
 
 export interface MessageResponse {
@@ -54,6 +59,10 @@ export function logout(refreshToken: string): Promise<MessageResponse> {
 
 export function me(): Promise<MeResponse> {
   return apiFetch('/auth/me')
+}
+
+export function updateMe(payload: UpdateMeRequest): Promise<MeResponse> {
+  return apiFetch('/auth/me', { method: 'PATCH', body: payload })
 }
 
 export function requestPasswordReset(email: string, captchaToken: string): Promise<MessageResponse> {

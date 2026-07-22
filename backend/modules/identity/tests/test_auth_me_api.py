@@ -219,3 +219,64 @@ def test_me_real_with_expired_token_returns_401(client: TestClient) -> None:
 
     response = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 401
+
+
+def test_update_me_sets_display_name(client: TestClient) -> None:
+    email = unique_email("me.setname")
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
+    )
+    login = client.post("/api/v1/auth/login", json={"email": email, "password": "StrongPass123"})
+    access_token = login.json()["access_token"]
+
+    response = client.patch(
+        "/api/v1/auth/me",
+        json={"display_name": "Jan Kowalski"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert response.status_code == 200
+    assert response.json()["display_name"] == "Jan Kowalski"
+
+    me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access_token}"})
+    assert me.json()["display_name"] == "Jan Kowalski"
+
+
+def test_update_me_clears_display_name_with_null(client: TestClient) -> None:
+    email = unique_email("me.clearname")
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
+    )
+    login = client.post("/api/v1/auth/login", json={"email": email, "password": "StrongPass123"})
+    access_token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {access_token}"}
+
+    client.patch("/api/v1/auth/me", json={"display_name": "Ala Nowak"}, headers=headers)
+
+    response = client.patch("/api/v1/auth/me", json={"display_name": None}, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["display_name"] is None
+
+
+def test_update_me_rejects_invalid_display_name(client: TestClient) -> None:
+    email = unique_email("me.badname")
+    client.post(
+        "/api/v1/auth/register",
+        json={"email": email, "password": "StrongPass123", "captcha_token": "test-captcha-token"},
+    )
+    login = client.post("/api/v1/auth/login", json={"email": email, "password": "StrongPass123"})
+    access_token = login.json()["access_token"]
+
+    response = client.patch(
+        "/api/v1/auth/me",
+        json={"display_name": "Jan_Kowalski!!"},
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "INVALID_DISPLAY_NAME"
+
+
+def test_update_me_without_token_returns_401(client: TestClient) -> None:
+    response = client.patch("/api/v1/auth/me", json={"display_name": "Jan Kowalski"})
+    assert response.status_code == 401
