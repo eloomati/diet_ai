@@ -33,7 +33,7 @@ async def _make_dietitian(user_repo: InMemoryUserRepository, email: str) -> User
 
 
 @pytest.mark.asyncio
-async def test_get_public_profile_includes_reviews_without_reviewer_identity() -> None:
+async def test_get_public_profile_includes_reviews_with_the_reviewers_resolved_name() -> None:
     user_repo = InMemoryUserRepository()
     profile_repo = InMemoryDietitianProfileRepository()
     review_repo = InMemoryReviewRepository()
@@ -45,22 +45,24 @@ async def test_get_public_profile_includes_reviews_without_reviewer_identity() -
         description="Sports nutrition specialist.",
     )
     await profile_repo.save(profile)
-    reviewer_id = uuid4()
+    reviewer = User.create(email=Email("reviewer@example.com"), password_hash=_password_hash())
+    await user_repo.save(reviewer)
     await review_repo.save(
         Review.create(
-            reviewer_id=reviewer_id, dietitian_id=dietitian.id, rating=10, comment="Fantastic!"
+            reviewer_id=reviewer.id, dietitian_id=dietitian.id, rating=10, comment="Fantastic!"
         )
     )
     use_case = GetPublicDietitianProfileUseCase(profile_repo, user_repo, review_repo)
 
     result = await use_case.execute(dietitian.id)
 
-    assert result.email == "public@example.com"
+    assert result.name == "public@example.com"
     assert result.average_rating == 10.0
     assert result.review_count == 1
     assert len(result.reviews) == 1
     assert result.reviews[0].rating == 10
     assert result.reviews[0].comment == "Fantastic!"
+    assert result.reviews[0].reviewer_name == "reviewer@example.com"
     assert not hasattr(result.reviews[0], "reviewer_id")
 
 

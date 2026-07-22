@@ -20,7 +20,7 @@ class DietitianThreadResponse(BaseModel):
     user_id: UUID
     dietitian_id: UUID
     created_at: datetime
-    other_participant_email: str | None
+    other_participant_name: str | None
 
     @classmethod
     def from_result(cls, result: DietitianThreadResult) -> "DietitianThreadResponse":
@@ -29,7 +29,7 @@ class DietitianThreadResponse(BaseModel):
             user_id=result.user_id,
             dietitian_id=result.dietitian_id,
             created_at=result.created_at,
-            other_participant_email=result.other_participant_email,
+            other_participant_name=result.other_participant_name,
         )
 
 

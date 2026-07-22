@@ -251,16 +251,74 @@ Validated, and shown everywhere email/UUID currently leaks through.
   same session-scoped Postgres test fixture every other module's tests
   already depend on runs `alembic upgrade head` before any test in the
   suite executes).
-- [ ] **Stage 2 — Propagate into read models**: a shared resolution rule
-      — dietitian's `first_name + last_name` (if both set) →
-      `display_name` (if set) → email (fallback) — applied everywhere a
-      person's identity is currently surfaced via email/UUID: messaging
-      thread `other_participant_email`-equivalent, review responses
-      (resolving `reviewer_id`), marketplace dietitian listing/profile,
-      chat.
-  - Exit criteria: each of those API responses carries the resolved
-    name (per the fallback order above) alongside/instead of the raw
-    identifier, per endpoint.
+- **Stage 2 — Propagate into read models — DONE**: `User.resolved_display_name`
+  (a new property: `display_name` if set, else `email`) is the two-step
+  fallback every user gets. A new `resolve_dietitian_name(profile, user)`
+  function (`backend/modules/dietitian/application/services/`) adds the
+  higher-priority third step — a dietitian's real `first_name +
+  last_name`, only when *both* are set — and is genuinely shared, not
+  duplicated: `messaging`'s `ListMyDietitianThreadsUseCase` imports it
+  directly from `dietitian` (the same "reuse the other module's
+  already-exported unit directly" pattern this project has used since
+  Etap 5), rather than reimplementing the three-step chain a second
+  time.
+
+  Applied everywhere: **messaging** — `DietitianThreadResult`/
+  `DietitianThreadResponse`'s `other_participant_email` field renamed to
+  `other_participant_name` (it can now hold a name, not just an email —
+  keeping the old name would've been misleading); `ListMyDietitianThreadsUseCase`
+  now takes a `DietitianProfileRepository` too, and branches on
+  `other_id == thread.dietitian_id` (the thread entity already records
+  which side is which — no extra role check needed) to decide whether
+  the three-step or two-step chain applies. **Marketplace** —
+  `DietitianListingItemResult`/`PublicDietitianProfileResult`'s `email`
+  field renamed to `name`, resolved via `resolve_dietitian_name`.
+  **Reviews** — the real target of the user's own "reviews are
+  anonymous" complaint turned out to be `PublicReviewResult` (the
+  marketplace-embedded reviews list), which a Phase 12 comment
+  explicitly said "deliberately omits the reviewer's identity" — now
+  reversed: both `PublicReviewResult`/`PublicReviewResponse` (public
+  profile) and `ReviewResult`/`ReviewResponse` (the submit-review
+  response) gained a `reviewer_name` field (plain two-step resolution —
+  a reviewer is never given dietitian-priority treatment even if they
+  happen to also hold `DIET_USER` elsewhere; reviewing isn't a
+  dietitian-professional context). `reviewer_id`'s `ON DELETE CASCADE`
+  FK means a review can never outlive its reviewer, so the new lookup in
+  `GetPublicDietitianProfileUseCase`/`SubmitReviewUseCase` never needs a
+  None-guard.
+
+  Fixing the existing test suite for these renames touched 7 files
+  across `messaging`/`dietitian` (constructor signatures, renamed
+  fields, and two use-case tests whose fake `reviewer_id`/`buyer_id`
+  values had never actually been registered as real users in the fake
+  repo — harmless before this stage, since nothing resolved them; now
+  required, since resolution needs a real `User` to look up). Added a
+  dedicated `test_resolve_dietitian_name.py` for the shared three-step
+  chain's own accept/reject priority order, plus targeted tests in each
+  consuming use case confirming the fallback is actually reached
+  end-to-end, not just correct in isolation.
+
+  Exit criteria met: full backend suite **601 passed, 0 failed**
+  (verified via `--collect-only`) — 9 new tests this stage:
+  `test_resolve_dietitian_name.py` (4), `User.resolved_display_name`
+  coverage in `test_user_entity.py` (2), `ListMyDietitianThreadsUseCase`
+  priority-order coverage (2 net new after consolidating the renamed
+  originals), `ListDietitiansUseCase` real-name coverage (1). Run in
+  full since this stage touches the shared `User` entity and a new
+  cross-module dependency direction (messaging → dietitian).
+
+  Live-verified against the real Docker stack: registered a buyer and a
+  dietitian, set the dietitian's `first_name`/`last_name` and the
+  buyer's `display_name` directly via SQL (no write endpoint exists for
+  either yet — that's Stage 3's own job), then confirmed via `curl`:
+  `GET /dietitian` (marketplace listing) returns `"name": "Jan
+  Kowalski"` for the dietitian; after the buyer submitted a review,
+  `GET /dietitian/{id}`'s embedded review shows `"reviewer_name":
+  "BuyerNick"` (no longer anonymous); `GET /messaging/threads` called by
+  each side of a real thread shows the *other* side's correctly
+  resolved name — the dietitian's real name from the buyer's call, the
+  buyer's `display_name` from the dietitian's call. `docker compose
+  down` after.
 - [ ] **Stage 3 — Frontend: set/edit + display everywhere**: a
       `display_name` field in the profile UI for every account; an
       additional, clearly-optional first-name/last-name field pair in

@@ -37,4 +37,12 @@ class SubmitReviewUseCase:
             )
 
         await self._review_repository.save(review)
-        return ReviewResult.from_domain(review)
+
+        # The reviewer is always the current caller (never re-checked
+        # against role/status here — get_current_user already covers
+        # that upstream); a plain display_name-then-email resolution, not
+        # the dietitian-priority one, even if this reviewer happens to
+        # also be a DIET_USER themselves — reviewing isn't a
+        # dietitian-professional context.
+        reviewer = await self._user_repository.get_by_id(command.reviewer_id)
+        return ReviewResult.from_domain(review, reviewer.resolved_display_name)

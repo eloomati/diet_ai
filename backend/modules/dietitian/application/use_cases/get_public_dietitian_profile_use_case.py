@@ -39,7 +39,13 @@ class GetPublicDietitianProfileUseCase:
             dietitian_id
         )
         reviews = await self._review_repository.list_by_dietitian_id(dietitian_id)
-        public_reviews = tuple(PublicReviewResult.from_domain(review) for review in reviews)
+        # reviewer_id is ON DELETE CASCADE — a review can't outlive its
+        # reviewer, so this lookup is never None for an existing review.
+        public_reviews = []
+        for review in reviews:
+            reviewer = await self._user_repository.get_by_id(review.reviewer_id)
+            public_reviews.append(PublicReviewResult.from_domain(review, reviewer.resolved_display_name))
+        public_reviews = tuple(public_reviews)
 
         return PublicDietitianProfileResult.from_domain(
             profile, user, average_rating, review_count, public_reviews

@@ -81,6 +81,17 @@ class User:
         self.display_name = display_name
         self.updated_at = datetime.now(UTC)
 
+    @property
+    def resolved_display_name(self) -> str:
+        """Whatever identifies this user to other people, in priority
+        order — the `display_name` they set, falling back to `email`.
+        Dietitians additionally get an even-higher-priority real name
+        (`DietitianProfile.first_name`/`last_name`) — that combination
+        lives in the dietitian module, which already knows both this
+        entity and the profile; this property only ever expresses the
+        two-step fallback every user gets regardless of role."""
+        return self.display_name.value if self.display_name else self.email.value
+
     def mark_email_verified(self) -> None:
         self.email_verified = True
         self.updated_at = datetime.now(UTC)

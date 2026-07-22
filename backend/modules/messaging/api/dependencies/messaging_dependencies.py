@@ -1,6 +1,10 @@
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from backend.modules.dietitian.api.dependencies import get_dietitian_profile_repository
+from backend.modules.dietitian.domain.repositories.dietitian_profile_repository import (
+    DietitianProfileRepository,
+)
 from backend.modules.identity.domain.repositories.user_repository import UserRepository
 from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
@@ -57,8 +61,13 @@ def get_user_repository_for_messaging(
 def get_list_my_dietitian_threads_use_case(
     thread_repository: DietitianThreadRepository = Depends(get_dietitian_thread_repository),
     user_repository: UserRepository = Depends(get_user_repository_for_messaging),
+    dietitian_profile_repository: DietitianProfileRepository = Depends(
+        get_dietitian_profile_repository
+    ),
 ) -> ListMyDietitianThreadsUseCase:
-    return ListMyDietitianThreadsUseCase(thread_repository, user_repository)
+    return ListMyDietitianThreadsUseCase(
+        thread_repository, user_repository, dietitian_profile_repository
+    )
 
 
 def get_list_thread_messages_use_case(

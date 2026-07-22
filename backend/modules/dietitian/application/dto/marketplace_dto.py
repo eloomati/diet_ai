@@ -3,6 +3,9 @@ from datetime import datetime
 from uuid import UUID
 
 from backend.modules.dietitian.application.dto.review_dto import PublicReviewResult
+from backend.modules.dietitian.application.services.resolve_dietitian_name import (
+    resolve_dietitian_name,
+)
 from backend.modules.dietitian.domain.entities.dietitian_profile import DietitianProfile
 from backend.modules.identity.domain.entities.user import User
 
@@ -10,7 +13,7 @@ from backend.modules.identity.domain.entities.user import User
 @dataclass(frozen=True, slots=True)
 class DietitianListingItemResult:
     user_id: UUID
-    email: str
+    name: str
     experience: str
     description: str
     photos: tuple[str, ...]
@@ -27,7 +30,7 @@ class DietitianListingItemResult:
     ) -> "DietitianListingItemResult":
         return cls(
             user_id=profile.user_id,
-            email=user.email.value,
+            name=resolve_dietitian_name(profile, user),
             experience=profile.experience,
             description=profile.description,
             photos=profile.photos,
@@ -39,7 +42,7 @@ class DietitianListingItemResult:
 @dataclass(frozen=True, slots=True)
 class PublicDietitianProfileResult:
     user_id: UUID
-    email: str
+    name: str
     experience: str
     diplomas: tuple[str, ...]
     description: str
@@ -60,7 +63,7 @@ class PublicDietitianProfileResult:
     ) -> "PublicDietitianProfileResult":
         return cls(
             user_id=profile.user_id,
-            email=user.email.value,
+            name=resolve_dietitian_name(profile, user),
             experience=profile.experience,
             diplomas=profile.diplomas,
             description=profile.description,

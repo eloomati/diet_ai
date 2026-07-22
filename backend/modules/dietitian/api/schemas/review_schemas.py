@@ -14,6 +14,7 @@ class SubmitReviewRequest(BaseModel):
 class ReviewResponse(BaseModel):
     id: UUID
     reviewer_id: UUID
+    reviewer_name: str
     dietitian_id: UUID
     rating: int
     comment: str
@@ -25,6 +26,7 @@ class ReviewResponse(BaseModel):
         return cls(
             id=result.id,
             reviewer_id=result.reviewer_id,
+            reviewer_name=result.reviewer_name,
             dietitian_id=result.dietitian_id,
             rating=result.rating,
             comment=result.comment,
