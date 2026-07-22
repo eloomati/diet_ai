@@ -177,4 +177,53 @@ describe('ProfilTab', () => {
 
     await waitFor(() => expect(screen.queryByText(/Zalogowano jako/)).not.toBeInTheDocument())
   })
+
+  it('saves a display name via PATCH /auth/me and reflects it after refresh', async () => {
+    const user = userEvent.setup()
+    let displayName: string | null = null
+    const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
+      if (url.includes('/auth/me') && options?.method === 'PATCH') {
+        displayName = JSON.parse(options.body as string).display_name
+        return Promise.resolve(
+          jsonResponse(200, {
+            user_id: 'u1',
+            email: 'user@example.com',
+            status: 'ACTIVE',
+            email_verified: true,
+            display_name: displayName,
+          }),
+        )
+      }
+      if (url.includes('/auth/me')) {
+        return Promise.resolve(
+          jsonResponse(200, {
+            user_id: 'u1',
+            email: 'user@example.com',
+            status: 'ACTIVE',
+            email_verified: true,
+            display_name: displayName,
+          }),
+        )
+      }
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      if (url.includes('/profile')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile yet' }))
+      }
+      if (url.includes('/dietitian/applications')) {
+        return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no application yet' }))
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderLoggedIn()
+    await screen.findByText('Adres e-mail zweryfikowany ✓')
+
+    await user.type(screen.getByLabelText('Widoczna zamiast adresu e-mail (opcjonalnie)'), 'Jan Kowalski')
+    await user.click(screen.getByRole('button', { name: 'Zapisz' }))
+
+    await waitFor(() => expect(displayName).toBe('Jan Kowalski'))
+  })
 })

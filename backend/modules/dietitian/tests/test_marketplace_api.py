@@ -42,9 +42,11 @@ def test_get_public_profile_is_public_and_includes_reviews(client: TestClient) -
     assert body["experience"] == "12 years"
     assert body["average_rating"] == 7.0
     assert body["review_count"] == 1
-    assert body["reviews"] == [
-        {"rating": 7, "comment": "Solid guidance.", "created_at": body["reviews"][0]["created_at"]}
-    ]
+    assert len(body["reviews"]) == 1
+    assert body["reviews"][0]["rating"] == 7
+    assert body["reviews"][0]["comment"] == "Solid guidance."
+    # No display_name set yet — resolves to the reviewer's email.
+    assert "@" in body["reviews"][0]["reviewer_name"]
     assert "reviewer_id" not in body["reviews"][0]
 
 

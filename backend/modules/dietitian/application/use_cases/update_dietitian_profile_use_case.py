@@ -23,6 +23,8 @@ class UpdateDietitianProfileUseCase:
             experience=command.experience,
             diplomas=command.diplomas,
             description=command.description,
+            first_name=command.first_name,
+            last_name=command.last_name,
         )
         await self._repository.save(profile)
 

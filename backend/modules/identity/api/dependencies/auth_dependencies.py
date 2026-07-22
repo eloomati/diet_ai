@@ -10,6 +10,7 @@ from backend.modules.identity.application import (
     RefreshAccessTokenUseCase,
     RegisterUserUseCase,
     RequestPasswordResetUseCase,
+    UpdateDisplayNameUseCase,
 )
 from backend.modules.identity.application.ports.captcha_verifier import CaptchaVerifier
 from backend.modules.identity.application.ports.email_sender import EmailSender
@@ -151,3 +152,10 @@ def get_change_user_role_use_case(
 ) -> ChangeUserRoleUseCase:
     user_repo = SqlAlchemyUserRepository(session)
     return ChangeUserRoleUseCase(user_repo)
+
+
+def get_update_display_name_use_case(
+    session: AsyncSession = Depends(get_db_session),
+) -> UpdateDisplayNameUseCase:
+    user_repo = SqlAlchemyUserRepository(session)
+    return UpdateDisplayNameUseCase(user_repo)

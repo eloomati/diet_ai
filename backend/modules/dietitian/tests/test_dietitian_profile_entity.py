@@ -91,3 +91,52 @@ def test_remove_photo_rejects_an_out_of_range_index() -> None:
 
     with pytest.raises(InvalidDietitianProfileError):
         profile.remove_photo(-1)
+
+
+def test_create_leaves_first_and_last_name_unset_by_default() -> None:
+    profile = _create()
+
+    assert profile.first_name is None
+    assert profile.last_name is None
+
+
+def test_create_accepts_an_optional_first_and_last_name() -> None:
+    profile = _create(first_name="Jan", last_name="Kowalski")
+
+    assert profile.first_name == "Jan"
+    assert profile.last_name == "Kowalski"
+
+
+def test_create_rejects_a_first_name_with_special_characters() -> None:
+    with pytest.raises(InvalidDietitianProfileError):
+        _create(first_name="Jan; DROP TABLE users;")
+
+
+def test_create_rejects_a_last_name_with_special_characters() -> None:
+    with pytest.raises(InvalidDietitianProfileError):
+        _create(last_name="Kowalski<script>")
+
+
+def test_update_details_sets_first_and_last_name() -> None:
+    profile = _create()
+
+    profile.update_details(first_name="Jan", last_name="Kowalski")
+
+    assert profile.first_name == "Jan"
+    assert profile.last_name == "Kowalski"
+
+
+def test_update_details_leaves_names_unchanged_when_not_given() -> None:
+    profile = _create(first_name="Jan", last_name="Kowalski")
+
+    profile.update_details(description="Updated description.")
+
+    assert profile.first_name == "Jan"
+    assert profile.last_name == "Kowalski"
+
+
+def test_update_details_rejects_an_invalid_first_name() -> None:
+    profile = _create()
+
+    with pytest.raises(InvalidDietitianProfileError):
+        profile.update_details(first_name="Jan  Kowalski")

@@ -52,9 +52,31 @@ async def test_list_dietitians_includes_active_dietitians_with_rating_summary() 
 
     assert len(results) == 1
     assert results[0].user_id == dietitian.id
-    assert results[0].email == "listed@example.com"
+    assert results[0].name == "listed@example.com"
     assert results[0].average_rating == 8.0
     assert results[0].review_count == 1
+
+
+@pytest.mark.asyncio
+async def test_list_dietitians_prefers_the_dietitians_real_name() -> None:
+    user_repo = InMemoryUserRepository()
+    profile_repo = InMemoryDietitianProfileRepository()
+    review_repo = InMemoryReviewRepository()
+    dietitian = await _make_dietitian(user_repo, "named@example.com")
+    profile = DietitianProfile.create(
+        user_id=dietitian.id,
+        experience="5 years",
+        diplomas=(),
+        description="Description.",
+        first_name="Jan",
+        last_name="Kowalski",
+    )
+    await profile_repo.save(profile)
+    use_case = ListDietitiansUseCase(profile_repo, user_repo, review_repo)
+
+    results = await use_case.execute()
+
+    assert results[0].name == "Jan Kowalski"
 
 
 @pytest.mark.asyncio

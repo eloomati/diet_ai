@@ -30,24 +30,31 @@ async def _make_dietitian(user_repo: InMemoryUserRepository, email: str) -> User
     return dietitian
 
 
+async def _make_reviewer(user_repo: InMemoryUserRepository, email: str) -> User:
+    reviewer = User.create(email=Email(email), password_hash=_password_hash())
+    await user_repo.save(reviewer)
+    return reviewer
+
+
 @pytest.mark.asyncio
 async def test_submit_review_creates_a_new_review() -> None:
     user_repo = InMemoryUserRepository()
     review_repo = InMemoryReviewRepository()
     dietitian = await _make_dietitian(user_repo, "dietitian1@example.com")
+    reviewer = await _make_reviewer(user_repo, "reviewer1@example.com")
     use_case = SubmitReviewUseCase(review_repo, user_repo)
-    reviewer_id = uuid4()
 
     result = await use_case.execute(
         SubmitReviewCommand(
-            reviewer_id=reviewer_id, dietitian_id=dietitian.id, rating=9, comment="Very helpful."
+            reviewer_id=reviewer.id, dietitian_id=dietitian.id, rating=9, comment="Very helpful."
         )
     )
 
     assert result.rating == 9
     assert result.comment == "Very helpful."
     assert result.dietitian_id == dietitian.id
-    assert result.reviewer_id == reviewer_id
+    assert result.reviewer_id == reviewer.id
+    assert result.reviewer_name == "reviewer1@example.com"
 
 
 @pytest.mark.asyncio
@@ -55,8 +62,9 @@ async def test_submit_review_updates_an_existing_review_for_the_same_pair() -> N
     user_repo = InMemoryUserRepository()
     review_repo = InMemoryReviewRepository()
     dietitian = await _make_dietitian(user_repo, "dietitian2@example.com")
+    reviewer = await _make_reviewer(user_repo, "reviewer2@example.com")
     use_case = SubmitReviewUseCase(review_repo, user_repo)
-    reviewer_id = uuid4()
+    reviewer_id = reviewer.id
     await use_case.execute(
         SubmitReviewCommand(
             reviewer_id=reviewer_id, dietitian_id=dietitian.id, rating=5, comment="It was okay."

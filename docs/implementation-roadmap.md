@@ -26,7 +26,9 @@ Phase 13    - Quality, Security &           IN PROGRESS —
               Personalization                Etap 0 (Security & session
                                                 hardening): DONE
                                               Etap 1 (User display
-                                                names): not started
+                                                names): IN PROGRESS
+                                                (Stage 1-3 done, Stage
+                                                4-5 remaining)
                                               Etap 2 (Chat & diet-plan
                                                 UX polish): not started
                                               Etap 3 (Multi-plan
@@ -443,35 +445,191 @@ Goal: everyone can set their own display name; dietitians additionally
 have the option to display their real first + last name instead.
 Validated, and shown everywhere email/UUID currently leaks through.
 
-- [ ] **Stage 1 — `display_name` domain field + dietitian
-      `first_name`/`last_name`**: `display_name` added to `User`
-      (nullable — falls back to email wherever currently shown, until
-      set); `first_name`/`last_name` added to `DietitianProfile` (both
-      nullable, optional, independent of `display_name`). One shared
-      value-object validator (Polish-letters/digits/single-spaces-only)
-      reused across all three fields; new migration(s) for both tables.
-  - Exit criteria: domain-level tests cover the validator's accept/reject
-    cases for all three fields; migrations apply cleanly.
-- [ ] **Stage 2 — Propagate into read models**: a shared resolution rule
-      — dietitian's `first_name + last_name` (if both set) →
-      `display_name` (if set) → email (fallback) — applied everywhere a
-      person's identity is currently surfaced via email/UUID: messaging
-      thread `other_participant_email`-equivalent, review responses
-      (resolving `reviewer_id`), marketplace dietitian listing/profile,
-      chat.
-  - Exit criteria: each of those API responses carries the resolved
-    name (per the fallback order above) alongside/instead of the raw
-    identifier, per endpoint.
-- [ ] **Stage 3 — Frontend: set/edit + display everywhere**: a
+- **Stage 1 — `display_name` domain field + dietitian
+  `first_name`/`last_name` — DONE**: a genuinely new architectural
+  precedent for this codebase, per `docs/architecture.md`'s own "Shared
+  Kernel" rule (a module may depend on `shared/`, `shared/` never
+  depends on a module) — `backend/shared/validation/human_name.py` is a
+  **pure, dependency-free** function, `is_valid_human_name(value) ->
+  bool` (letters incl. Polish diacritics + digits, single spaces between
+  "words," no leading/trailing/double spaces, max 50 chars); it raises
+  nothing itself, so it can live in the Shared Kernel without creating a
+  shared-depends-on-module dependency, exactly like `PasswordPolicy`
+  *couldn't* (it raises identity's own `InvalidPasswordError` directly,
+  so it stays in identity).
+
+  Each module calls the shared function but raises its **own** domain
+  exception, matching each module's own pre-existing convention rather
+  than inventing a new shared one: identity gets a new `DisplayName`
+  value object (`domain/value_objects/display_name.py`, frozen dataclass,
+  identical shape to `Email` — strip, validate, `object.__setattr__`),
+  raising a new `InvalidDisplayNameError`; `User` gains a nullable
+  `display_name: DisplayName | None` field and a `set_display_name()`
+  mutator (no domain event — matches `deactivate()`/`block()`/`activate()`'s
+  precedent for a state change nothing else needs to react to, not
+  `change_password()`/`change_role()`'s). Dietitian keeps its own
+  pre-existing convention too — `experience`/`description` are plain
+  `str`, not value-object-wrapped — so `first_name`/`last_name` on
+  `DietitianProfile` are plain `str | None`, validated inline in the
+  entity's existing `_validate()` (only when not `None`, since both are
+  optional), raising the existing `InvalidDietitianProfileError`. Both
+  entities' migrations, models, and mappers updated
+  (`20260722_13_display_names.py`; `users.display_name`,
+  `dietitian_profiles.first_name`/`last_name`, all nullable
+  `String(50)`).
+
+  Exit criteria met: 31 new tests — `backend/tests/test_human_name_validator.py`
+  (the shared function's own accept/reject cases, incl. SQL-injection
+  and script-tag strings, both rejected by the character-class alone,
+  confirming no separate "SQL injection defense" mechanism was needed
+  beyond the same character-set rule); `User.set_display_name()` +
+  `DisplayName` VO tests in `test_user_entity.py`;
+  `DietitianProfile` `first_name`/`last_name` tests (via both `create()`
+  and `update_details()`) in `test_dietitian_profile_entity.py`. Full
+  backend suite run (a new Shared Kernel package plus changes to two
+  widely-used entities is exactly the "shared/cross-cutting" case this
+  project's own test-scope rule calls for a full run on): **605 passed,
+  0 failed** (double-checked via `--collect-only`), up from 574 at the
+  end of Etap 0 — confirming the new migration applies cleanly (the
+  same session-scoped Postgres test fixture every other module's tests
+  already depend on runs `alembic upgrade head` before any test in the
+  suite executes).
+- **Stage 2 — Propagate into read models — DONE**: `User.resolved_display_name`
+  (a new property: `display_name` if set, else `email`) is the two-step
+  fallback every user gets. A new `resolve_dietitian_name(profile, user)`
+  function (`backend/modules/dietitian/application/services/`) adds the
+  higher-priority third step — a dietitian's real `first_name +
+  last_name`, only when *both* are set — and is genuinely shared, not
+  duplicated: `messaging`'s `ListMyDietitianThreadsUseCase` imports it
+  directly from `dietitian` (the same "reuse the other module's
+  already-exported unit directly" pattern this project has used since
+  Etap 5), rather than reimplementing the three-step chain a second
+  time.
+
+  Applied everywhere: **messaging** — `DietitianThreadResult`/
+  `DietitianThreadResponse`'s `other_participant_email` field renamed to
+  `other_participant_name` (it can now hold a name, not just an email —
+  keeping the old name would've been misleading); `ListMyDietitianThreadsUseCase`
+  now takes a `DietitianProfileRepository` too, and branches on
+  `other_id == thread.dietitian_id` (the thread entity already records
+  which side is which — no extra role check needed) to decide whether
+  the three-step or two-step chain applies. **Marketplace** —
+  `DietitianListingItemResult`/`PublicDietitianProfileResult`'s `email`
+  field renamed to `name`, resolved via `resolve_dietitian_name`.
+  **Reviews** — the real target of the user's own "reviews are
+  anonymous" complaint turned out to be `PublicReviewResult` (the
+  marketplace-embedded reviews list), which a Phase 12 comment
+  explicitly said "deliberately omits the reviewer's identity" — now
+  reversed: both `PublicReviewResult`/`PublicReviewResponse` (public
+  profile) and `ReviewResult`/`ReviewResponse` (the submit-review
+  response) gained a `reviewer_name` field (plain two-step resolution —
+  a reviewer is never given dietitian-priority treatment even if they
+  happen to also hold `DIET_USER` elsewhere; reviewing isn't a
+  dietitian-professional context). `reviewer_id`'s `ON DELETE CASCADE`
+  FK means a review can never outlive its reviewer, so the new lookup in
+  `GetPublicDietitianProfileUseCase`/`SubmitReviewUseCase` never needs a
+  None-guard.
+
+  Fixing the existing test suite for these renames touched 7 files
+  across `messaging`/`dietitian` (constructor signatures, renamed
+  fields, and two use-case tests whose fake `reviewer_id`/`buyer_id`
+  values had never actually been registered as real users in the fake
+  repo — harmless before this stage, since nothing resolved them; now
+  required, since resolution needs a real `User` to look up). Added a
+  dedicated `test_resolve_dietitian_name.py` for the shared three-step
+  chain's own accept/reject priority order, plus targeted tests in each
+  consuming use case confirming the fallback is actually reached
+  end-to-end, not just correct in isolation.
+
+  Exit criteria met: full backend suite **601 passed, 0 failed**
+  (verified via `--collect-only`) — 9 new tests this stage:
+  `test_resolve_dietitian_name.py` (4), `User.resolved_display_name`
+  coverage in `test_user_entity.py` (2), `ListMyDietitianThreadsUseCase`
+  priority-order coverage (2 net new after consolidating the renamed
+  originals), `ListDietitiansUseCase` real-name coverage (1). Run in
+  full since this stage touches the shared `User` entity and a new
+  cross-module dependency direction (messaging → dietitian).
+
+  Live-verified against the real Docker stack: registered a buyer and a
+  dietitian, set the dietitian's `first_name`/`last_name` and the
+  buyer's `display_name` directly via SQL (no write endpoint exists for
+  either yet — that's Stage 3's own job), then confirmed via `curl`:
+  `GET /dietitian` (marketplace listing) returns `"name": "Jan
+  Kowalski"` for the dietitian; after the buyer submitted a review,
+  `GET /dietitian/{id}`'s embedded review shows `"reviewer_name":
+  "BuyerNick"` (no longer anonymous); `GET /messaging/threads` called by
+  each side of a real thread shows the *other* side's correctly
+  resolved name — the dietitian's real name from the buyer's call, the
+  buyer's `display_name` from the dietitian's call. `docker compose
+  down` after.
+Design decisions settled right before building Stage 3 (a real backend
+gap Stage 2 didn't cover — it only touched read models):
+
+- **A new `PATCH /auth/me` endpoint** lets any user set/clear their own
+  `display_name` — no such self-service endpoint existed at all before
+  now (only registration/login/password-reset touch `User`). Request:
+  `{ display_name: string | null }`; response: the same `MeResponse`
+  shape `GET /auth/me` already returns, now including `display_name`.
+- **`PUT /dietitian/profile` gains optional `first_name`/`last_name`** —
+  `UpdateDietitianProfileCommand`/`DietitianProfile.update_details()`
+  already supported them since Stage 1; this stage only wires the
+  request/response schemas through, same optional-field shape as the
+  existing `experience`/`diplomas`/`description`.
+- **Frontend field renames match Stage 2's backend renames exactly** —
+  `other_participant_email` → `other_participant_name` (messaging),
+  `email` → `name` (dietitian listing/public profile) — updated in one
+  pass across API client types and every component reading them, not
+  left mismatched until something broke at runtime.
+
+- [x] **Stage 3 — Frontend: set/edit + display everywhere — DONE**: a
       `display_name` field in the profile UI for every account; an
       additional, clearly-optional first-name/last-name field pair in
       the dietitian profile editor. Every place in the UI currently
       showing an email or UUID (chat bubbles, messaging thread cards,
       review cards, marketplace dietitian cards) switches to showing the
       resolved name.
-  - Exit criteria: live-verified across chat, messaging, reviews, and
-    marketplace views — including a dietitian who has set a real name
-    showing that instead of their `display_name`/email.
+
+  New backend surfaces: `PATCH /auth/me` (`UpdateMeRequest` /
+  `UpdateDisplayNameUseCase`, `ErrorCode.INVALID_DISPLAY_NAME` on
+  invalid input) and `PUT /dietitian/profile` extended with optional
+  `first_name`/`last_name` (domain support already existed since
+  Stage 1 — this stage only wired the request/response schemas
+  through). Frontend: `updateMe()` in `api/auth.ts`,
+  `MeResponse.display_name`; `DietitianProfile.first_name/last_name` +
+  `UpdateDietitianProfileRequest` in `api/dietitian.ts`; field renames
+  matching Stage 2's backend renames (`other_participant_email` →
+  `other_participant_name`, `email` → `name`, `PublicReview` gains
+  `reviewer_name`) applied across `RightRail.tsx`,
+  `DietitianProfileModal.tsx`, `HumanChatCanvas.tsx`. New UI: a
+  "Nazwa wyświetlana" field + save action in `ProfilTab.tsx`; optional
+  imię/nazwisko inputs in `DietitianProfileTab.tsx`'s own form.
+
+  **Bug found and fixed while wiring the real write path**:
+  `SqlAlchemyUserRepository.save()`'s update branch (the one taken
+  whenever a row already exists) manually copied individual fields from
+  the domain entity onto the tracked SQLAlchemy row instead of using
+  the mapper, and that field list had silently gone stale — it never
+  included `display_name` at all. `UpdateDisplayNameUseCase` always
+  hits this exact branch (it loads an existing user via `get_by_id`,
+  mutates, then saves), so every `PATCH /auth/me` call was appearing to
+  succeed (the response serializes the in-memory mutated entity) while
+  the database row's `display_name` silently stayed `NULL` — the very
+  next `GET /auth/me` would show it gone. Fixed by adding the missing
+  `existing.display_name = ...` line; this class of bug (a manual
+  field-copy list quietly drifting from the mapper it duplicates) is
+  worth keeping in mind for any future field added to `User`. Caught by
+  the new `PATCH /auth/me` test asserting a follow-up `GET` reflects
+  the change — exactly the kind of gap unit tests of the use case alone
+  (which only assert against the in-memory returned entity) can't see.
+
+  Exit criteria met: automated tests only this stage (per the tightened
+  test-scope rule — thorough live-Docker verification deferred to
+  Stage 5's closing pass). Full backend suite **609 passed**; full
+  frontend suite **138 passed**, including new coverage for
+  `PATCH /auth/me` (set/clear/invalid/unauthenticated), the extended
+  `PUT /dietitian/profile` (first/last name set + validation, both at
+  the use-case and router level), and the new `ProfilTab`/
+  `DietitianProfileTab` UI.
 - [ ] **Stage 4 — Registration form**: adds a confirm-password field
       (client-side match validation before submit); optionally prompts
       for a display name at registration (design decision to confirm at

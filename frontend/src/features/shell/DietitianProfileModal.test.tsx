@@ -51,7 +51,7 @@ function renderModal(
 
 const FULL_PROFILE = {
   user_id: 'd1',
-  email: 'dietitian@example.com',
+  name: 'Anna Nowak',
   experience: '10 lat doświadczenia klinicznego',
   diplomas: ['MSc Dietetics', 'PhD Nutrition'],
   description: 'Pomagam bezpiecznie zmienić nawyki żywieniowe.',
@@ -60,8 +60,8 @@ const FULL_PROFILE = {
   average_rating: 8.5,
   review_count: 2,
   reviews: [
-    { rating: 9, comment: 'Świetne podejście.', created_at: '2026-07-19T00:00:00Z' },
-    { rating: 8, comment: 'Bardzo pomocne.', created_at: '2026-07-18T00:00:00Z' },
+    { rating: 9, comment: 'Świetne podejście.', created_at: '2026-07-19T00:00:00Z', reviewer_name: 'Marek Buyer' },
+    { rating: 8, comment: 'Bardzo pomocne.', created_at: '2026-07-18T00:00:00Z', reviewer_name: 'Ola Klient' },
   ],
 }
 
@@ -96,7 +96,7 @@ describe('DietitianProfileModal (Etap 4 Stage 3/4)', () => {
 
     renderModal('d1')
 
-    expect(await screen.findByText('dietitian@example.com')).toBeInTheDocument()
+    expect(await screen.findByText('Anna Nowak')).toBeInTheDocument()
     expect(screen.getByText('10 lat doświadczenia klinicznego')).toBeInTheDocument()
     expect(screen.getByText('MSc Dietetics')).toBeInTheDocument()
     expect(screen.getByText('PhD Nutrition')).toBeInTheDocument()
@@ -112,6 +112,8 @@ describe('DietitianProfileModal (Etap 4 Stage 3/4)', () => {
 
     expect(screen.getByText('Świetne podejście.')).toBeInTheDocument()
     expect(screen.getByText('Bardzo pomocne.')).toBeInTheDocument()
+    expect(screen.getByText('Marek Buyer')).toBeInTheDocument()
+    expect(screen.getByText('Ola Klient')).toBeInTheDocument()
   })
 
   it('shows "Brak ocen" and "Brak opinii." when there are no reviews yet', async () => {

@@ -10,6 +10,7 @@ from .events import EmailVerified, PasswordChanged, UserLoggedIn, UserRegistered
 from .exceptions import (
     IdentityDomainError,
     InactiveUserAuthenticationError,
+    InvalidDisplayNameError,
     InvalidEmailError,
     InvalidEmailVerificationTokenError,
     InvalidPasswordError,
@@ -24,7 +25,7 @@ from .repositories import (
     UserRepository,
 )
 from .services import PasswordPolicy
-from .value_objects import Email, PasswordHash, Role, UserStatus
+from .value_objects import DisplayName, Email, PasswordHash, Role, UserStatus
 
 __all__ = [
     "User",
@@ -34,6 +35,7 @@ __all__ = [
     "EmailLog",
     "EmailDeliveryStatus",
     "Email",
+    "DisplayName",
     "PasswordHash",
     "Role",
     "UserStatus",
@@ -49,6 +51,7 @@ __all__ = [
     "PasswordPolicy",
     "IdentityDomainError",
     "InvalidEmailError",
+    "InvalidDisplayNameError",
     "InvalidPasswordError",
     "InvalidPasswordHashError",
     "InactiveUserAuthenticationError",

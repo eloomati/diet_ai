@@ -59,7 +59,7 @@ function renderRightRail({ loggedIn = false }: { loggedIn?: boolean } = {}) {
 
 const DIETITIAN_A = {
   user_id: 'd1',
-  email: 'dietitian.a@example.com',
+  name: 'Dietitian A',
   experience: '5 lat doświadczenia jako dietetyk kliniczny',
   description: 'Opis.',
   photos: [],
@@ -69,7 +69,7 @@ const DIETITIAN_A = {
 
 const DIETITIAN_B = {
   user_id: 'd2',
-  email: 'dietitian.b@example.com',
+  name: 'Dietitian B',
   experience: '2 lata',
   description: 'Opis.',
   photos: [],
@@ -104,8 +104,8 @@ describe('RightRail marketplace listing (Etap 4 Stage 2)', () => {
 
     renderRightRail()
 
-    expect(await screen.findByText('dietitian.a@example.com')).toBeInTheDocument()
-    expect(screen.getByText('dietitian.b@example.com')).toBeInTheDocument()
+    expect(await screen.findByText('Dietitian A')).toBeInTheDocument()
+    expect(screen.getByText('Dietitian B')).toBeInTheDocument()
     expect(screen.getByText('8.5')).toBeInTheDocument()
     expect(screen.getByText('(4)')).toBeInTheDocument()
     expect(screen.getByText('Brak ocen')).toBeInTheDocument()
@@ -160,8 +160,8 @@ describe('RightRail marketplace listing (Etap 4 Stage 2)', () => {
     expect(await screen.findByText('Twoi dietetycy')).toBeInTheDocument()
     const pinnedHeading = screen.getByText('Twoi dietetycy')
     const pinnedSection = pinnedHeading.parentElement!
-    expect(pinnedSection).toHaveTextContent('dietitian.b@example.com')
-    expect(pinnedSection).not.toHaveTextContent('dietitian.a@example.com')
+    expect(pinnedSection).toHaveTextContent('Dietitian B')
+    expect(pinnedSection).not.toHaveTextContent('Dietitian A')
     expect(screen.getByText('Wszyscy dietetycy')).toBeInTheDocument()
   })
 
@@ -177,7 +177,7 @@ describe('RightRail marketplace listing (Etap 4 Stage 2)', () => {
           return Promise.resolve(
             jsonResponse(200, {
               user_id: 'd1',
-              email: 'dietitian.a@example.com',
+              name: 'Dietitian A',
               experience: DIETITIAN_A.experience,
               diplomas: ['MSc Dietetics'],
               description: 'Pełny opis dietetyka A.',
@@ -194,7 +194,7 @@ describe('RightRail marketplace listing (Etap 4 Stage 2)', () => {
     )
 
     renderRightRail()
-    await user.click(await screen.findByText('dietitian.a@example.com'))
+    await user.click(await screen.findByText('Dietitian A'))
 
     expect(await screen.findByText('Pełny opis dietetyka A.')).toBeInTheDocument()
     expect(screen.getByText('MSc Dietetics')).toBeInTheDocument()
@@ -225,7 +225,7 @@ describe('RightRail marketplace listing (Etap 4 Stage 2)', () => {
               user_id: 'u1',
               dietitian_id: 'd1',
               created_at: '2026-07-22T00:00:00Z',
-              other_participant_email: 'dietitian.contact@example.com',
+              other_participant_name: 'dietitian.contact@example.com',
             },
           ]),
         )

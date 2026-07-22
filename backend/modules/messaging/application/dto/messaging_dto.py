@@ -22,19 +22,21 @@ class DietitianThreadResult:
     dietitian_id: UUID
     created_at: datetime
     # Resolved relative to whichever caller asked — "the other side of my
-    # conversation" — not a fixed field on the entity itself.
-    other_participant_email: str | None = None
+    # conversation" — not a fixed field on the entity itself. Named "name"
+    # rather than "email" since Phase 13: the resolved value is whichever
+    # of the other side's first+last name / display_name / email wins.
+    other_participant_name: str | None = None
 
     @classmethod
     def from_domain(
-        cls, thread: DietitianThread, other_participant_email: str | None = None
+        cls, thread: DietitianThread, other_participant_name: str | None = None
     ) -> "DietitianThreadResult":
         return cls(
             id=thread.id,
             user_id=thread.user_id,
             dietitian_id=thread.dietitian_id,
             created_at=thread.created_at,
-            other_participant_email=other_participant_email,
+            other_participant_name=other_participant_name,
         )
 
 

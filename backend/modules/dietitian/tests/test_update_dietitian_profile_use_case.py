@@ -64,3 +64,43 @@ async def test_update_profile_rejects_blanking_out_experience() -> None:
 
     with pytest.raises(InvalidDietitianProfileError):
         await use_case.execute(UpdateDietitianProfileCommand(user_id=user_id, experience="   "))
+
+
+@pytest.mark.asyncio
+async def test_update_profile_sets_first_and_last_name() -> None:
+    repo = InMemoryDietitianProfileRepository()
+    user_id = uuid4()
+    await repo.save(
+        DietitianProfile.create(
+            user_id=user_id,
+            experience="5 years experience",
+            diplomas=(),
+            description="desc",
+        )
+    )
+    use_case = UpdateDietitianProfileUseCase(repo)
+
+    result = await use_case.execute(
+        UpdateDietitianProfileCommand(user_id=user_id, first_name="Jan", last_name="Kowalski")
+    )
+
+    assert result.first_name == "Jan"
+    assert result.last_name == "Kowalski"
+
+
+@pytest.mark.asyncio
+async def test_update_profile_rejects_invalid_first_name() -> None:
+    repo = InMemoryDietitianProfileRepository()
+    user_id = uuid4()
+    await repo.save(
+        DietitianProfile.create(
+            user_id=user_id,
+            experience="5 years experience",
+            diplomas=(),
+            description="desc",
+        )
+    )
+    use_case = UpdateDietitianProfileUseCase(repo)
+
+    with pytest.raises(InvalidDietitianProfileError):
+        await use_case.execute(UpdateDietitianProfileCommand(user_id=user_id, first_name="Jan_123!"))

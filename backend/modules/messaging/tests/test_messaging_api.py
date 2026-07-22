@@ -25,7 +25,7 @@ def test_list_my_threads_returns_empty_list_when_none(client: TestClient) -> Non
     assert response.json() == []
 
 
-def test_list_my_threads_resolves_the_other_participants_email(client: TestClient) -> None:
+def test_list_my_threads_resolves_the_other_participants_name(client: TestClient) -> None:
     buyer_token, buyer_id = register_and_login(client, "msg.buyer")
     _, dietitian_id = register_and_login(client, "msg.dietitian")
     asyncio.run(promote_to_dietitian(dietitian_id))
@@ -37,7 +37,8 @@ def test_list_my_threads_resolves_the_other_participants_email(client: TestClien
     body = response.json()
     assert len(body) == 1
     assert body[0]["dietitian_id"] == dietitian_id
-    assert "@" in body[0]["other_participant_email"]
+    # Neither side set a display_name or a real name yet — falls back to email.
+    assert "@" in body[0]["other_participant_name"]
 
 
 def test_send_and_list_messages_round_trip(client: TestClient) -> None:

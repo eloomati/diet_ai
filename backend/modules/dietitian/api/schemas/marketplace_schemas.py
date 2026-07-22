@@ -12,7 +12,7 @@ from backend.modules.dietitian.application.dto.review_dto import PublicReviewRes
 
 class DietitianListingItemResponse(BaseModel):
     user_id: UUID
-    email: str
+    name: str
     experience: str
     description: str
     photos: list[str]
@@ -23,7 +23,7 @@ class DietitianListingItemResponse(BaseModel):
     def from_result(cls, result: DietitianListingItemResult) -> "DietitianListingItemResponse":
         return cls(
             user_id=result.user_id,
-            email=result.email,
+            name=result.name,
             experience=result.experience,
             description=result.description,
             photos=list(result.photos),
@@ -33,18 +33,24 @@ class DietitianListingItemResponse(BaseModel):
 
 
 class PublicReviewResponse(BaseModel):
+    reviewer_name: str
     rating: int
     comment: str
     created_at: datetime
 
     @classmethod
     def from_result(cls, result: PublicReviewResult) -> "PublicReviewResponse":
-        return cls(rating=result.rating, comment=result.comment, created_at=result.created_at)
+        return cls(
+            reviewer_name=result.reviewer_name,
+            rating=result.rating,
+            comment=result.comment,
+            created_at=result.created_at,
+        )
 
 
 class PublicDietitianProfileResponse(BaseModel):
     user_id: UUID
-    email: str
+    name: str
     experience: str
     diplomas: list[str]
     description: str
@@ -58,7 +64,7 @@ class PublicDietitianProfileResponse(BaseModel):
     def from_result(cls, result: PublicDietitianProfileResult) -> "PublicDietitianProfileResponse":
         return cls(
             user_id=result.user_id,
-            email=result.email,
+            name=result.name,
             experience=result.experience,
             diplomas=list(result.diplomas),
             description=result.description,

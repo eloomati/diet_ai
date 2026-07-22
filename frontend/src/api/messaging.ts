@@ -7,7 +7,7 @@ export interface DietitianThread {
   user_id: string
   dietitian_id: string
   created_at: string
-  other_participant_email: string | null
+  other_participant_name: string | null
 }
 
 export interface DietitianMessage {

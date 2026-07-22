@@ -10,6 +10,7 @@ from .dto import (
     RefreshTokenCommand,
     RefreshTokenResult,
     RequestPasswordResetCommand,
+    UpdateDisplayNameCommand,
 )
 from .ports import CaptchaVerifier, EmailSender, PasswordHasher, RefreshTokenRepository, TokenService
 from .use_cases import (
@@ -30,7 +31,8 @@ from .use_cases import (
     UserAlreadyExistsError,
     UserNotFoundError,
     InvalidRefreshTokenError,
-    RefreshAccessTokenUseCase
+    RefreshAccessTokenUseCase,
+    UpdateDisplayNameUseCase,
 )
 
 __all__ = [
@@ -45,6 +47,8 @@ __all__ = [
     "RequestPasswordResetCommand",
     "ConfirmPasswordResetCommand",
     "ConfirmEmailVerificationCommand",
+    "UpdateDisplayNameCommand",
+    "UpdateDisplayNameUseCase",
     "PasswordHasher",
     "TokenService",
     "RefreshTokenRepository",

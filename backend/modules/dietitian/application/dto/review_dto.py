@@ -17,6 +17,7 @@ class SubmitReviewCommand:
 class ReviewResult:
     id: UUID
     reviewer_id: UUID
+    reviewer_name: str
     dietitian_id: UUID
     rating: int
     comment: str
@@ -24,10 +25,11 @@ class ReviewResult:
     updated_at: datetime
 
     @classmethod
-    def from_domain(cls, review: Review) -> "ReviewResult":
+    def from_domain(cls, review: Review, reviewer_name: str) -> "ReviewResult":
         return cls(
             id=review.id,
             reviewer_id=review.reviewer_id,
+            reviewer_name=reviewer_name,
             dietitian_id=review.dietitian_id,
             rating=review.rating,
             comment=review.comment,
@@ -38,12 +40,20 @@ class ReviewResult:
 
 @dataclass(frozen=True, slots=True)
 class PublicReviewResult:
-    """A review as shown to the public — deliberately omits the reviewer's identity."""
+    """A review as shown to the public — used to deliberately omit the
+    reviewer's identity entirely (Phase 12); reversed in Phase 13 now that
+    a resolved display name is available instead of a raw UUID."""
 
+    reviewer_name: str
     rating: int
     comment: str
     created_at: datetime
 
     @classmethod
-    def from_domain(cls, review: Review) -> "PublicReviewResult":
-        return cls(rating=review.rating, comment=review.comment, created_at=review.created_at)
+    def from_domain(cls, review: Review, reviewer_name: str) -> "PublicReviewResult":
+        return cls(
+            reviewer_name=reviewer_name,
+            rating=review.rating,
+            comment=review.comment,
+            created_at=review.created_at,
+        )

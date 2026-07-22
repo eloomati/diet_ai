@@ -24,7 +24,7 @@ const THREAD = {
   user_id: 'u1',
   dietitian_id: 'd1',
   created_at: '2026-07-22T00:00:00Z',
-  other_participant_email: 'dietitian@example.com',
+  other_participant_name: 'dietitian@example.com',
 }
 
 function LoggedInCanvas({ email = 'user@example.com' }: { email?: string }) {

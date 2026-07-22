@@ -132,7 +132,7 @@ function DietitianCard({
   dietitian: DietitianListingItem
   onSelect: (dietitianId: string) => void
 }) {
-  const initials = dietitian.email.slice(0, 2).toUpperCase()
+  const initials = dietitian.name.slice(0, 2).toUpperCase()
   const photo = dietitian.photos[0]
 
   return (
@@ -149,7 +149,7 @@ function DietitianCard({
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-bold text-foreground">{dietitian.email}</p>
+          <p className="truncate text-[13px] font-bold text-foreground">{dietitian.name}</p>
           <p className="mt-0.5 line-clamp-2 text-[11.5px] leading-snug text-muted-foreground">
             {dietitian.experience}
           </p>
@@ -177,8 +177,8 @@ function ThreadCard({
   thread: DietitianThread
   onOpen: (threadId: string) => void
 }) {
-  const email = thread.other_participant_email ?? 'Nieznany użytkownik'
-  const initials = email.slice(0, 2).toUpperCase()
+  const name = thread.other_participant_name ?? 'Nieznany użytkownik'
+  const initials = name.slice(0, 2).toUpperCase()
 
   return (
     <button
@@ -193,7 +193,7 @@ function ThreadCard({
           </AvatarFallback>
         </Avatar>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[13px] font-bold text-foreground">{email}</p>
+          <p className="truncate text-[13px] font-bold text-foreground">{name}</p>
           <p className="text-[11px] text-muted-foreground">Otwórz czat</p>
         </div>
       </div>
