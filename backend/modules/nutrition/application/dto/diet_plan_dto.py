@@ -32,8 +32,9 @@ class RescheduleMealCommand:
     user_id: UUID
     plan_id: UUID
     day_number: int
-    meal_name: str
+    meal_index: int
     new_time: time
+    new_day_number: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

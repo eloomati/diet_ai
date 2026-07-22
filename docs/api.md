@@ -1092,10 +1092,26 @@ meal identity, day count) is immutable.
 ```json
 {
   "day_number": 1,
-  "meal_name": "Protein oatmeal",
-  "new_time": "07:30:00"
+  "meal_index": 0,
+  "new_time": "07:30:00",
+  "new_day_number": 2
 }
 ```
+
+`meal_index`: the meal's position within that day's `meals` array (as
+returned by `GET /diet-plans/{id}`) — not its name. The AI planner
+routinely produces two meals named the same thing (e.g. two "Snack"s) on
+one day, so identifying the target by name alone is ambiguous; the index
+is the only reliable way to say which one.
+
+`new_day_number`: optional. Omit it (or send the same value as
+`day_number`) for a same-day retime — only set this to actually move the
+meal to a different day of the same plan. When given and different from
+`day_number`, the meal is removed from its source day and appended (with
+the new time) to the target day; the meal's index within its *new* day is
+whatever position it lands at (last), not necessarily `meal_index` again.
+Moving a meal to a day outside this plan's own `duration_days`, or to a
+different plan entirely, is not supported by this endpoint.
 
 ### Response
 
@@ -1112,11 +1128,12 @@ Errors:
 
 ```
 404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another user
-400 Bad Request code=BAD_REQUEST — day_number or meal_name doesn't exist
-                within this plan (the plan itself is fine, so this is 400,
-                not 404 — see architecture.md)
-422 Unprocessable Entity code=VALIDATION_ERROR — day_number < 1, or
-                meal_name is empty — request-shape validation, checked
+400 Bad Request code=BAD_REQUEST — day_number doesn't exist, meal_index is
+                out of range for that day, or new_day_number doesn't
+                exist in this plan (the plan itself is fine, so this is
+                400, not 404 — see architecture.md)
+422 Unprocessable Entity code=VALIDATION_ERROR — day_number < 1, meal_index < 0,
+                or new_day_number < 1 — request-shape validation, checked
                 before the day/meal lookup above ever runs
 ```
 
@@ -1250,6 +1267,86 @@ Errors:
 ```
 404 Not Found code=NOT_FOUND — export doesn't exist, doesn't belong to the
                 caller, or doesn't belong to the diet_plan_id in the URL
+```
+
+---
+
+## POST /diet-plans/export-combined
+
+Builds one combined CSV across **several** of the caller's own plans and
+archives it on SFTP — same "archive now, download separately" shape as
+the single-plan export above, and deliberately not nested under any one
+`diet_plan_id`, since a combined export doesn't belong to a single plan.
+A separate `CombinedDietPlanExport` record is persisted (not the same
+collection as single-plan exports).
+
+### Request
+
+```json
+{
+  "plan_ids": ["uuid-1", "uuid-2"]
+}
+```
+
+`plan_ids`: at least 1 id, every one of which must belong to the caller.
+The frontend only ever sends non-overlapping plans (enforced client-side
+in the calendar's plan picker), but this endpoint itself doesn't check
+overlap — it just includes whatever plans it's given, one CSV row per
+meal, sorted chronologically by date/time across all of them (not
+grouped plan-by-plan) via `build_combined_diet_plan_csv()`. Each row
+carries a `plan_id` column since `day_number` alone resets to 1 for every
+plan.
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body:
+
+```json
+{
+  "export_id": "uuid",
+  "diet_plan_ids": ["uuid-1", "uuid-2"],
+  "filename": "combined-3fa8...-a1b2c3d4.csv",
+  "created_at": "2026-01-01T10:05:00.482391+00:00"
+}
+```
+
+No file content is returned — download it separately via the endpoint
+below.
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — one of plan_ids doesn't exist, or doesn't
+                belong to the caller
+422 Unprocessable Entity code=VALIDATION_ERROR — plan_ids is empty
+```
+
+---
+
+## GET /diet-plans/exports-combined/{export_id}/download
+
+Streams a previously archived combined export back as a CSV file
+(`Content-Type: text/csv`, `Content-Disposition: attachment`) — same
+SFTP-proxying behavior as the single-plan download.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — export doesn't exist, or belongs to another user
 ```
 
 ---

@@ -16,6 +16,7 @@ from backend.modules.identity.infrastructure.email.email_retry_scheduler import 
 from backend.modules.messaging.infrastructure.consumers import run_transaction_paid_thread_consumer
 from backend.modules.notifications.infrastructure.consumers import run_transaction_paid_consumer
 from backend.modules.nutrition.infrastructure.documents import (
+    CombinedDietPlanExportDocument,
     DietPlanDocument,
     DietPlanExportDocument,
     NutritionProfileDocument,
@@ -44,7 +45,13 @@ async def lifespan(app: FastAPI):
         await init_postgres(settings.postgres_url)
         await init_mongo(settings.mongo_url)
         await init_beanie_documents(
-            [ConversationDocument, NutritionProfileDocument, DietPlanDocument, DietPlanExportDocument]
+            [
+                ConversationDocument,
+                NutritionProfileDocument,
+                DietPlanDocument,
+                DietPlanExportDocument,
+                CombinedDietPlanExportDocument,
+            ]
         )
         await init_llm_provider(settings)
     except Exception as e:

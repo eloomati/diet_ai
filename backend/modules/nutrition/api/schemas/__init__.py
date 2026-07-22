@@ -1,4 +1,8 @@
-from .diet_plan_export_schemas import DietPlanExportResponse
+from .diet_plan_export_schemas import (
+    CombinedDietPlanExportResponse,
+    DietPlanExportResponse,
+    ExportCombinedDietPlansRequest,
+)
 from .diet_plan_schemas import (
     DietDayResponse,
     DietPlanResponse,
@@ -30,4 +34,6 @@ __all__ = [
     "DietDayResponse",
     "MealResponse",
     "DietPlanExportResponse",
+    "ExportCombinedDietPlansRequest",
+    "CombinedDietPlanExportResponse",
 ]

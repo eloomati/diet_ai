@@ -6,6 +6,9 @@ from backend.modules.conversation.domain.repositories.conversation_repository im
 )
 from backend.modules.identity.application.use_cases.exceptions import UserNotFoundError
 from backend.modules.identity.domain.repositories.user_repository import UserRepository
+from backend.modules.nutrition.domain.repositories.combined_diet_plan_export_repository import (
+    CombinedDietPlanExportRepository,
+)
 from backend.modules.nutrition.domain.repositories.diet_plan_export_repository import (
     DietPlanExportRepository,
 )
@@ -29,12 +32,14 @@ class DeleteUserUseCase:
         nutrition_profile_repository: NutritionProfileRepository,
         diet_plan_repository: DietPlanRepository,
         diet_plan_export_repository: DietPlanExportRepository,
+        combined_diet_plan_export_repository: CombinedDietPlanExportRepository,
     ) -> None:
         self._user_repository = user_repository
         self._conversation_repository = conversation_repository
         self._nutrition_profile_repository = nutrition_profile_repository
         self._diet_plan_repository = diet_plan_repository
         self._diet_plan_export_repository = diet_plan_export_repository
+        self._combined_diet_plan_export_repository = combined_diet_plan_export_repository
 
     async def execute(self, user_id: UUID, caller_id: UUID) -> None:
         if user_id == caller_id:
@@ -51,5 +56,6 @@ class DeleteUserUseCase:
         await self._nutrition_profile_repository.delete_by_user_id(user_id)
         await self._diet_plan_repository.delete_by_user_id(user_id)
         await self._diet_plan_export_repository.delete_by_user_id(user_id)
+        await self._combined_diet_plan_export_repository.delete_by_user_id(user_id)
 
         await self._user_repository.delete(user_id)

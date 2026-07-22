@@ -1,4 +1,5 @@
 from .create_nutrition_profile_use_case import CreateNutritionProfileUseCase
+from .download_combined_diet_plan_export_use_case import DownloadCombinedDietPlanExportUseCase
 from .download_diet_plan_export_use_case import DownloadDietPlanExportUseCase
 from .exceptions import (
     DietPlanExportNotFoundError,
@@ -7,6 +8,7 @@ from .exceptions import (
     NutritionProfileAlreadyExistsError,
     NutritionProfileNotFoundError,
 )
+from .export_combined_diet_plans_use_case import ExportCombinedDietPlansUseCase
 from .export_diet_plan_use_case import ExportDietPlanUseCase
 from .generate_diet_plan_use_case import GenerateDietPlanUseCase
 from .get_diet_plan_use_case import GetDietPlanUseCase
@@ -27,8 +29,10 @@ __all__ = [
     "RescheduleMealUseCase",
     "RenameDietPlanUseCase",
     "ExportDietPlanUseCase",
+    "ExportCombinedDietPlansUseCase",
     "ListDietPlanExportsUseCase",
     "DownloadDietPlanExportUseCase",
+    "DownloadCombinedDietPlanExportUseCase",
     "NutritionApplicationError",
     "NutritionProfileAlreadyExistsError",
     "NutritionProfileNotFoundError",

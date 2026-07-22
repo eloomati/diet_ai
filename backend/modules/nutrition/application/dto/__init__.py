@@ -10,9 +10,12 @@ from .diet_plan_dto import (
     RescheduleMealCommand,
 )
 from .diet_plan_export_dto import (
+    CombinedDietPlanExportResult,
     DietPlanExportContent,
     DietPlanExportResult,
+    DownloadCombinedDietPlanExportQuery,
     DownloadDietPlanExportQuery,
+    ExportCombinedDietPlansCommand,
     ExportDietPlanCommand,
     ListDietPlanExportsQuery,
 )
@@ -42,8 +45,11 @@ __all__ = [
     "RescheduleMealCommand",
     "RenameDietPlanCommand",
     "ExportDietPlanCommand",
+    "ExportCombinedDietPlansCommand",
     "ListDietPlanExportsQuery",
     "DownloadDietPlanExportQuery",
+    "DownloadCombinedDietPlanExportQuery",
     "DietPlanExportResult",
+    "CombinedDietPlanExportResult",
     "DietPlanExportContent",
 ]

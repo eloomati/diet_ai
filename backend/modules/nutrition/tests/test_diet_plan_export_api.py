@@ -158,6 +158,138 @@ def test_download_unknown_export_returns_404(
     assert response.status_code == 404
 
 
+def test_export_combined_diet_plans_saves_without_downloading(
+    client: TestClient, captured_sftp_client: FakeSftpClient
+) -> None:
+    token = _register_and_login(client, "export.combined")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    plan_a = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    ).json()
+    plan_b = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    ).json()
+
+    response = client.post(
+        "/api/v1/diet-plans/export-combined",
+        json={"plan_ids": [plan_a["plan_id"], plan_b["plan_id"]]},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["diet_plan_ids"] == [plan_a["plan_id"], plan_b["plan_id"]]
+    assert body["filename"] in captured_sftp_client.files
+    csv_text = captured_sftp_client.files[body["filename"]].decode("utf-8")
+    assert csv_text.count("Mock meal") == 2
+    assert plan_a["plan_id"] in csv_text
+    assert plan_b["plan_id"] in csv_text
+
+
+def test_download_combined_diet_plan_export_returns_the_saved_csv(
+    client: TestClient, captured_sftp_client: FakeSftpClient
+) -> None:
+    token = _register_and_login(client, "export.combined.download")
+    plan_id = _create_plan(client, token, "export.combined.download")
+    saved = client.post(
+        "/api/v1/diet-plans/export-combined",
+        json={"plan_ids": [plan_id]},
+        headers=_auth_headers(token),
+    ).json()
+
+    response = client.get(
+        f"/api/v1/diet-plans/exports-combined/{saved['export_id']}/download",
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment" in response.headers["content-disposition"]
+    assert response.content.splitlines()[0] == (
+        b"plan_id,day_number,date,time,meal_name,calories,protein,carbohydrates,fat"
+    )
+    assert b"Mock meal" in response.content
+
+
+def test_download_combined_diet_plan_export_unknown_export_returns_404(
+    client: TestClient, captured_sftp_client: FakeSftpClient
+) -> None:
+    token = _register_and_login(client, "export.combined.dlunknown")
+
+    response = client.get(
+        "/api/v1/diet-plans/exports-combined/00000000-0000-0000-0000-000000000000/download",
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 404
+
+
+def test_download_combined_diet_plan_export_other_users_export_returns_404(
+    client: TestClient, captured_sftp_client: FakeSftpClient
+) -> None:
+    owner_token = _register_and_login(client, "export.combined.dlowner")
+    other_token = _register_and_login(client, "export.combined.dlother")
+    plan_id = _create_plan(client, owner_token, "export.combined.dlowner")
+    saved = client.post(
+        "/api/v1/diet-plans/export-combined",
+        json={"plan_ids": [plan_id]},
+        headers=_auth_headers(owner_token),
+    ).json()
+
+    response = client.get(
+        f"/api/v1/diet-plans/exports-combined/{saved['export_id']}/download",
+        headers=_auth_headers(other_token),
+    )
+
+    assert response.status_code == 404
+
+
+def test_export_combined_diet_plans_rejects_an_empty_plan_id_list(
+    client: TestClient, captured_sftp_client: FakeSftpClient
+) -> None:
+    token = _register_and_login(client, "export.combined.empty")
+
+    response = client.post(
+        "/api/v1/diet-plans/export-combined",
+        json={"plan_ids": []},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 422
+
+
+def test_export_combined_diet_plans_unknown_plan_returns_404(
+    client: TestClient, captured_sftp_client: FakeSftpClient
+) -> None:
+    token = _register_and_login(client, "export.combined.unknown")
+    plan_id = _create_plan(client, token, "export.combined.unknown")
+
+    response = client.post(
+        "/api/v1/diet-plans/export-combined",
+        json={"plan_ids": [plan_id, "00000000-0000-0000-0000-000000000000"]},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 404
+
+
+def test_export_combined_diet_plans_other_users_plan_returns_404(
+    client: TestClient, captured_sftp_client: FakeSftpClient
+) -> None:
+    owner_token = _register_and_login(client, "export.combined.owner")
+    other_token = _register_and_login(client, "export.combined.other")
+    owner_plan_id = _create_plan(client, owner_token, "export.combined.owner")
+    other_plan_id = _create_plan(client, other_token, "export.combined.other")
+
+    response = client.post(
+        "/api/v1/diet-plans/export-combined",
+        json={"plan_ids": [owner_plan_id, other_plan_id]},
+        headers=_auth_headers(owner_token),
+    )
+
+    assert response.status_code == 404
+
+
 def test_download_other_users_export_returns_404(
     client: TestClient, captured_sftp_client: FakeSftpClient
 ) -> None:

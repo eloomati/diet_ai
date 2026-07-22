@@ -737,9 +737,12 @@ updated_at      — Phase 9; starts equal to created_at, moves on reschedule_mea
 exactly that many entries, and that no meal has a negative macro value.
 Regenerating always produces a new `DietPlan` (a user can have many) — that
 part hasn't changed. A plan is **not** fully immutable: `reschedule_meal
-(day_number, meal_name, new_time)` (Phase 9) and `rename(name)` (Phase 13)
-are the only two mutations it supports — everything else about a plan
-(macros, meal identity, day count) still can't change after generation.
+(day_number, meal_index, new_time)` (Phase 9; switched from `meal_name` to
+`meal_index` in Phase 13 once duplicate meal names on the same day — e.g.
+two "Snack"s — proved the name-based lookup ambiguous) and `rename(name)`
+(Phase 13) are the only two mutations it supports — everything else about
+a plan (macros, meal identity, day count) still can't change after
+generation.
 
 ---
 
@@ -755,8 +758,10 @@ are the only two mutations it supports — everything else about a plan
 - `reschedule_meal()` (Phase 9) locates the target day/meal and rebuilds
   the `Meal`/`DietDay`/`days` chain with the new time (via
   `dataclasses.replace` — the value objects it touches are frozen, so this
-  is reconstruction, not in-place mutation of them); an unknown
-  `day_number`/`meal_name` raises `MealNotFoundError`.
+  is reconstruction, not in-place mutation of them); the meal is identified
+  by its `meal_index` (position within `day.meals`), not by name, since
+  duplicate meal names on the same day are common; an unknown `day_number`
+  or an out-of-range `meal_index` raises `MealNotFoundError`.
 - `rename(name)` (Phase 13) sets `name` to the given string, or `None` to
   clear it back to the frontend's default composed
   `goal · diet_type · duration_days` label — same "explicit `None` clears
@@ -851,6 +856,44 @@ created_at
 A plan can be exported more than once (e.g. after rescheduling a meal) —
 each export is a distinct `DietPlanExport`/file, never an overwrite of a
 previous one.
+
+---
+
+## CombinedDietPlanExport
+
+Entity. `modules/nutrition/domain/entities/combined_diet_plan_export.py`.
+Phase 13 (Etap 3).
+
+Metadata for one CSV export spanning **several** of the caller's own
+plans at once (the multi-plan calendar's "Zapisz" action) — mirrors
+`DietPlanExport`'s shape but for a set of plans instead of one, and is
+deliberately a **separate** entity/repository/Mongo collection rather
+than `DietPlanExport` extended or overloaded, since a combined export
+doesn't belong to any single plan.
+
+Example:
+
+```
+CombinedDietPlanExport
+
+id
+
+user_id
+
+diet_plan_ids  — tuple of every plan id included in this export
+
+filename       — the archived file's name on the SFTP server
+
+created_at
+```
+
+Same "archive now, download later" two-step shape as `DietPlanExport`:
+`create()` persists the record and uploads the CSV to SFTP; there is no
+separate rename/delete — an export is immutable once made. The CSV
+itself (`build_combined_diet_plan_csv()`) sorts every included plan's
+meals chronologically by date/time across the whole set, not grouped
+plan-by-plan, with a `plan_id` column disambiguating rows since
+`day_number` alone resets to 1 for every plan.
 
 ---
 

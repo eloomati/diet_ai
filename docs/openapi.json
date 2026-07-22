@@ -218,6 +218,50 @@
             "HTTPBearer": []
           }
         ]
+      },
+      "patch": {
+        "tags": [
+          "identity-auth"
+        ],
+        "summary": "Update Me",
+        "operationId": "update_me_api_v1_auth_me_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
       }
     },
     "/api/v1/auth/password-reset/request": {
@@ -499,6 +543,62 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConversationHistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "conversation"
+        ],
+        "summary": "Rename Conversation",
+        "operationId": "rename_conversation_api_v1_conversations__conversation_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Conversation Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameConversationRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -904,6 +1004,98 @@
         }
       }
     },
+    "/api/v1/diet-plans/export-combined": {
+      "post": {
+        "tags": [
+          "nutrition"
+        ],
+        "summary": "Export Combined Diet Plans",
+        "operationId": "export_combined_diet_plans_api_v1_diet_plans_export_combined_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportCombinedDietPlansRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CombinedDietPlanExportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/diet-plans/exports-combined/{export_id}/download": {
+      "get": {
+        "tags": [
+          "nutrition"
+        ],
+        "summary": "Download Combined Diet Plan Export",
+        "operationId": "download_combined_diet_plan_export_api_v1_diet_plans_exports_combined__export_id__download_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "export_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Export Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/diet-plans/{diet_plan_id}": {
       "get": {
         "tags": [
@@ -928,6 +1120,62 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DietPlanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "nutrition"
+        ],
+        "summary": "Rename Diet Plan",
+        "operationId": "rename_diet_plan_api_v1_diet_plans__diet_plan_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "diet_plan_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Diet Plan Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameDietPlanRequest"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -2351,6 +2599,37 @@
         ],
         "title": "ChangeUserRoleResponse"
       },
+      "CombinedDietPlanExportResponse": {
+        "properties": {
+          "export_id": {
+            "type": "string",
+            "title": "Export Id"
+          },
+          "diet_plan_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Diet Plan Ids"
+          },
+          "filename": {
+            "type": "string",
+            "title": "Filename"
+          },
+          "created_at": {
+            "type": "string",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "export_id",
+          "diet_plan_ids",
+          "filename",
+          "created_at"
+        ],
+        "title": "CombinedDietPlanExportResponse"
+      },
       "ConfirmEmailVerificationRequest": {
         "properties": {
           "token": {
@@ -2702,6 +2981,17 @@
             "type": "array",
             "title": "Days"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "created_at": {
             "type": "string",
             "title": "Created At"
@@ -2720,6 +3010,7 @@
           "duration_days",
           "requirements",
           "days",
+          "name",
           "created_at",
           "updated_at"
         ],
@@ -2743,6 +3034,17 @@
             "type": "integer",
             "title": "Duration Days"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "created_at": {
             "type": "string",
             "title": "Created At"
@@ -2754,6 +3056,7 @@
           "goal",
           "diet_type",
           "duration_days",
+          "name",
           "created_at"
         ],
         "title": "DietPlanSummaryResponse"
@@ -2826,9 +3129,9 @@
             "format": "uuid",
             "title": "User Id"
           },
-          "email": {
+          "name": {
             "type": "string",
-            "title": "Email"
+            "title": "Name"
           },
           "experience": {
             "type": "string",
@@ -2864,7 +3167,7 @@
         "type": "object",
         "required": [
           "user_id",
-          "email",
+          "name",
           "experience",
           "description",
           "photos",
@@ -2959,6 +3262,28 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
           }
         },
         "type": "object",
@@ -2995,7 +3320,7 @@
             "format": "date-time",
             "title": "Created At"
           },
-          "other_participant_email": {
+          "other_participant_name": {
             "anyOf": [
               {
                 "type": "string"
@@ -3004,7 +3329,7 @@
                 "type": "null"
               }
             ],
-            "title": "Other Participant Email"
+            "title": "Other Participant Name"
           }
         },
         "type": "object",
@@ -3013,7 +3338,7 @@
           "user_id",
           "dietitian_id",
           "created_at",
-          "other_participant_email"
+          "other_participant_name"
         ],
         "title": "DietitianThreadResponse"
       },
@@ -3027,6 +3352,24 @@
         },
         "type": "object",
         "title": "EmailVerificationConfirmedResponse"
+      },
+      "ExportCombinedDietPlansRequest": {
+        "properties": {
+          "plan_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Plan Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "plan_ids"
+        ],
+        "title": "ExportCombinedDietPlansRequest"
       },
       "GenerateDietPlanRequest": {
         "properties": {
@@ -3160,6 +3503,17 @@
           "email_verified": {
             "type": "boolean",
             "title": "Email Verified"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
           }
         },
         "type": "object",
@@ -3407,9 +3761,9 @@
             "format": "uuid",
             "title": "User Id"
           },
-          "email": {
+          "name": {
             "type": "string",
-            "title": "Email"
+            "title": "Name"
           },
           "experience": {
             "type": "string",
@@ -3464,7 +3818,7 @@
         "type": "object",
         "required": [
           "user_id",
-          "email",
+          "name",
           "experience",
           "diplomas",
           "description",
@@ -3478,6 +3832,10 @@
       },
       "PublicReviewResponse": {
         "properties": {
+          "reviewer_name": {
+            "type": "string",
+            "title": "Reviewer Name"
+          },
           "rating": {
             "type": "integer",
             "title": "Rating"
@@ -3494,6 +3852,7 @@
         },
         "type": "object",
         "required": [
+          "reviewer_name",
           "rating",
           "comment",
           "created_at"
@@ -3582,6 +3941,40 @@
         ],
         "title": "RegisterResponse"
       },
+      "RenameConversationRequest": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "RenameConversationRequest"
+      },
+      "RenameDietPlanRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "title": "RenameDietPlanRequest"
+      },
       "RequestPasswordResetRequest": {
         "properties": {
           "email": {
@@ -3609,21 +4002,33 @@
             "minimum": 1.0,
             "title": "Day Number"
           },
-          "meal_name": {
-            "type": "string",
-            "minLength": 1,
-            "title": "Meal Name"
+          "meal_index": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Meal Index"
           },
           "new_time": {
             "type": "string",
             "format": "time",
             "title": "New Time"
+          },
+          "new_day_number": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Day Number"
           }
         },
         "type": "object",
         "required": [
           "day_number",
-          "meal_name",
+          "meal_index",
           "new_time"
         ],
         "title": "RescheduleMealRequest"
@@ -3639,6 +4044,10 @@
             "type": "string",
             "format": "uuid",
             "title": "Reviewer Id"
+          },
+          "reviewer_name": {
+            "type": "string",
+            "title": "Reviewer Name"
           },
           "dietitian_id": {
             "type": "string",
@@ -3668,6 +4077,7 @@
         "required": [
           "id",
           "reviewer_id",
+          "reviewer_name",
           "dietitian_id",
           "rating",
           "comment",
@@ -3883,10 +4293,49 @@
               }
             ],
             "title": "Description"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
           }
         },
         "type": "object",
         "title": "UpdateDietitianProfileRequest"
+      },
+      "UpdateMeRequest": {
+        "properties": {
+          "display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          }
+        },
+        "type": "object",
+        "title": "UpdateMeRequest"
       },
       "UpdateNutritionProfileRequest": {
         "properties": {

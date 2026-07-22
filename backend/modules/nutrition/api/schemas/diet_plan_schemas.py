@@ -17,8 +17,11 @@ class GenerateDietPlanRequest(BaseModel):
 
 class RescheduleMealRequest(BaseModel):
     day_number: int = Field(ge=1)
-    meal_name: str = Field(min_length=1)
+    meal_index: int = Field(ge=0)
     new_time: time
+    # Omit (or send the same value as day_number) for a same-day retime —
+    # only set this to actually move the meal to a different day.
+    new_day_number: int | None = Field(default=None, ge=1)
 
 
 class RenameDietPlanRequest(BaseModel):

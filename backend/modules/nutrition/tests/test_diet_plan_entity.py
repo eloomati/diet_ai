@@ -78,7 +78,7 @@ def test_create_sets_updated_at_equal_to_created_at() -> None:
 def test_reschedule_meal_updates_only_the_target_meal() -> None:
     plan = _create(duration_days=1, days=(DietDay(day_number=1, meals=(_meal(name="Oatmeal"),)),))
 
-    plan.reschedule_meal(day_number=1, meal_name="Oatmeal", new_time=time(8, 0))
+    plan.reschedule_meal(day_number=1, meal_index=0, new_time=time(8, 0))
 
     assert plan.days[0].meals[0].time == time(8, 0)
     assert plan.days[0].meals[0].name == "Oatmeal"
@@ -94,7 +94,7 @@ def test_reschedule_meal_leaves_other_meals_and_days_untouched() -> None:
         ),
     )
 
-    plan.reschedule_meal(day_number=1, meal_name="Oatmeal", new_time=time(8, 0))
+    plan.reschedule_meal(day_number=1, meal_index=0, new_time=time(8, 0))
 
     assert plan.days[0].meals[0].time == time(8, 0)
     assert plan.days[0].meals[1].time is None
@@ -105,7 +105,7 @@ def test_reschedule_meal_bumps_updated_at() -> None:
     plan = _create(duration_days=1, days=(DietDay(day_number=1, meals=(_meal(),)),))
     original_updated_at = plan.updated_at
 
-    plan.reschedule_meal(day_number=1, meal_name="Oatmeal", new_time=time(8, 0))
+    plan.reschedule_meal(day_number=1, meal_index=0, new_time=time(8, 0))
 
     assert plan.updated_at >= original_updated_at
 
@@ -114,11 +114,74 @@ def test_reschedule_meal_with_unknown_day_raises() -> None:
     plan = _create(duration_days=1, days=(DietDay(day_number=1, meals=(_meal(),)),))
 
     with pytest.raises(MealNotFoundError):
-        plan.reschedule_meal(day_number=99, meal_name="Oatmeal", new_time=time(8, 0))
+        plan.reschedule_meal(day_number=99, meal_index=0, new_time=time(8, 0))
 
 
-def test_reschedule_meal_with_unknown_meal_name_raises() -> None:
+def test_reschedule_meal_with_out_of_range_meal_index_raises() -> None:
     plan = _create(duration_days=1, days=(DietDay(day_number=1, meals=(_meal(),)),))
 
     with pytest.raises(MealNotFoundError):
-        plan.reschedule_meal(day_number=1, meal_name="Nonexistent", new_time=time(8, 0))
+        plan.reschedule_meal(day_number=1, meal_index=99, new_time=time(8, 0))
+
+
+def test_reschedule_meal_by_index_disambiguates_meals_with_the_same_name() -> None:
+    # The AI-generated plans routinely produce two meals named "Snack" on the
+    # same day — identifying the target purely by name would always hit the
+    # first one, silently rescheduling the wrong meal.
+    plan = _create(
+        duration_days=1,
+        days=(
+            DietDay(
+                day_number=1,
+                meals=(
+                    _meal(name="Snack", calories=200),
+                    _meal(name="Snack", calories=250),
+                ),
+            ),
+        ),
+    )
+
+    plan.reschedule_meal(day_number=1, meal_index=1, new_time=time(18, 0))
+
+    assert plan.days[0].meals[0].calories == 200
+    assert plan.days[0].meals[0].time is None
+    assert plan.days[0].meals[1].calories == 250
+    assert plan.days[0].meals[1].time == time(18, 0)
+
+
+def test_reschedule_meal_moves_it_to_a_different_day() -> None:
+    plan = _create(
+        duration_days=2,
+        days=(
+            DietDay(day_number=1, meals=(_meal(name="Oatmeal"),)),
+            DietDay(day_number=2, meals=(_meal(name="Lunch"),)),
+        ),
+    )
+
+    plan.reschedule_meal(
+        day_number=1, meal_index=0, new_time=time(9, 0), new_day_number=2
+    )
+
+    assert [meal.name for meal in plan.days[0].meals] == []
+    assert {meal.name for meal in plan.days[1].meals} == {"Lunch", "Oatmeal"}
+    moved = next(meal for meal in plan.days[1].meals if meal.name == "Oatmeal")
+    assert moved.time == time(9, 0)
+    assert moved.calories == 400
+
+
+def test_reschedule_meal_moved_to_the_same_day_number_is_a_same_day_retime() -> None:
+    plan = _create(duration_days=1, days=(DietDay(day_number=1, meals=(_meal(),)),))
+
+    plan.reschedule_meal(day_number=1, meal_index=0, new_time=time(8, 0), new_day_number=1)
+
+    assert len(plan.days[0].meals) == 1
+    assert plan.days[0].meals[0].time == time(8, 0)
+
+
+def test_reschedule_meal_to_an_unknown_target_day_raises_and_leaves_the_plan_untouched() -> None:
+    plan = _create(duration_days=1, days=(DietDay(day_number=1, meals=(_meal(),)),))
+
+    with pytest.raises(MealNotFoundError):
+        plan.reschedule_meal(day_number=1, meal_index=0, new_time=time(8, 0), new_day_number=99)
+
+    assert plan.days[0].meals[0].time is None

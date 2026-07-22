@@ -8,8 +8,12 @@ from backend.modules.nutrition.application import (
     CreateNutritionProfileUseCase,
     DietPlanExportNotFoundError,
     DietPlanNotFoundError,
+    DownloadCombinedDietPlanExportQuery,
+    DownloadCombinedDietPlanExportUseCase,
     DownloadDietPlanExportQuery,
     DownloadDietPlanExportUseCase,
+    ExportCombinedDietPlansCommand,
+    ExportCombinedDietPlansUseCase,
     ExportDietPlanCommand,
     ExportDietPlanUseCase,
     GenerateDietPlanCommand,
@@ -19,6 +23,7 @@ from backend.modules.nutrition.application import (
 )
 from backend.modules.nutrition.tests.fakes import (
     FakeSftpClient,
+    InMemoryCombinedDietPlanExportRepository,
     InMemoryDietPlanExportRepository,
     InMemoryDietPlanRepository,
     InMemoryNutritionProfileRepository,
@@ -181,6 +186,119 @@ async def test_download_diet_plan_export_raises_for_unknown_export() -> None:
     with pytest.raises(DietPlanExportNotFoundError):
         await DownloadDietPlanExportUseCase(export_repo, sftp).execute(
             DownloadDietPlanExportQuery(user_id=uuid4(), plan_id=uuid4(), export_id=uuid4())
+        )
+
+
+@pytest.mark.asyncio
+async def test_export_combined_diet_plans_archives_and_records_every_plan_id() -> None:
+    plan_repo = InMemoryDietPlanRepository()
+    profile_repo = InMemoryNutritionProfileRepository()
+    combined_export_repo = InMemoryCombinedDietPlanExportRepository()
+    sftp = FakeSftpClient()
+    user_id = uuid4()
+    llm = FakeLLMProvider(canned_structured_response=_plan_dict())
+    await CreateNutritionProfileUseCase(profile_repo).execute(
+        CreateNutritionProfileCommand(
+            user_id=user_id,
+            age=29,
+            height_cm=187,
+            weight_kg=80,
+            activity_level="HIGH",
+            goal="MUSCLE_GAIN",
+            diet_type="VEGETARIAN",
+        )
+    )
+    generate_use_case = GenerateDietPlanUseCase(plan_repo, profile_repo, llm)
+    plan_a = await generate_use_case.execute(GenerateDietPlanCommand(user_id=user_id, duration_days=1))
+    plan_b = await generate_use_case.execute(GenerateDietPlanCommand(user_id=user_id, duration_days=1))
+
+    result = await ExportCombinedDietPlansUseCase(plan_repo, combined_export_repo, sftp).execute(
+        ExportCombinedDietPlansCommand(user_id=user_id, plan_ids=(UUID(plan_a.plan_id), UUID(plan_b.plan_id)))
+    )
+
+    assert result.diet_plan_ids == (plan_a.plan_id, plan_b.plan_id)
+    assert result.filename in sftp.files
+    csv_text = sftp.files[result.filename].decode("utf-8")
+    assert csv_text.count("Oatmeal") == 2
+    assert plan_a.plan_id in csv_text
+    assert plan_b.plan_id in csv_text
+
+    stored = await combined_export_repo.get_by_id(UUID(result.export_id))
+    assert stored is not None
+    assert stored.user_id == user_id
+
+
+@pytest.mark.asyncio
+async def test_export_combined_diet_plans_raises_for_unknown_plan() -> None:
+    plan_repo = InMemoryDietPlanRepository()
+    combined_export_repo = InMemoryCombinedDietPlanExportRepository()
+    sftp = FakeSftpClient()
+
+    with pytest.raises(DietPlanNotFoundError):
+        await ExportCombinedDietPlansUseCase(plan_repo, combined_export_repo, sftp).execute(
+            ExportCombinedDietPlansCommand(user_id=uuid4(), plan_ids=(uuid4(),))
+        )
+
+
+@pytest.mark.asyncio
+async def test_export_combined_diet_plans_raises_if_any_plan_belongs_to_another_user() -> None:
+    plan_repo = InMemoryDietPlanRepository()
+    combined_export_repo = InMemoryCombinedDietPlanExportRepository()
+    sftp = FakeSftpClient()
+    owner_id = uuid4()
+    created = await _generate_plan(plan_repo, InMemoryNutritionProfileRepository(), owner_id)
+
+    with pytest.raises(DietPlanNotFoundError):
+        await ExportCombinedDietPlansUseCase(plan_repo, combined_export_repo, sftp).execute(
+            ExportCombinedDietPlansCommand(user_id=uuid4(), plan_ids=(UUID(created.plan_id),))
+        )
+
+
+@pytest.mark.asyncio
+async def test_download_combined_diet_plan_export_returns_the_uploaded_content() -> None:
+    plan_repo = InMemoryDietPlanRepository()
+    combined_export_repo = InMemoryCombinedDietPlanExportRepository()
+    sftp = FakeSftpClient()
+    user_id = uuid4()
+    created = await _generate_plan(plan_repo, InMemoryNutritionProfileRepository(), user_id)
+
+    exported = await ExportCombinedDietPlansUseCase(plan_repo, combined_export_repo, sftp).execute(
+        ExportCombinedDietPlansCommand(user_id=user_id, plan_ids=(UUID(created.plan_id),))
+    )
+
+    downloaded = await DownloadCombinedDietPlanExportUseCase(combined_export_repo, sftp).execute(
+        DownloadCombinedDietPlanExportQuery(user_id=user_id, export_id=UUID(exported.export_id))
+    )
+
+    assert downloaded.filename == exported.filename
+    assert b"Oatmeal" in downloaded.content
+
+
+@pytest.mark.asyncio
+async def test_download_combined_diet_plan_export_raises_for_unknown_export() -> None:
+    combined_export_repo = InMemoryCombinedDietPlanExportRepository()
+    sftp = FakeSftpClient()
+
+    with pytest.raises(DietPlanExportNotFoundError):
+        await DownloadCombinedDietPlanExportUseCase(combined_export_repo, sftp).execute(
+            DownloadCombinedDietPlanExportQuery(user_id=uuid4(), export_id=uuid4())
+        )
+
+
+@pytest.mark.asyncio
+async def test_download_combined_diet_plan_export_raises_for_non_owner() -> None:
+    plan_repo = InMemoryDietPlanRepository()
+    combined_export_repo = InMemoryCombinedDietPlanExportRepository()
+    sftp = FakeSftpClient()
+    owner_id = uuid4()
+    created = await _generate_plan(plan_repo, InMemoryNutritionProfileRepository(), owner_id)
+    exported = await ExportCombinedDietPlansUseCase(plan_repo, combined_export_repo, sftp).execute(
+        ExportCombinedDietPlansCommand(user_id=owner_id, plan_ids=(UUID(created.plan_id),))
+    )
+
+    with pytest.raises(DietPlanExportNotFoundError):
+        await DownloadCombinedDietPlanExportUseCase(combined_export_repo, sftp).execute(
+            DownloadCombinedDietPlanExportQuery(user_id=uuid4(), export_id=UUID(exported.export_id))
         )
 
 

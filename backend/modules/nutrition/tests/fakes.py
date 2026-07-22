@@ -1,7 +1,12 @@
 from datetime import UTC, date, datetime, time, timedelta
 from uuid import UUID
 
-from backend.modules.nutrition.domain import DietPlan, DietPlanExport, NutritionProfile
+from backend.modules.nutrition.domain import (
+    CombinedDietPlanExport,
+    DietPlan,
+    DietPlanExport,
+    NutritionProfile,
+)
 
 
 class InMemoryNutritionProfileRepository:
@@ -61,6 +66,21 @@ class InMemoryDietPlanExportRepository:
     async def list_by_diet_plan_id(self, diet_plan_id: UUID) -> list[DietPlanExport]:
         exports = [e for e in self._by_id.values() if e.diet_plan_id == diet_plan_id]
         return sorted(exports, key=lambda e: e.created_at, reverse=True)
+
+    async def delete_by_user_id(self, user_id: UUID) -> None:
+        for export_id in [eid for eid, e in self._by_id.items() if e.user_id == user_id]:
+            del self._by_id[export_id]
+
+
+class InMemoryCombinedDietPlanExportRepository:
+    def __init__(self) -> None:
+        self._by_id: dict[UUID, CombinedDietPlanExport] = {}
+
+    async def save(self, export: CombinedDietPlanExport) -> None:
+        self._by_id[export.id] = export
+
+    async def get_by_id(self, export_id: UUID) -> CombinedDietPlanExport | None:
+        return self._by_id.get(export_id)
 
     async def delete_by_user_id(self, user_id: UUID) -> None:
         for export_id in [eid for eid, e in self._by_id.items() if e.user_id == user_id]:

@@ -15,7 +15,12 @@ class RescheduleMealUseCase:
         if plan is None or plan.user_id != command.user_id:
             raise DietPlanNotFoundError("Diet plan not found.")
 
-        plan.reschedule_meal(command.day_number, command.meal_name, command.new_time)
+        plan.reschedule_meal(
+            command.day_number,
+            command.meal_index,
+            command.new_time,
+            new_day_number=command.new_day_number,
+        )
         await self._repository.save(plan)
 
         return DietPlanResult.from_domain(plan)

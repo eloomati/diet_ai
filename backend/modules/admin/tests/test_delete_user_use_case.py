@@ -13,6 +13,7 @@ from backend.modules.identity.domain.value_objects.password_hash import Password
 from backend.modules.identity.tests.fakes import InMemoryUserRepository
 from backend.modules.nutrition.domain import (
     ActivityLevel,
+    CombinedDietPlanExport,
     DietDay,
     DietGoal,
     DietPlan,
@@ -22,6 +23,7 @@ from backend.modules.nutrition.domain import (
     NutritionProfile,
 )
 from backend.modules.nutrition.tests.fakes import (
+    InMemoryCombinedDietPlanExportRepository,
     InMemoryDietPlanExportRepository,
     InMemoryDietPlanRepository,
     InMemoryNutritionProfileRepository,
@@ -34,10 +36,24 @@ def _build_use_case():
     nutrition_profile_repo = InMemoryNutritionProfileRepository()
     diet_plan_repo = InMemoryDietPlanRepository()
     diet_plan_export_repo = InMemoryDietPlanExportRepository()
+    combined_diet_plan_export_repo = InMemoryCombinedDietPlanExportRepository()
     use_case = DeleteUserUseCase(
-        user_repo, conversation_repo, nutrition_profile_repo, diet_plan_repo, diet_plan_export_repo
+        user_repo,
+        conversation_repo,
+        nutrition_profile_repo,
+        diet_plan_repo,
+        diet_plan_export_repo,
+        combined_diet_plan_export_repo,
     )
-    return use_case, user_repo, conversation_repo, nutrition_profile_repo, diet_plan_repo, diet_plan_export_repo
+    return (
+        use_case,
+        user_repo,
+        conversation_repo,
+        nutrition_profile_repo,
+        diet_plan_repo,
+        diet_plan_export_repo,
+        combined_diet_plan_export_repo,
+    )
 
 
 @pytest.mark.asyncio
@@ -49,6 +65,7 @@ async def test_delete_user_removes_the_user_and_all_cross_database_data() -> Non
         nutrition_profile_repo,
         diet_plan_repo,
         diet_plan_export_repo,
+        combined_diet_plan_export_repo,
     ) = _build_use_case()
 
     user = User.create(email=Email("todelete@example.com"), password_hash=PasswordHash("$2b$12$" + "a" * 22))
@@ -82,6 +99,11 @@ async def test_delete_user_removes_the_user_and_all_cross_database_data() -> Non
     export = DietPlanExport.create(user_id=user.id, diet_plan_id=plan.id, filename="plan.csv")
     await diet_plan_export_repo.save(export)
 
+    combined_export = CombinedDietPlanExport.create(
+        user_id=user.id, diet_plan_ids=(plan.id,), filename="combined.csv"
+    )
+    await combined_diet_plan_export_repo.save(combined_export)
+
     other_user_id = uuid4()
 
     await use_case.execute(user.id, caller_id=other_user_id)
@@ -91,6 +113,7 @@ async def test_delete_user_removes_the_user_and_all_cross_database_data() -> Non
     assert await nutrition_profile_repo.get_by_user_id(user.id) is None
     assert await diet_plan_repo.list_by_user_id(user.id) == []
     assert await diet_plan_export_repo.list_by_diet_plan_id(plan.id) == []
+    assert await combined_diet_plan_export_repo.get_by_id(combined_export.id) is None
 
 
 @pytest.mark.asyncio

@@ -30,7 +30,7 @@ Phase 13    - Quality, Security &           IN PROGRESS —
                                               Etap 2 (Chat & diet-plan
                                                 UX polish): DONE
                                               Etap 3 (Multi-plan
-                                                calendar): not started
+                                                calendar): DONE
                                               Etap 4 (Admin panel
                                                 pagination): not started
 ```
@@ -768,45 +768,172 @@ the app.
 
 ---
 
-### Etap 3 — Multi-Plan Calendar
+### Etap 3 — Multi-Plan Calendar — DONE
 
 Goal: let a user view several of their own non-overlapping generated
 plans together on one continuous calendar, freely move meals between
 days, and export the combined selection directly from that view.
 
-- [ ] **Stage 1 — Full day+time meal rescheduling**: `RescheduleMealUseCase`
-      and its `PATCH /diet-plans/{id}/meals` payload gain a day field
-      alongside the existing time field; `DietPlan.reschedule_meal()`
-      updated to actually move the meal between `DietDay`s, not just
-      re-time it within its original day. The calendar's drag-and-drop
-      now sends the dropped-on day, not just the dropped-on time.
-  - Exit criteria: dragging a meal to a different day column actually
-    moves it there (persisted), live-verified; the existing same-day
-    retime behavior is unaffected.
-- [ ] **Stage 2 — Multi-select plan picker**: `KalendarzTab`'s current
-      single-`Select` plan picker becomes a multi-select; client-side
-      overlap validation (from each plan's `created_at` +
-      `duration_days`) prevents selecting two plans whose ranges
-      intersect.
-  - Exit criteria: attempting to select two overlapping plans is
-    blocked with a clear message; non-overlapping plans can be selected
-    together.
-- [ ] **Stage 3 — Combined week-by-week navigation**: the calendar's
-      week grid merges all currently-selected plans' days into one
-      continuous range, replacing the current single-plan `totalWeeks`
-      calculation.
-  - Exit criteria: navigating week-by-week across two or more selected
-    non-overlapping plans shows the correct plan's meals for each week,
-    with no gaps/overlaps in the combined range.
-- [ ] **Stage 4 — Combined export**: a new backend endpoint exporting
-      several selected plans' meals combined into one CSV (given a list
-      of plan ids); an export action added directly in `KalendarzTab`
-      (today it only exists in Plany) calling this new endpoint with
-      whichever plans are currently selected.
-  - Exit criteria: exporting from the calendar view with 2+ selected
-    plans produces one correct combined CSV, live-verified; exporting
-    with a single plan selected still works.
-- [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
+- [x] **Stage 1 — Full day+time meal rescheduling — DONE**:
+      `DietPlan.reschedule_meal()` gained an optional `new_day_number` —
+      when given and different from `day_number`, it removes the meal
+      from its source `DietDay` and appends it (with the new time) to
+      the target `DietDay`; an unknown target day still raises
+      `MealNotFoundError` → 400, same as an unknown source day/meal
+      already did. `RescheduleMealCommand`/`RescheduleMealRequest`/
+      `PATCH /diet-plans/{id}/meals` plumbed the new optional field
+      through end to end. `KalendarzTab.tsx`'s drag-and-drop now sends
+      `new_day_number` whenever the dropped-on cell's day differs from
+      the dragged meal's origin day (omitted for a same-day retime, so
+      the request body is unchanged from before in that case); a drop
+      onto a date the plan doesn't cover at all (`HoverCell.dayNumber
+      === null`) is rejected client-side and styled as an invalid
+      target, never reaching the API.
+  - Exit criteria met via automated coverage: domain-level tests for
+    same-day retime (unchanged), cross-day move, and unknown-target-day
+    rejection (plan left untouched); use-case- and API-level tests for
+    the same; a `KalendarzTab.test.tsx` test simulates the exact
+    pointer-drag-to-a-different-day-column interaction end to end and
+    asserts both the PATCH payload and the resulting UI (meal chip
+    reappearing under the new day). Live-browser verification was
+    skipped this stage — the host machine's disk was down to 5.7 GB
+    free (unrelated to this repo; `docker builder prune`/`image prune`
+    reclaimed 0B, so it's outside Docker's own cache) and Postgres
+    couldn't start; deferred rather than chasing an unrelated
+    system-level issue. Full suites: backend 643 passed, frontend 149
+    passed, clean `tsc --noEmit`.
+  - **Follow-up (live-verified in a later session):** dragging meals in
+    the browser surfaced a real bug the automated coverage above hadn't
+    caught — the AI planner routinely puts two meals named "Snack" on
+    the same day, and both `reschedule_meal()`'s lookup and the frontend
+    drag state identified the target meal by `meal_name` alone. `next()`
+    always resolved to the *first* same-named match, so dragging the
+    second "Snack" silently rescheduled the first one instead (and
+    React logged a duplicate-key warning, since `KalendarzTab.tsx`'s
+    meal-chip `key` was also `meal.name`). Fixed by switching
+    identification to `meal_index` (the meal's position in `day.meals`)
+    end to end: `DietPlan.reschedule_meal(day_number, meal_index,
+    new_time, new_day_number=None)`, `RescheduleMealCommand`/
+    `RescheduleMealRequest`, the frontend `DraggedMeal`/`isDragging`
+    check, and the React `key` on each meal chip. Added a
+    same-day-duplicate-name regression test at every layer (domain,
+    use case, API, `KalendarzTab.test.tsx`). Backend 660 passed,
+    frontend 27/27 for `KalendarzTab.test.tsx`.
+- [x] **Stage 2 — Multi-select plan picker — DONE**: replaced
+      `KalendarzTab`'s single Radix `<Select>` with a custom checklist
+      popover (same toggle-panel pattern as `CategoryMenu.tsx`'s
+      category picker) — `selectedPlanIds: string[]`, defaulting to the
+      newest plan when nothing's been explicitly toggled yet (mirrors
+      the old single-select's "no separate auto-select effect" comment).
+      `planDateRange()`/`rangesOverlap()` compute each plan's inclusive
+      `[start, end]` from `created_at` + `duration_days` and check
+      intersection before allowing a new selection; a blocked attempt
+      shows an inline `FieldError` naming both conflicting plans and
+      leaves the checkbox unchecked. Deselecting the last remaining
+      plan is a no-op (at least one always stays selected). The
+      calendar grid itself still renders only the first selected plan —
+      Stage 3 wires up the actual multi-plan merge.
+  - Exit criteria met: `KalendarzTab.test.tsx` gained 3 tests —
+    selecting a second non-overlapping plan, blocking an overlapping
+    one with the error message, and rejecting deselection down to zero.
+    Full frontend suite: 152 passed, clean `tsc --noEmit`. Frontend-only
+    change, so no backend run needed this stage.
+- [x] **Stage 3 — Combined week-by-week navigation — DONE**: replaced
+      the single `planQuery` with one `useQueries` call across every
+      selected plan id; their days merge into one
+      `Map<dateKey, {planId, day}>` (non-overlapping selection means at
+      most one plan ever claims a given date). Combined `totalWeeks`
+      spans from the earliest selected plan's first Monday through
+      whichever is later of its own last week or a full 52-week year —
+      per a mid-stage clarification, the calendar should be scrollable
+      through an entire year even across weeks with no plan data at
+      all, while a plan itself is only ever generated for the days it
+      actually covers (no fabricated empty days). Diet type(s) in the
+      header and "Uwzględnione wskazówki" now dedupe across every
+      loaded plan instead of reading a single plan's own fields.
+      Dragging gained a `planId` on both the dragged meal and the hover
+      target — a drop is only valid within the *same* plan; a foreign
+      plan's cell is rejected exactly like a date no plan covers at all
+      (same invalid-target styling). Bug caught while writing this
+      stage's own tests: two different plans' days can both be "day 1"
+      and land in the *same* visible week near a plan boundary, so
+      `cell-day1-…`/`meal-day1-…` testids could collide; fixed by
+      disambiguating with the owning plan id, but **only** once 2+
+      plans are actually loaded together, so every existing single-plan
+      test's testids are completely unchanged.
+  - Exit criteria met: new tests assert each selected plan's meals show
+    correctly in their own week with nothing missing or duplicated,
+    and a cross-plan drop is rejected with no PATCH sent. Full frontend
+    suite: 155 passed, clean `tsc --noEmit`. Frontend-only change, no
+    backend run needed this stage.
+- [x] **Stage 4 — Combined export — DONE**: first built as a one-shot
+      direct-CSV-response endpoint, then revised per user feedback to
+      match the single-plan export's own "save, then download
+      separately" shape instead — a genuine two-step flow, not a rename.
+      New `CombinedDietPlanExport` entity/repository/Mongo document
+      (`diet_plan_ids: tuple[UUID, ...]`, mirroring `DietPlanExport` but
+      for a set of plans instead of one) alongside the existing
+      single-plan export machinery, not merged into it. `POST
+      /diet-plans/export-combined` (request: `{"plan_ids": [...]}`, min
+      1) → `ExportCombinedDietPlansUseCase` loads every given plan (404
+      if any doesn't exist or isn't the caller's), builds the CSV via
+      `build_combined_diet_plan_csv()` (unchanged from the first pass —
+      `plan_id` column, chronologically sorted across all included
+      plans, not grouped plan-by-plan), uploads it to SFTP, and persists
+      a `CombinedDietPlanExport` record — returning metadata only
+      (`201`), no file content. New `GET
+      /diet-plans/exports-combined/{export_id}/download` retrieves the
+      archived CSV by export id later, same as the single-plan
+      download endpoint but not nested under any one plan's path, since
+      a combined export doesn't belong to a single plan. Wired the new
+      repository into `DeleteUserUseCase`'s existing Mongo-cascade
+      cleanup (`delete_by_user_id`) alongside the other nutrition
+      repositories, per that use case's own documented rule that every
+      Mongo collection keyed by user id must be cleaned up explicitly.
+      Frontend: `KalendarzTab.tsx` now has two buttons — "Zapisz"
+      (archives the current selection, shows "Zapisano ✓") and a
+      "Pobierz" that only appears once something's been saved,
+      downloading that specific saved export; changing the plan
+      selection hides "Pobierz" again since it would otherwise download
+      a stale selection. Extracted the existing `saveBlob()` helper out
+      of `PlanyTab.tsx` into a shared `lib/saveBlob.ts` (this part
+      unchanged from the first pass).
+  - Exit criteria met: live-verified end to end against a real Docker
+    backend, including the revised two-step flow — clicked "Zapisz"
+    and confirmed no file downloaded (network tab showed only the
+    `POST .../export-combined` call, `201`), then clicked the
+    newly-appeared "Pobierz" and confirmed a separate `GET
+    .../exports-combined/{id}/download` request fired and the correct
+    combined CSV landed on disk. Also re-verified the underlying
+    combined-CSV correctness (both plans' meals, sorted, tagged with
+    `plan_id`) and that a single-plan selection still works. Tests:
+    CSV-builder tests unchanged (still valid, builder logic untouched);
+    rewrote the use-case and API tests for the new two-call shape (15
+    use-case tests, 15 API-route tests) and added a fake
+    `InMemoryCombinedDietPlanExportRepository`; extended
+    `test_delete_user_use_case.py` for the new cascade cleanup;
+    rewrote the 3 frontend tests for the Zapisz/Pobierz split. Full
+    backend suite: 660 passed; full frontend suite: 158 passed, clean
+    `tsc --noEmit`.
+- [x] **Stage 5 — Docs sync — DONE**: closing stage for this etap. No new
+      tests this stage — every prior stage (plus the two live-browser
+      follow-ups above) was already verified continuously as it landed,
+      including a full backend+frontend suite run per stage. Docs sync
+      only: `docs/api.md` gained the previously-undocumented
+      `new_day_number` field on `PATCH /diet-plans/{id}/meals`, and two
+      entirely new sections — `POST /diet-plans/export-combined` and
+      `GET /diet-plans/exports-combined/{export_id}/download` — that had
+      shipped in Stage 4 but were never written up. `docs/domain-model.md`
+      gained a `CombinedDietPlanExport` entity section (mirroring
+      `DietPlanExport`'s existing treatment). `docs/architecture.md`
+      gained two new sections: "Multi-plan calendar" (the Stage 2/3
+      plan-picker non-overlap invariant, the `useQueries` per-date merge,
+      the full-year-scroll-vs-real-plan-data split, the `meal_index`
+      identification bug and fix, and the drop-rule `createPortal`
+      banner) and "Combined export across several plans" (the Stage 4
+      two-endpoint shape and its mid-stage revision). `docs/openapi.json`
+      already reflected all of the above (auto-generated from the live
+      FastAPI schema, re-exported during the `meal_index` fix).
 
 ---
 

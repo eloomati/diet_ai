@@ -126,9 +126,10 @@ GET {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}
 Authorization: Bearer {{access_token}}
 
 ### =========================
-### 8) Reschedule godzinę posiłku (Faza 9) — PODMIEŃ "meal_name" poniżej na
-### faktyczną nazwę posiłku z odpowiedzi kroku 7 (nazwy generuje AI, więc nie
-### są stałe między uruchomieniami).
+### 8) Reschedule godzinę posiłku (Faza 9) — PODMIEŃ "meal_index" poniżej na
+### pozycję posiłku w tablicy "meals" danego dnia z odpowiedzi kroku 7
+### (identyfikacja po nazwie jest niejednoznaczna — AI regularnie generuje
+### dwa posiłki o tej samej nazwie, np. dwa "Snack", tego samego dnia).
 ### =========================
 PATCH {{baseUrl}}{{dietPlansPrefix}}/{{plan_id}}/meals
 Authorization: Bearer {{access_token}}
@@ -136,7 +137,7 @@ Content-Type: application/json
 
 {
   "day_number": 1,
-  "meal_name": "CHANGE_ME_FROM_STEP_7_RESPONSE",
+  "meal_index": 0,
   "new_time": "07:30:00"
 }
 
@@ -151,7 +152,7 @@ Content-Type: application/json
 
 {
   "day_number": 1,
-  "meal_name": "Nonexistent meal",
+  "meal_index": 99,
   "new_time": "07:30:00"
 }
 

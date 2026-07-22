@@ -63,12 +63,37 @@ async def test_reschedule_meal_updates_the_time() -> None:
             user_id=user_id,
             plan_id=UUID(created.plan_id),
             day_number=1,
-            meal_name="Oatmeal",
+            meal_index=0,
             new_time=time(8, 0),
         )
     )
 
     assert result.days[0].meals[0].time == "08:00"
+
+
+@pytest.mark.asyncio
+async def test_reschedule_meal_moves_it_to_a_different_day() -> None:
+    plan_repo = InMemoryDietPlanRepository()
+    user_id = uuid4()
+    created = await _generate_plan(plan_repo, InMemoryNutritionProfileRepository(), user_id, duration_days=2)
+
+    result = await RescheduleMealUseCase(plan_repo).execute(
+        RescheduleMealCommand(
+            user_id=user_id,
+            plan_id=UUID(created.plan_id),
+            day_number=1,
+            meal_index=0,
+            new_time=time(8, 0),
+            new_day_number=2,
+        )
+    )
+
+    # _plan_dict gives every day its own "Oatmeal" meal, so day 2 now holds
+    # both its original meal and the one moved over from day 1.
+    assert result.days[0].meals == ()
+    assert len(result.days[1].meals) == 2
+    moved = next(meal for meal in result.days[1].meals if meal.time == "08:00")
+    assert moved.name == "Oatmeal"
 
 
 @pytest.mark.asyncio
@@ -82,7 +107,7 @@ async def test_reschedule_meal_persists_the_change() -> None:
             user_id=user_id,
             plan_id=UUID(created.plan_id),
             day_number=1,
-            meal_name="Oatmeal",
+            meal_index=0,
             new_time=time(8, 0),
         )
     )
@@ -101,7 +126,7 @@ async def test_reschedule_meal_raises_for_unknown_plan() -> None:
                 user_id=uuid4(),
                 plan_id=uuid4(),
                 day_number=1,
-                meal_name="Oatmeal",
+                meal_index=0,
                 new_time=time(8, 0),
             )
         )
@@ -119,14 +144,14 @@ async def test_reschedule_meal_raises_for_non_owner() -> None:
                 user_id=uuid4(),
                 plan_id=UUID(created.plan_id),
                 day_number=1,
-                meal_name="Oatmeal",
+                meal_index=0,
                 new_time=time(8, 0),
             )
         )
 
 
 @pytest.mark.asyncio
-async def test_reschedule_meal_raises_for_unknown_meal() -> None:
+async def test_reschedule_meal_raises_for_out_of_range_meal_index() -> None:
     plan_repo = InMemoryDietPlanRepository()
     user_id = uuid4()
     created = await _generate_plan(plan_repo, InMemoryNutritionProfileRepository(), user_id)
@@ -137,7 +162,56 @@ async def test_reschedule_meal_raises_for_unknown_meal() -> None:
                 user_id=user_id,
                 plan_id=UUID(created.plan_id),
                 day_number=1,
-                meal_name="Nonexistent",
+                meal_index=99,
                 new_time=time(8, 0),
             )
         )
+
+
+@pytest.mark.asyncio
+async def test_reschedule_meal_by_index_disambiguates_meals_with_the_same_name() -> None:
+    plan_repo = InMemoryDietPlanRepository()
+    profile_repo = InMemoryNutritionProfileRepository()
+    user_id = uuid4()
+    await CreateNutritionProfileUseCase(profile_repo).execute(
+        CreateNutritionProfileCommand(
+            user_id=user_id,
+            age=29,
+            height_cm=187,
+            weight_kg=80,
+            activity_level="HIGH",
+            goal="MUSCLE_GAIN",
+            diet_type="VEGETARIAN",
+        )
+    )
+    llm = FakeLLMProvider(
+        canned_structured_response={
+            "days": [
+                {
+                    "day_number": 1,
+                    "meals": [
+                        {"name": "Snack", "calories": 200, "protein": 10, "carbohydrates": 15, "fat": 8},
+                        {"name": "Snack", "calories": 250, "protein": 15, "carbohydrates": 20, "fat": 10},
+                    ],
+                }
+            ]
+        }
+    )
+    created = await GenerateDietPlanUseCase(plan_repo, profile_repo, llm).execute(
+        GenerateDietPlanCommand(user_id=user_id, duration_days=1)
+    )
+
+    result = await RescheduleMealUseCase(plan_repo).execute(
+        RescheduleMealCommand(
+            user_id=user_id,
+            plan_id=UUID(created.plan_id),
+            day_number=1,
+            meal_index=1,
+            new_time=time(18, 0),
+        )
+    )
+
+    assert result.days[0].meals[0].calories == 200
+    assert result.days[0].meals[0].time is None
+    assert result.days[0].meals[1].calories == 250
+    assert result.days[0].meals[1].time == "18:00"

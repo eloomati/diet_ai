@@ -42,9 +42,13 @@ from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_u
     SqlAlchemyUserRepository,
 )
 from backend.modules.nutrition.api.dependencies import (
+    get_combined_diet_plan_export_repository,
     get_diet_plan_export_repository,
     get_diet_plan_repository,
     get_nutrition_profile_repository,
+)
+from backend.modules.nutrition.domain.repositories.combined_diet_plan_export_repository import (
+    CombinedDietPlanExportRepository,
 )
 from backend.modules.nutrition.domain.repositories.diet_plan_export_repository import (
     DietPlanExportRepository,
@@ -98,6 +102,9 @@ def get_delete_user_use_case(
     diet_plan_export_repository: DietPlanExportRepository = Depends(
         get_diet_plan_export_repository
     ),
+    combined_diet_plan_export_repository: CombinedDietPlanExportRepository = Depends(
+        get_combined_diet_plan_export_repository
+    ),
 ) -> DeleteUserUseCase:
     return DeleteUserUseCase(
         user_repository,
@@ -105,6 +112,7 @@ def get_delete_user_use_case(
         nutrition_profile_repository,
         diet_plan_repository,
         diet_plan_export_repository,
+        combined_diet_plan_export_repository,
     )
 
 
