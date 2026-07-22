@@ -3,6 +3,7 @@ from .ports import TransactionEventPublisher
 from .use_cases import (
     CreateTransactionUseCase,
     DietitianNotFoundError,
+    EmailNotVerifiedError,
     GetMyTransactionsAsDietitianUseCase,
     TransactionApplicationError,
     TransactionNotFoundError,
@@ -16,5 +17,6 @@ __all__ = [
     "TransactionEventPublisher",
     "TransactionApplicationError",
     "DietitianNotFoundError",
+    "EmailNotVerifiedError",
     "TransactionNotFoundError",
 ]

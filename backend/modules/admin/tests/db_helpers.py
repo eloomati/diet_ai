@@ -55,3 +55,16 @@ async def promote_role(user_id: str, role: Role) -> None:
         user.change_role(role)
         await user_repo.save(user)
         await session.commit()
+
+
+async def verify_email(user_id: str) -> None:
+    """Phase 13 Etap 0 Stage 3's own tests need a verified buyer without
+    going through the real confirm-email-verification flow (already
+    covered by identity's own tests) — same direct-SQL bootstrap spirit as
+    `promote_role` above."""
+    async with test_db_session() as session:
+        user_repo = SqlAlchemyUserRepository(session)
+        user = await user_repo.get_by_id(UUID(user_id))
+        user.mark_email_verified()
+        await user_repo.save(user)
+        await session.commit()

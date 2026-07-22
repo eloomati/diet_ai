@@ -287,13 +287,73 @@ thing anywhere in this codebase to read the request's client IP):
   design; `docker compose exec redis redis-cli KEYS "*"` showed exactly
   `login:<ip>` and `register:<ip>`, confirming the key shape matches the
   design. `docker compose down` after.
-- [ ] **Stage 3 — Buyer account-status safeguard**:
-      `CreateTransactionUseCase` resolves the buyer via `UserRepository`
-      and rejects (`403` or similar) unless the buyer's own `status` is
-      `ACTIVE` — mirrors the existing dietitian-side validation, just
-      for the other party.
-  - Exit criteria: a banned/inactive user's `POST /transactions` call
-    fails with a clear error code; an active user is unaffected.
+- **Stage 3 — Buyer safeguards on `POST /transactions` — DONE**: verified
+      live before writing any code that the banned/inactive half of this
+      stage's original premise is **already enforced today** —
+      `get_current_user` (the auth dependency every authenticated route
+      already uses, including this one) calls
+      `user.assert_can_authenticate()`, which rejects any non-`ACTIVE`
+      status with `403 INACTIVE_USER` — confirmed by registering a
+      buyer, banning them via the real `POST /admin/users/{id}/ban`, and
+      calling `POST /transactions` with their already-issued token
+      (`403 INACTIVE_USER`, not `201`). No new code needed for that
+      half — this stage narrows to the one real gap: **an unverified
+      email is not currently checked anywhere** (`email_verified` is
+      tracked and exposed via `/auth/me`, but never enforced as a
+      business rule). `CreateTransactionUseCase` fetches the buyer via
+      its already-injected `UserRepository` (it only ever used
+      `command.user_id` directly before) and rejects with a new
+      `EmailNotVerifiedError` → `403 EMAIL_NOT_VERIFIED` unless
+      `email_verified` is `True` — the dietitian side is untouched.
+  - Exit criteria: an unverified buyer's `POST /transactions` call fails
+    with `403 EMAIL_NOT_VERIFIED`; a verified buyer is unaffected; a
+    banned buyer still gets `403 INACTIVE_USER` exactly as before (this
+    stage doesn't touch that path).
+
+  Built exactly per the corrected scope above: a new
+  `EmailNotVerifiedError` (`transactions/application/use_cases/exceptions.py`)
+  and a new `ErrorCode.EMAIL_NOT_VERIFIED`, mapped to `403` in
+  `transaction_router.py`'s existing catch-clause style, right alongside
+  `DietitianNotFoundError`. `CreateTransactionUseCase` now fetches the
+  buyer via its already-injected `UserRepository` (previously the
+  use case never resolved `command.user_id` into an actual entity at
+  all) and raises before `Transaction.create()` runs. The dietitian-side
+  check and the self-purchase invariant are both completely untouched.
+
+  Fixing the existing test suite for this surfaced its own gap: every
+  test across `transactions`, `admin`, and the Etap-5 Kafka integration
+  test that creates a transaction via the real API had never actually
+  verified its buyer's email (irrelevant before this stage, since
+  nothing checked it) — 4 test files needed a `verify_email(user_id)`
+  helper (added to `transactions`' and `admin`'s own `tests/db_helpers.py`,
+  mirroring `promote_to_dietitian`/`promote_role`'s exact direct-DB-bootstrap
+  shape) called wherever a buyer that needs to actually complete a
+  purchase is set up. Two unit-test assertions also needed a real fix,
+  not just a bystander update: `test_create_transaction_rejects_buying_your_own_offer`
+  had the dietitian buying their own offer with an *unverified* email,
+  which would now raise `EmailNotVerifiedError` before ever reaching the
+  self-purchase check the test actually means to exercise — fixed by
+  verifying that user first, so the test asserts what it always meant
+  to.
+
+  Exit criteria met: 2 new tests (1 unit —
+  `test_create_transaction_raises_when_buyer_email_not_verified`; 1 API —
+  `test_create_transaction_returns_403_for_an_unverified_buyer`), plus
+  the 4 existing test files above updated so their buyers are verified
+  where a purchase must actually succeed. Full backend suite run
+  (touches a shared `ErrorCode` enum and `transactions/application`'s
+  own `__init__.py` exports — cross-cutting enough to warrant it):
+  **574 passed, 0 failed** (double-checked via `--collect-only`), up
+  from 572 after Stage 2.
+
+  Live-verified against the real Docker stack, through the actual
+  user-facing flow rather than a DB shortcut: registered a buyer,
+  attempted `POST /transactions` before verifying — `403
+  EMAIL_NOT_VERIFIED`; fetched the real verification email from Mailhog
+  (`GET /api/v2/messages`), confirmed via `POST
+  /auth/verify-email/confirm` with the real code from that email, then
+  retried the same purchase with the same already-issued token — `201
+  Created`. `docker compose down` after.
 - [ ] **Stage 4 — Frontend session/cache reset across account
       switches**: `queryClient.clear()` called on login, logout, and
       register in `AuthContext.tsx` — so a newly-logged-in session never

@@ -30,6 +30,15 @@ async def _promote(user_id: str, role: Role) -> None:
         await session.commit()
 
 
+async def _verify_email(user_id: str) -> None:
+    async with open_db_session() as session:
+        user_repo = SqlAlchemyUserRepository(session)
+        user = await user_repo.get_by_id(UUID(user_id))
+        user.mark_email_verified()
+        await user_repo.save(user)
+        await session.commit()
+
+
 def _poll(predicate, timeout: float = POLL_TIMEOUT_SECONDS):
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -60,6 +69,7 @@ async def test_marking_a_transaction_paid_notifies_and_creates_a_thread_via_real
             admin_token, admin_id = register_and_login(client, "kafka.admin")
             await _promote(dietitian_id, Role.DIET_USER)
             await _promote(admin_id, Role.ADMIN)
+            await _verify_email(buyer_id)
 
             created = client.post(
                 "/api/v1/transactions",
