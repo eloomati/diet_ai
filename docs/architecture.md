@@ -277,7 +277,8 @@ Responsibilities:
 - email verification,
 - email delivery logging + retry for failed sends,
 - user account management,
-- role-based access control (Phase 12).
+- role-based access control (Phase 12),
+- rate limiting the three sensitive auth endpoints against brute-force/spam (Phase 13).
 
 Database:
 
@@ -319,9 +320,13 @@ see "Shared Kernel" below for where it actually lives.
 `RefreshTokenRepository.revoke_all_for_user()` after a successful reset —
 every other session is forced to re-authenticate, standard practice after
 a credential change. Email verification does **not** gate login:
-`LoginUserUseCase` is untouched by `email_verified` — this is a deliberate
-scope boundary, not an oversight; verifying email is tracked but not
-enforced.
+`LoginUserUseCase` is untouched by `email_verified` — this remains a
+deliberate scope boundary, not an oversight. It's no longer true that
+`email_verified` is tracked-but-never-enforced anywhere, though: Phase 13
+Etap 0 added the first real enforcement of it, scoped narrowly to buying
+a dietitian's offer (`CreateTransactionUseCase`, see the Transactions
+Module below) — a buyer must verify their email before purchasing,
+independent of whether they can otherwise log in and browse fine.
 
 ### Role-based access control (Phase 12)
 
@@ -348,6 +353,31 @@ no self-escalation path anywhere in the API, and a `SUPER_ADMIN` cannot
 even change their *own* role through the role-change endpoint (a single
 misclick could otherwise demote or lock out the only such account in
 the system).
+
+### Rate Limiting (Phase 13)
+
+`RateLimiter` (`application/ports/rate_limiter.py`) is a port — one
+method, `hit(key, max_attempts, window_seconds) -> bool` — with the same
+mock/real split as every other swappable provider in this codebase:
+`NoOpRateLimiter` (default, `RATE_LIMIT_PROVIDER=mock`, always returns
+`True`, so `pytest` never needs a real Redis) and `RedisRateLimiter`
+(`RATE_LIMIT_PROVIDER=redis`, a fixed-window counter — `INCR` the key,
+`EXPIRE` it only on the first hit in the window — not a sliding-window/
+token-bucket algorithm, an acceptable tradeoff for a demo-scoped
+anti-brute-force guard rather than a billing-grade limiter). The Redis
+connection itself is a lifespan-managed singleton
+(`shared/redis/client.py`), same `init`/`close`/`get` shape as the Kafka
+producer and the Postgres engine — started only when
+`rate_limit_provider == "redis"`.
+
+Enforcement is a FastAPI dependency factory,
+`rate_limited(action: str)` (same "factory returning a dependency" shape
+as `require_role`), added as a fourth `Depends(...)` on
+`register`/`login`/`request_password_reset` — it reads the request's
+client IP and calls `RateLimiter.hit()` with a `f"{action}:{client_ip}"`
+key, raising `429 RATE_LIMITED` when exceeded. One counter bucket per
+*action* per IP, not one shared bucket per IP — flooding `/auth/login`
+never also blocks `/auth/register` from the same address.
 
 ### EmailSender, Mailhog, and the delivery log
 
@@ -580,6 +610,16 @@ stand-ins for other real external services elsewhere in this codebase.
 entity's own `create()` — never accepted from the client, since letting
 a caller set their own price would be a real integrity hole for the one
 module whose entire job is tracking money.
+
+`CreateTransactionUseCase` also resolves the buyer via `identity`'s
+`UserRepository` (Phase 13 Etap 0) and rejects with `EmailNotVerifiedError`
+unless `email_verified` is `True` — the first real enforcement of that
+flag anywhere in the codebase (see the Identity Module above). The
+buyer's account *status* (banned/inactive) was already covered
+independently, further upstream, by `get_current_user`'s own
+`assert_can_authenticate()` check — every authenticated endpoint gets
+that for free, so this use case only ever needed to add the
+email-verification check on top, not duplicate the status one.
 
 `status` is a 2-state, admin-reversible toggle (`UNPAID`/`PAID`), not a
 one-way approval state machine like `DietitianApplication`'s
@@ -1299,8 +1339,10 @@ docker compose up
 
 Possible future improvements:
 
-- Redis cache,
-- message broker,
+- general-purpose Redis caching (marketplace listing, notification
+  polling) — Redis itself is in the stack since Phase 13, but scoped
+  narrowly to auth rate limiting; broader caching was considered and
+  deliberately deferred, not chosen speculatively,
 - background workers,
 - vector database,
 - semantic search,

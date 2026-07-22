@@ -37,7 +37,7 @@ cd diet_ai
 docker compose up -d --build
 ```
 
-This builds the backend and frontend images and starts nine containers:
+This builds the backend and frontend images and starts ten containers:
 
 | Service    | Container          | Port        | Purpose                                             |
 |------------|--------------------|-------------|------------------------------------------------------|
@@ -50,6 +50,7 @@ This builds the backend and frontend images and starts nine containers:
 | `mailhog`  | `diet_ai_mailhog`  | 1025 / 8025 | Local SMTP catcher — password-reset/verification emails land here, not a real inbox. Web UI at http://localhost:8025 |
 | `sftp`     | `diet_ai_sftp`     | 2222        | Local SFTP server — diet-plan CSV exports are archived here so a user can re-download one later. User `dietai`/`dietai` |
 | `kafka`    | `diet_ai_kafka`    | 9094        | Single-node broker (KRaft mode) — `TransactionPaid` events power the Notifications badge + auto-created Messaging threads |
+| `redis`    | `diet_ai_redis`    | 6379        | Rate-limits `POST /auth/login`, `/auth/register`, `/auth/password-reset/request` — one counter bucket per action per client IP |
 
 **First start takes a few minutes** — two things happen automatically, no action needed:
 
@@ -223,8 +224,9 @@ Allow users to:
 | Frontend | ✅ |
 | Reporting | ⏳ |
 | Phase 12 — Dietitian Marketplace, Admin Panel & Roles | ✅ |
+| Phase 13 — Quality, Security & Personalization | 🚧 in progress — see `docs/implementation-roadmap.md` |
 
-See `docs/implementation/implementation-roadmap-done190726.md` for the full stage-by-stage history of Phases 0-11; `docs/implementation-roadmap.md` holds the current phase's prospective plan.
+See `docs/implementation/implementation-roadmap-done190726.md` and `docs/implementation/implementation-roadmap-done220726.md` for the full stage-by-stage history of Phases 0-12; `docs/implementation-roadmap.md` holds the current phase's prospective plan.
 
 ---
 
@@ -379,11 +381,12 @@ Or via Docker — `docker compose up -d --build frontend` (depends on the
 
 - Docker
 - Docker Compose
+- Kafka (single-node, KRaft mode)
+- Redis (auth rate limiting)
 
 Future:
 
 - Kubernetes
-- Redis
 - Vector Database
 
 ---

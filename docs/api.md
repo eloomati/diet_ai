@@ -73,6 +73,14 @@ Database:
 PostgreSQL
 ```
 
+`POST /auth/register`, `/auth/login`, and `/auth/password-reset/request`
+are each individually rate-limited by client IP (Phase 13) — a separate
+counter bucket per action, so flooding one never blocks the others from
+the same IP. Backed by Redis in real deployments
+(`RATE_LIMIT_PROVIDER=redis`); an in-memory no-op that never blocks is
+the default, so `pytest` and local dev without Redis running are
+unaffected.
+
 ---
 
 ## POST /auth/register
@@ -124,6 +132,8 @@ Body:
 
 409 Conflict — `USER_ALREADY_EXISTS`
 
+429 Too Many Requests — `RATE_LIMITED` (more than `RATE_LIMIT_MAX_ATTEMPTS` register attempts from the same IP within `RATE_LIMIT_WINDOW_SECONDS` — Phase 13; a separate counter bucket per action, so this never blocks `/auth/login` from the same IP)
+
 ---
 
 ## POST /auth/login
@@ -165,6 +175,8 @@ Body:
 401 Unauthorized — `INVALID_CREDENTIALS`
 
 403 Forbidden — `INACTIVE_USER`
+
+429 Too Many Requests — `RATE_LIMITED` (more than `RATE_LIMIT_MAX_ATTEMPTS` login attempts from the same IP within `RATE_LIMIT_WINDOW_SECONDS` — Phase 13, guards against brute-force; counted regardless of whether the credentials given were actually correct)
 
 ---
 
@@ -375,6 +387,8 @@ Body:
 400 Bad Request — `BAD_REQUEST` (CAPTCHA verification failed)
 
 422 Unprocessable Entity — `VALIDATION_ERROR` (missing `captcha_token`)
+
+429 Too Many Requests — `RATE_LIMITED` (more than `RATE_LIMIT_MAX_ATTEMPTS` reset requests from the same IP within `RATE_LIMIT_WINDOW_SECONDS` — Phase 13)
 
 Otherwise always `200`, whether or not the email exists.
 
@@ -1876,7 +1890,10 @@ admin panel (see `POST /admin/transactions/{id}/mark-paid` above).
 Creates a transaction for one of a dietitian's two fixed offers. `amount`
 is always server-computed from `offer_type` — never accepted from the
 client. Any authenticated user may call this (not role-gated — anyone
-might want to hire a dietitian).
+might want to hire a dietitian) — but the caller's own email must be
+verified first (Phase 13): an unverified buyer is rejected with `403
+EMAIL_NOT_VERIFIED`, distinct from the banned/inactive `403
+INACTIVE_USER` every authenticated endpoint already enforces.
 
 ### Request
 
@@ -1924,6 +1941,8 @@ docs/architecture.md's Data Ownership Rules). `buyer_email` is always
 
 ```
 401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=INACTIVE_USER — caller's account is banned/inactive
+403 Forbidden code=EMAIL_NOT_VERIFIED — caller's email isn't verified yet
 404 Not Found code=NOT_FOUND — dietitian_id doesn't exist, or isn't a DIET_USER
 400 Bad Request code=BAD_REQUEST — dietitian_id is the caller's own id
 422 Unprocessable Entity code=VALIDATION_ERROR — offer_type isn't one of the 2 valid values

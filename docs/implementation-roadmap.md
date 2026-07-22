@@ -22,9 +22,9 @@ complete stage-by-stage logs. This document picks up at Phase 13.
 ```
 Phase 0-12  - Foundation through Dietitian  DONE — see the two archived
               Marketplace                    roadmaps
-Phase 13    - Quality, Security &           NOT STARTED
+Phase 13    - Quality, Security &           IN PROGRESS —
               Personalization                Etap 0 (Security & session
-                                                hardening): not started
+                                                hardening): DONE
                                               Etap 1 (User display
                                                 names): not started
                                               Etap 2 (Chat & diet-plan
@@ -151,7 +151,7 @@ written (not assumed from the bug report alone):
 
 ---
 
-### Etap 0 — Security & Session Hardening
+### Etap 0 — Security & Session Hardening — DONE
 
 Goal: close the concrete security/safety gaps found — a weak JWT
 secret, no auth rate limiting, no buyer-status check on purchases, and
@@ -393,8 +393,47 @@ thing anywhere in this codebase to read the request's client IP):
   a completely empty profile form ("Nie masz jeszcze profilu
   żywieniowego", blank Wiek/Wzrost/Waga fields) — no trace of account
   A's 31/180/77 anywhere. `docker compose down` after.
-- [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
-- [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
+- **Stage 5 — Tests + docs sync — DONE**: closing stage for this etap.
+
+  Docs sync: **`docs/api.md`** — new note on the Authentication API
+  section's own intro (per-action Redis rate limiting, mock-by-default);
+  `429 RATE_LIMITED` added to the error list on `/auth/register`,
+  `/auth/login`, `/auth/password-reset/request`; `POST /transactions`'s
+  description and error list gained `403 EMAIL_NOT_VERIFIED` (and the
+  previously-undocumented `403 INACTIVE_USER`, found missing while
+  writing this). **`docs/architecture.md`** — new `### Rate Limiting
+  (Phase 13)` subsection under the Identity Module (the `RateLimiter`
+  port/mock/real split, the Redis singleton, the `rate_limited(action)`
+  dependency factory); Transactions Module gained a paragraph on the new
+  `EmailNotVerifiedError` check; fixed a real stale claim found while
+  writing this — `emailVerified` was documented as "tracked but never
+  enforced," no longer true since this etap; Future Extensions' "Redis
+  cache" / "message broker" bullets updated — Redis and Kafka are both
+  real now, scoped narrowly (rate limiting only; general caching still
+  deliberately deferred). **`docs/domain-model.md`** — mirrored the same
+  `emailVerified` correction and Transaction rule update; Future
+  Extensions' Phase-12 note repointed at the correct archived-roadmap
+  filename (was still pointing at the live roadmap doc, stale since this
+  document replaced it), and gained a new Phase 13 progress paragraph
+  (Etap 0 done, Etaps 1-4 not started). **`README.md`** — two real gaps
+  found while checking it: the Docker services table said "nine
+  containers" and never listed `redis` at all (added, count corrected to
+  ten), and the Infrastructure section's "Future: Redis" was stale for
+  the same reason `architecture.md`'s was; Phase table gained a new
+  Phase 13 row (in progress). **`docs/openapi.json`** — regenerated,
+  confirmed no diff (the new error responses are raised, not declared
+  via FastAPI's `responses=`, so they don't change the generated
+  schema — expected, not a bug).
+
+  Also found and fixed, while writing this stage: two consecutive,
+  duplicate "Stage 5 — Tests + docs sync" placeholder bullets had been
+  left in this very file from the original prospective breakdown —
+  collapsed into the one real entry above.
+
+  Exit criteria met — closing-gate full suites: backend **574 passed, 0
+  failed** (unchanged since Stage 3 — Stage 4 was frontend-only).
+  Frontend: **139 passed** across 21 files (unchanged since Stage 4).
+  `npx tsc -b`, `npm run build`, and `oxlint` all clean.
 
 ---
 
