@@ -1,4 +1,5 @@
 from backend.modules.identity.domain.entities.user import User
+from backend.modules.identity.domain.value_objects.display_name import DisplayName
 from backend.modules.identity.domain.value_objects.email import Email
 from backend.modules.identity.domain.value_objects.password_hash import PasswordHash
 from backend.modules.identity.domain.value_objects.role import Role
@@ -16,6 +17,7 @@ class UserMapper:
             status=UserStatus(model.status),
             role=Role(model.role),
             email_verified=model.email_verified,
+            display_name=DisplayName(model.display_name) if model.display_name else None,
             created_at=model.created_at,
             updated_at=model.updated_at,
             domain_events=[],
@@ -30,6 +32,7 @@ class UserMapper:
             status=user.status.value,
             role=user.role.value,
             email_verified=user.email_verified,
+            display_name=user.display_name.value if user.display_name else None,
             created_at=user.created_at,
             updated_at=user.updated_at,
         )

@@ -12,6 +12,7 @@ from backend.modules.identity.domain.events.user_events import (
 from backend.modules.identity.domain.exceptions.identity_domain_errors import (
     InactiveUserAuthenticationError,
 )
+from backend.modules.identity.domain.value_objects.display_name import DisplayName
 from backend.modules.identity.domain.value_objects.email import Email
 from backend.modules.identity.domain.value_objects.password_hash import PasswordHash
 from backend.modules.identity.domain.value_objects.role import Role
@@ -26,6 +27,9 @@ class User:
     status: UserStatus = UserStatus.ACTIVE
     role: Role = Role.USER
     email_verified: bool = False
+    # Nullable — not everyone sets one immediately; every read model falls
+    # back to `email` wherever a person's identity is shown until they do.
+    display_name: DisplayName | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     domain_events: list[object] = field(default_factory=list)
@@ -72,6 +76,10 @@ class User:
         self.password_hash = new_password_hash
         self.updated_at = datetime.now(UTC)
         self.domain_events.append(PasswordChanged(user_id=self.id))
+
+    def set_display_name(self, display_name: DisplayName | None) -> None:
+        self.display_name = display_name
+        self.updated_at = datetime.now(UTC)
 
     def mark_email_verified(self) -> None:
         self.email_verified = True

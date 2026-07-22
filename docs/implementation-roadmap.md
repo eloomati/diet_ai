@@ -202,15 +202,55 @@ Goal: everyone can set their own display name; dietitians additionally
 have the option to display their real first + last name instead.
 Validated, and shown everywhere email/UUID currently leaks through.
 
-- [ ] **Stage 1 — `display_name` domain field + dietitian
-      `first_name`/`last_name`**: `display_name` added to `User`
-      (nullable — falls back to email wherever currently shown, until
-      set); `first_name`/`last_name` added to `DietitianProfile` (both
-      nullable, optional, independent of `display_name`). One shared
-      value-object validator (Polish-letters/digits/single-spaces-only)
-      reused across all three fields; new migration(s) for both tables.
-  - Exit criteria: domain-level tests cover the validator's accept/reject
-    cases for all three fields; migrations apply cleanly.
+- **Stage 1 — `display_name` domain field + dietitian
+  `first_name`/`last_name` — DONE**: a genuinely new architectural
+  precedent for this codebase, per `docs/architecture.md`'s own "Shared
+  Kernel" rule (a module may depend on `shared/`, `shared/` never
+  depends on a module) — `backend/shared/validation/human_name.py` is a
+  **pure, dependency-free** function, `is_valid_human_name(value) ->
+  bool` (letters incl. Polish diacritics + digits, single spaces between
+  "words," no leading/trailing/double spaces, max 50 chars); it raises
+  nothing itself, so it can live in the Shared Kernel without creating a
+  shared-depends-on-module dependency, exactly like `PasswordPolicy`
+  *couldn't* (it raises identity's own `InvalidPasswordError` directly,
+  so it stays in identity).
+
+  Each module calls the shared function but raises its **own** domain
+  exception, matching each module's own pre-existing convention rather
+  than inventing a new shared one: identity gets a new `DisplayName`
+  value object (`domain/value_objects/display_name.py`, frozen dataclass,
+  identical shape to `Email` — strip, validate, `object.__setattr__`),
+  raising a new `InvalidDisplayNameError`; `User` gains a nullable
+  `display_name: DisplayName | None` field and a `set_display_name()`
+  mutator (no domain event — matches `deactivate()`/`block()`/`activate()`'s
+  precedent for a state change nothing else needs to react to, not
+  `change_password()`/`change_role()`'s). Dietitian keeps its own
+  pre-existing convention too — `experience`/`description` are plain
+  `str`, not value-object-wrapped — so `first_name`/`last_name` on
+  `DietitianProfile` are plain `str | None`, validated inline in the
+  entity's existing `_validate()` (only when not `None`, since both are
+  optional), raising the existing `InvalidDietitianProfileError`. Both
+  entities' migrations, models, and mappers updated
+  (`20260722_13_display_names.py`; `users.display_name`,
+  `dietitian_profiles.first_name`/`last_name`, all nullable
+  `String(50)`).
+
+  Exit criteria met: 31 new tests — `backend/tests/test_human_name_validator.py`
+  (the shared function's own accept/reject cases, incl. SQL-injection
+  and script-tag strings, both rejected by the character-class alone,
+  confirming no separate "SQL injection defense" mechanism was needed
+  beyond the same character-set rule); `User.set_display_name()` +
+  `DisplayName` VO tests in `test_user_entity.py`;
+  `DietitianProfile` `first_name`/`last_name` tests (via both `create()`
+  and `update_details()`) in `test_dietitian_profile_entity.py`. Full
+  backend suite run (a new Shared Kernel package plus changes to two
+  widely-used entities is exactly the "shared/cross-cutting" case this
+  project's own test-scope rule calls for a full run on): **605 passed,
+  0 failed** (double-checked via `--collect-only`), up from 574 at the
+  end of Etap 0 — confirming the new migration applies cleanly (the
+  same session-scoped Postgres test fixture every other module's tests
+  already depend on runs `alembic upgrade head` before any test in the
+  suite executes).
 - [ ] **Stage 2 — Propagate into read models**: a shared resolution rule
       — dietitian's `first_name + last_name` (if both set) →
       `display_name` (if set) → email (fallback) — applied everywhere a
