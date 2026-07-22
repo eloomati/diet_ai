@@ -10,7 +10,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { MyceloNotificationBadge } from '@/components/MyceloNotificationBadge'
 import { categoryEmoji } from '@/lib/categoryOptions'
 import { ApiError } from '@/lib/apiFetch'
-import { notifyError } from '@/lib/toast'
+import { notifyError, notifyInfo } from '@/lib/toast'
 import { useAuth } from '@/lib/auth'
 import { useUnreadNotificationsCount } from '@/hooks/useUnreadNotificationsCount'
 import { archiveConversation, deleteConversation, getConversation, sendMessage } from '@/api/conversations'
@@ -211,6 +211,8 @@ export function ChatCanvas({
         duration_days: 3,
         requirements: message.trim() ? [message.trim()] : undefined,
       }),
+    onSuccess: () => notifyInfo('Plan wygenerowany! Zobacz go poniżej.'),
+    onError: (error) => notifyError(generateErrorMessage(error)),
   })
 
   const isArchived = conversationQuery.data?.status === 'ARCHIVED'
@@ -349,12 +351,6 @@ export function ChatCanvas({
           <p className="mx-auto mt-4 max-w-2xl text-center text-sm text-muted-foreground">
             Generowanie planu…
           </p>
-        )}
-        {generatePlanMutation.isError && (
-          <FieldError
-            message={generateErrorMessage(generatePlanMutation.error)}
-            className="mx-auto mt-4 max-w-2xl text-center"
-          />
         )}
         {generatePlanMutation.data && (
           <div className="mx-auto mt-4 max-w-2xl pb-3">

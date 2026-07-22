@@ -677,13 +677,19 @@ the app.
     user's bubble ("Cześć") renders before the AI response resolves,
     with "Mycelo pisze odpowiedź…" following it. 17/17 tests in this
     file pass.
-- [ ] **Stage 2 — Diet-plan-generation feedback**: `onSuccess`/`onError`
-      added to the generate-plan mutation — a success toast (or
-      equivalent inline confirmation) and a clear error toast on
-      failure, matching the pattern already used by
-      archive/delete/send-message mutations elsewhere in this codebase.
-  - Exit criteria: a forced generation failure surfaces a visible error
-    instead of silently doing nothing.
+- [x] **Stage 2 — Diet-plan-generation feedback — DONE**: added
+      `onSuccess`/`onError` to `generatePlanMutation` in `ChatCanvas.tsx`
+      — a success toast ("Plan wygenerowany! Zobacz go poniżej.") and an
+      error toast (reusing the existing `generateErrorMessage()`
+      code-to-message mapping), matching the toast-only pattern already
+      used by the archive/delete mutations in the same file. Replaced
+      the old passive `isError`-driven inline `FieldError` banner, which
+      duplicated the same information with no toast.
+  - Exit criteria met: a forced generation failure now surfaces
+    `notifyError(...)` instead of silently doing nothing.
+    `ChatCanvas.test.tsx` updated to assert against the mocked
+    `notifyError`/`notifyInfo` calls instead of DOM text for these
+    cases. 17/17 tests pass.
 - [ ] **Stage 3 — Rename conversations + diet plans**: new
       rename/edit-title endpoints for both (`PATCH` on each), plus
       inline-edit UI (e.g. click-to-edit the title) in the left rail's

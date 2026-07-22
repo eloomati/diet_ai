@@ -5,11 +5,11 @@ import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AuthProvider } from '@/lib/auth'
-import { notifyError } from '@/lib/toast'
+import { notifyError, notifyInfo } from '@/lib/toast'
 
 import { ChatCanvas } from './ChatCanvas'
 
-vi.mock('@/lib/toast', () => ({ notifyError: vi.fn() }))
+vi.mock('@/lib/toast', () => ({ notifyError: vi.fn(), notifyInfo: vi.fn() }))
 
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
@@ -43,6 +43,7 @@ describe('ChatCanvas', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.mocked(notifyError).mockClear()
+    vi.mocked(notifyInfo).mockClear()
   })
 
   it('shows the hero when there is no active conversation', () => {
@@ -390,6 +391,7 @@ describe('ChatCanvas', () => {
     expect(await screen.findByText('Wygenerowany plan')).toBeInTheDocument()
     expect(screen.getByText(/Budowa masy mięśniowej · Wegetariańska · 3 dni/)).toBeInTheDocument()
     expect(screen.getByText(/08:00 · Owsianka białkowa/)).toBeInTheDocument()
+    expect(notifyInfo).toHaveBeenCalledWith('Plan wygenerowany! Zobacz go poniżej.')
 
     const generateCall = fetchMock.mock.calls.find(([url]) => (url as string).includes('/diet-plans/generate'))
     expect(generateCall).toBeDefined()
@@ -448,9 +450,11 @@ describe('ChatCanvas', () => {
 
     await user.click(screen.getByRole('button', { name: 'Generuj plan' }))
 
-    expect(
-      await screen.findByText('Uzupełnij najpierw profil żywieniowy (zakładka Profil), żeby wygenerować plan.'),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(notifyError).toHaveBeenCalledWith(
+        'Uzupełnij najpierw profil żywieniowy (zakładka Profil), żeby wygenerować plan.',
+      ),
+    )
   })
 
   it('shows a pending state while a plan is being generated', async () => {
@@ -501,6 +505,8 @@ describe('ChatCanvas', () => {
 
     await user.click(screen.getByRole('button', { name: 'Generuj plan' }))
 
-    expect(await screen.findByText('Nie udało się wygenerować planu. Spróbuj ponownie.')).toBeInTheDocument()
+    await waitFor(() =>
+      expect(notifyError).toHaveBeenCalledWith('Nie udało się wygenerować planu. Spróbuj ponownie.'),
+    )
   })
 })
