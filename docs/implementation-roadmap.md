@@ -630,13 +630,18 @@ gap Stage 2 didn't cover — it only touched read models):
   `PUT /dietitian/profile` (first/last name set + validation, both at
   the use-case and router level), and the new `ProfilTab`/
   `DietitianProfileTab` UI.
-- [ ] **Stage 4 — Registration form**: adds a confirm-password field
-      (client-side match validation before submit); optionally prompts
-      for a display name at registration (design decision to confirm at
-      this stage: prompt now vs. leave entirely to the profile screen
-      later).
-  - Exit criteria: mismatched passwords block submission with a clear
-    inline error; registration still succeeds end-to-end.
+- [x] **Stage 4 — Registration form — DONE**: added a "Powtórz hasło"
+      confirm-password field to `AuthPopup.tsx`'s register tab —
+      client-side match check before submit, no API call on mismatch.
+      Decided against a registration-time display-name prompt — Stage 3
+      already gave every account a way to set it from the profile
+      screen, so prompting again at registration would duplicate that
+      without adding anything.
+  - Exit criteria met: mismatched passwords block submission with an
+    inline "Hasła nie są takie same." error and no `/auth/register`
+    call; registration still succeeds end-to-end. `AuthPopup.test.tsx`
+    (7 tests) covers login, register success, register conflict, the
+    new mismatch case, guest continue, and forgot-password nav.
 - [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
 
 ---

@@ -56,7 +56,7 @@ describe('AuthPopup', () => {
     const { onOpenChange } = renderPopup()
 
     await user.type(screen.getByPlaceholderText('ty@przyklad.pl'), 'user@example.com')
-    await user.type(screen.getByPlaceholderText('••••••••'), 'StrongPass123')
+    await user.type(screen.getByLabelText('Hasło'), 'StrongPass123')
     await user.click(screen.getByRole('button', { name: 'Zaloguj się' }))
 
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false))
@@ -72,7 +72,7 @@ describe('AuthPopup', () => {
     const { onOpenChange } = renderPopup()
 
     await user.type(screen.getByPlaceholderText('ty@przyklad.pl'), 'user@example.com')
-    await user.type(screen.getByPlaceholderText('••••••••'), 'WrongPass123')
+    await user.type(screen.getByLabelText('Hasło'), 'WrongPass123')
     await user.click(screen.getByRole('button', { name: 'Zaloguj się' }))
 
     expect(await screen.findByText('Nieprawidłowy e-mail lub hasło.')).toBeInTheDocument()
@@ -101,7 +101,8 @@ describe('AuthPopup', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Zarejestruj się' }))
     await user.type(screen.getByPlaceholderText('ty@przyklad.pl'), 'new@example.com')
-    await user.type(screen.getByPlaceholderText('••••••••'), 'StrongPass123')
+    await user.type(screen.getByLabelText('Hasło'), 'StrongPass123')
+    await user.type(screen.getByLabelText('Powtórz hasło'), 'StrongPass123')
 
     // The Captcha widget resolves to a dev placeholder token when no site
     // key is configured (the test environment), enabling the submit button.
@@ -124,11 +125,30 @@ describe('AuthPopup', () => {
 
     await user.click(screen.getByRole('tab', { name: 'Zarejestruj się' }))
     await user.type(screen.getByPlaceholderText('ty@przyklad.pl'), 'dup@example.com')
-    await user.type(screen.getByPlaceholderText('••••••••'), 'StrongPass123')
+    await user.type(screen.getByLabelText('Hasło'), 'StrongPass123')
+    await user.type(screen.getByLabelText('Powtórz hasło'), 'StrongPass123')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Utwórz konto' })).toBeEnabled())
     await user.click(screen.getByRole('button', { name: 'Utwórz konto' }))
 
     expect(await screen.findByText('Konto z tym adresem e-mail już istnieje.')).toBeInTheDocument()
+  })
+
+  it('blocks registration with a mismatched confirm-password field, without calling the API', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, {}))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPopup()
+
+    await user.click(screen.getByRole('tab', { name: 'Zarejestruj się' }))
+    await user.type(screen.getByPlaceholderText('ty@przyklad.pl'), 'new@example.com')
+    await user.type(screen.getByLabelText('Hasło'), 'StrongPass123')
+    await user.type(screen.getByLabelText('Powtórz hasło'), 'Mismatch123')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Utwórz konto' })).toBeEnabled())
+    await user.click(screen.getByRole('button', { name: 'Utwórz konto' }))
+
+    expect(await screen.findByText('Hasła nie są takie same.')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/auth/register'))).toBe(false)
   })
 
   it('closes the popup when continuing as a guest', async () => {
