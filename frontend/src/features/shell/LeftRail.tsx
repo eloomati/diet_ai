@@ -142,7 +142,7 @@ export function LeftRail({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-2.5">
+      <div className="min-h-0 flex-1 overflow-y-auto px-2.5">
         {isAuthenticated ? (
           conversationsQuery.isPending ? (
             <div className="flex flex-col gap-1.5 px-2.5 py-1.5" role="status" aria-label="Ładowanie historii rozmów…">
@@ -155,7 +155,7 @@ export function LeftRail({
               Nie udało się wczytać historii rozmów.
             </p>
           ) : conversationsQuery.data.length === 0 ? (
-            <EmptyState icon={MessageSquare} message="Brak jeszcze żadnych rozmów." />
+            <EmptyState icon={MessageSquare} message="Jeszcze z nami nie pogadałeś :(" />
           ) : (
             <ul className="flex flex-col gap-0.5 py-1.5">
               {[...conversationsQuery.data]

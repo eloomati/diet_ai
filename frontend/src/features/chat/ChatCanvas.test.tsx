@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { useRef } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { AuthProvider } from '@/lib/auth'
+import { AuthProvider, useAuth } from '@/lib/auth'
 import { notifyError, notifyInfo } from '@/lib/toast'
 
 import { ChatCanvas } from './ChatCanvas'
@@ -20,19 +21,47 @@ function jsonResponse(status: number, body: unknown): Response {
 
 const noop = () => {}
 
-function renderCanvas(conversationId?: string) {
+function LoggedInChatCanvas(props: { conversationId?: string; rightCollapsed: boolean }) {
+  const { login } = useAuth()
+  const didLogin = useRef(false)
+  if (!didLogin.current) {
+    didLogin.current = true
+    void login('user@example.com', 'StrongPass123')
+  }
+  return (
+    <ChatCanvas
+      leftCollapsed={false}
+      rightCollapsed={props.rightCollapsed}
+      onExpandLeft={noop}
+      onExpandRight={noop}
+      conversationId={props.conversationId}
+    />
+  )
+}
+
+function renderCanvas(
+  conversationId?: string,
+  options?: { rightCollapsed?: boolean; loggedIn?: boolean },
+) {
   const queryClient = new QueryClient()
   render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <AuthProvider>
-          <ChatCanvas
-            leftCollapsed={false}
-            rightCollapsed={false}
-            onExpandLeft={noop}
-            onExpandRight={noop}
-            conversationId={conversationId}
-          />
+          {options?.loggedIn ? (
+            <LoggedInChatCanvas
+              conversationId={conversationId}
+              rightCollapsed={options?.rightCollapsed ?? false}
+            />
+          ) : (
+            <ChatCanvas
+              leftCollapsed={false}
+              rightCollapsed={options?.rightCollapsed ?? false}
+              onExpandLeft={noop}
+              onExpandRight={noop}
+              conversationId={conversationId}
+            />
+          )}
         </AuthProvider>
       </MemoryRouter>
     </QueryClientProvider>,
@@ -51,6 +80,36 @@ describe('ChatCanvas', () => {
 
     expect(screen.getByText('Cześć! W czym mogę Ci dziś pomóc?')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Wyślij' })).toBeDisabled()
+  })
+
+  it('keeps the Mycelo notification badge visible next to the collapsed right rail for a logged-in user, even with zero unread notifications', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/me')) {
+        return Promise.resolve(
+          jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true }),
+        )
+      }
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      if (url.includes('/notifications')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderCanvas(undefined, { rightCollapsed: true, loggedIn: true })
+
+    expect(await screen.findByRole('button', { name: 'Powiadomienia' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rozwiń panel' })).toBeInTheDocument()
+  })
+
+  it('hides the Mycelo notification badge next to the collapsed right rail for a guest', () => {
+    renderCanvas(undefined, { rightCollapsed: true })
+
+    expect(screen.queryByRole('button', { name: 'Powiadomienia' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rozwiń panel' })).toBeInTheDocument()
   })
 
   it('shows the hero for a freshly created conversation with no messages yet', async () => {

@@ -288,7 +288,9 @@ export function ChatCanvas({
         </div>
         {rightCollapsed && (
           <div className="absolute top-2 right-3.5 flex items-center gap-1.5">
-            <MyceloNotificationBadge unreadCount={unreadNotificationsCount} onClick={onExpandRight} />
+            {isAuthenticated && (
+              <MyceloNotificationBadge unreadCount={unreadNotificationsCount} onClick={onExpandRight} />
+            )}
             <Button
               variant="outline"
               size="icon"
@@ -301,7 +303,7 @@ export function ChatCanvas({
         )}
       </header>
 
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 pt-5">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-5 pt-5">
         {showHero ? (
           <div className="mx-auto mt-[6%] max-w-xl text-center">
             <p className="mb-3.5 inline-block rounded-full bg-accent px-3 py-1 text-xs font-bold text-accent-foreground uppercase">

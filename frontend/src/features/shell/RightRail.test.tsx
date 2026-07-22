@@ -321,6 +321,15 @@ describe('RightRail notification badge (Etap 5 Stage 4)', () => {
     expect(screen.getByLabelText('Powiadomienia')).not.toHaveTextContent(/\d/)
   })
 
+  it('hides the notification bell for a guest', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse(200, [])))
+
+    renderRightRail()
+    await screen.findByText('Brak dostępnych dietetyków.')
+
+    expect(screen.queryByLabelText('Powiadomienia')).not.toBeInTheDocument()
+  })
+
   it('opens the popover, lists notifications, and marks them all read', async () => {
     const user = userEvent.setup()
     const fetchMock = loggedInFetchMock([NEW_MESSAGE_NOTIFICATION])

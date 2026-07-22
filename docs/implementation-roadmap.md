@@ -707,13 +707,42 @@ the app.
     both entity types. Full suites run since this touched shared DTOs on
     two backend modules and API types used by multiple components:
     backend 637 passed, frontend 145 passed.
-- [ ] **Stage 4 — Copy + layout fixes**: empty-state copy in the left
-      rail changes from "Brak jeszcze żadnych rozmów." to "Jeszcze z
-      nami nie pogadałeś :("; root layout gets `overflow-hidden` (or
-      equivalent) so panel-level scroll areas don't leak into a
-      page-level scrollbar.
-  - Exit criteria: no page-level scrollbar visible on any main view;
-    new empty-state copy confirmed live.
+- [x] **Stage 4 — Copy + layout fixes — DONE**: empty-state copy in the
+      left rail changed to "Jeszcze z nami nie pogadałeś :(". Root cause
+      of the page-level scrollbar: four `flex-1 overflow-y-auto`
+      scroll containers (`LeftRail.tsx`, `RightRail.tsx`,
+      `ChatCanvas.tsx`, `HumanChatCanvas.tsx`) were missing `min-h-0` —
+      a flex item's default `min-height: auto` lets it grow past its
+      allotted space along the flex-column main axis instead of
+      clipping, so overflow escaped to the page instead of scrolling
+      internally. `DietitianProfileModal.tsx` already used the correct
+      `min-h-0 flex-1` pattern; applied it to the other four. Also added
+      `overflow-hidden` to `AppShell.tsx`'s root container as a second
+      line of defense.
+  - Exit criteria met: live-verified in a real browser against a fresh
+    Docker backend (registered a user through the actual UI, not just a
+    raw API call) — `document.documentElement.scrollHeight ===
+    clientHeight` confirmed no page-level scrollbar with a populated
+    dietitian list and empty conversation history both on screen; the
+    new empty-state copy rendered exactly as specified. Docker stack
+    torn down after. Affected component tests (48) + full frontend
+    suite pass.
+
+  **Follow-up found during this same live check**: collapsing the right
+  rail hid the Mycelo mushroom icon entirely whenever there were zero
+  unread notifications — `MyceloNotificationBadge` returned `null` in
+  that case instead of showing the idle-colored icon, so it only ever
+  worked as a pure unread-alert, not as the persistent way to reopen a
+  collapsed panel. Fixed to always render (alert coloring/count pill
+  layered on only when `unreadCount > 0`), matching `RightRail.tsx`'s
+  own always-visible `NotificationsBell` trigger — and dropped
+  `MyceloNotificationBadge`'s border/background classes to match that
+  same borderless style. Kept both auth-gated (`isAuthenticated &&`), so
+  a guest sees neither the collapsed-panel badge nor the expanded-panel
+  bell — only a logged-in user sees the mushroom in both places.
+  Live-verified in the browser for both auth states × both panel
+  states; `ChatCanvas.test.tsx` and `RightRail.test.tsx` updated/added
+  accordingly. Full frontend suite: 148 passed.
 - [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
 
 ---
