@@ -28,7 +28,7 @@ Phase 13    - Quality, Security &           IN PROGRESS —
                                               Etap 1 (User display
                                                 names): DONE
                                               Etap 2 (Chat & diet-plan
-                                                UX polish): not started
+                                                UX polish): DONE
                                               Etap 3 (Multi-plan
                                                 calendar): not started
                                               Etap 4 (Admin panel
@@ -661,7 +661,7 @@ gap Stage 2 didn't cover — it only touched read models):
 
 ---
 
-### Etap 2 — Chat & Diet Plan UX Polish
+### Etap 2 — Chat & Diet Plan UX Polish — DONE
 
 Goal: the rough day-to-day UX edges the user hit while actually using
 the app.
@@ -743,7 +743,28 @@ the app.
   Live-verified in the browser for both auth states × both panel
   states; `ChatCanvas.test.tsx` and `RightRail.test.tsx` updated/added
   accordingly. Full frontend suite: 148 passed.
-- [ ] **Stage 5 — Tests + docs sync**: closing stage for this etap.
+- [x] **Stage 5 — Tests + docs sync — DONE**: closing stage for this
+      etap. Synced `docs/api.md` (new `PATCH /conversations/{id}` and
+      `PATCH /diet-plans/{diet_plan_id}` sections; `name` field added to
+      every diet-plan response shape), `docs/domain-model.md`
+      (`Conversation.rename()`/`DietPlan.name`+`rename()` rules), and
+      `docs/architecture.md` (Conversation Module's responsibility list
+      and the "one mutation `DietPlan` ever undergoes" note, now two).
+      `README.md` needed no changes (it only links to this roadmap for
+      Phase 13).
+
+  Exit criteria met: full suite run at etap close (per the tightened
+  test-scope rule — each stage only ran its own directly-affected files
+  or a full run when the change was cross-cutting). Full backend suite
+  **637 passed**, full frontend suite **148 passed**, clean
+  `tsc --noEmit`.
+
+  A guest-visibility question came up mid-etap during Stage 4's
+  follow-up work (whether the dietitian marketplace should stay visible
+  to a logged-out user) — verified live that it already does
+  (`RightRail.tsx`'s `dietitiansQuery` was never auth-gated, and
+  `DietitianProfileModal.tsx`'s offer buttons already disable with
+  "Zaloguj się, aby się zgłosić" for a guest); no code change needed.
 
 ---
 

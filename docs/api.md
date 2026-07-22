@@ -825,6 +825,39 @@ Body:
 
 ---
 
+## PATCH /conversations/{conversation_id}
+
+Renames a conversation.
+
+### Request
+
+```json
+{
+  "title": "New title"
+}
+```
+
+`title`: 1-200 characters.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `GET /conversations/{conversation_id}`, with the
+updated `title`.
+
+### Errors
+
+404 Not Found — `NOT_FOUND` (same not-found-vs-not-yours ambiguity as above)
+
+422 Unprocessable Entity — `VALIDATION_ERROR` (blank or over-length title)
+
+---
+
 ## POST /conversations/{conversation_id}/messages
 
 Appends a user message, generates an AI response (via whichever provider `AI_PROVIDER` selects — see auth-runbook.md-style config in `.env.example`), appends the response, and returns both.
@@ -975,6 +1008,7 @@ Body:
       ]
     }
   ],
+  "name": null,
   "created_at": "2026-01-01T10:00:00.482391+00:00",
   "updated_at": "2026-01-01T10:00:00.482391+00:00"
 }
@@ -983,6 +1017,10 @@ Body:
 `created_at`/`updated_at` are plain `datetime.isoformat()` output —
 microseconds and a `+00:00` offset, **not** `Z`-normalized like the error
 envelope's `timestamp` field below.
+
+`name` (Phase 13): `null` until set via `PATCH /diet-plans/{diet_plan_id}`
+below — the frontend falls back to a composed
+`goal · diet_type · duration_days` label while it's unset.
 
 `time` (Phase 9): AI-suggested time of day for the meal, `"HH:MM"` or
 `null` if the model didn't provide one (never required — see
@@ -1008,11 +1046,46 @@ Errors:
 
 ---
 
+## PATCH /diet-plans/{diet_plan_id}
+
+Renames a plan (or clears a custom name back to the default composed
+label — see `name` above).
+
+### Request
+
+```json
+{
+  "name": "Summer cut"
+}
+```
+
+`name`: 1-200 characters, or `null` to clear it.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `POST /diet-plans/generate`, with the updated `name`.
+
+### Errors
+
+```
+404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another user
+422 Unprocessable Entity code=VALIDATION_ERROR — name is empty or over-length
+```
+
+---
+
 ## PATCH /diet-plans/{diet_plan_id}/meals
 
-Reschedules a single meal's time within an already-generated plan. The
-only mutation a plan ever undergoes after generation — everything else
-about it (macros, meal identity, day count) is immutable.
+Reschedules a single meal's time within an already-generated plan.
+Together with the rename endpoint above, these are the only mutations a
+plan ever undergoes after generation — everything else about it (macros,
+meal identity, day count) is immutable.
 
 ### Request
 
@@ -1082,6 +1155,7 @@ Body:
     "goal": "MUSCLE_GAIN",
     "diet_type": "VEGETARIAN",
     "duration_days": 3,
+    "name": null,
     "created_at": "2026-01-01T10:00:00.482391+00:00"
   }
 ]

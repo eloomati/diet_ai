@@ -538,6 +538,9 @@ updatedAt
   be steered by more than one category at once (e.g. `DIET` + `RUNNING`).
 - Messages cannot exist without a conversation.
 - Archived conversations cannot receive new messages.
+- `title` can be changed any time via `rename()` (Phase 13) — a plain
+  mutation, no restriction tied to `status` (an archived conversation can
+  still be renamed, unlike sending it a new message).
 
 ---
 
@@ -723,18 +726,20 @@ requirements    — tuple of free-text hints supplied at generation time
 
 days            — tuple of DietDay
 
+name            — Phase 13; optional custom title, None until renamed
+
 created_at
 
-updated_at      — Phase 9; starts equal to created_at, moves only on reschedule_meal()
+updated_at      — Phase 9; starts equal to created_at, moves on reschedule_meal() or rename()
 ```
 
 `create()` validates `duration_days` is between 1 and 14, that `days` has
 exactly that many entries, and that no meal has a negative macro value.
 Regenerating always produces a new `DietPlan` (a user can have many) — that
-part hasn't changed. What changed in Phase 9: a plan is **not** fully
-immutable anymore. `reschedule_meal(day_number, meal_name, new_time)` is
-the one mutation it supports — everything else about a plan (macros, meal
-identity, day count) still can't change after generation.
+part hasn't changed. A plan is **not** fully immutable: `reschedule_meal
+(day_number, meal_name, new_time)` (Phase 9) and `rename(name)` (Phase 13)
+are the only two mutations it supports — everything else about a plan
+(macros, meal identity, day count) still can't change after generation.
 
 ---
 
@@ -752,6 +757,10 @@ identity, day count) still can't change after generation.
   `dataclasses.replace` — the value objects it touches are frozen, so this
   is reconstruction, not in-place mutation of them); an unknown
   `day_number`/`meal_name` raises `MealNotFoundError`.
+- `rename(name)` (Phase 13) sets `name` to the given string, or `None` to
+  clear it back to the frontend's default composed
+  `goal · diet_type · duration_days` label — same "explicit `None` clears
+  it" convention as `User.set_display_name()`.
 
 ---
 

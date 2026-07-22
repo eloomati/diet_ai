@@ -792,7 +792,11 @@ Responsibilities:
 - communication workflow with AI,
 - archiving conversations (Phase 8 — a conversation's existing
   `Conversation.archive()` domain method had no API route before this),
-- deleting conversations (Phase 8).
+- deleting conversations (Phase 8),
+- renaming conversations (Phase 13) — `PATCH /conversations/{id}` →
+  `Conversation.rename(title)`, a plain mutation with no `status`
+  restriction (an archived conversation can still be renamed, unlike
+  sending it a new message).
 
 Database:
 
@@ -935,7 +939,7 @@ a promise of a globally optimal schedule). A malformed AI time string is
 dropped (`Meal.time = None`) rather than failing the whole generation over
 a cosmetic field.
 
-**Rescheduling — the one mutation `DietPlan` ever undergoes.** Before
+**Rescheduling — one of two mutations `DietPlan` ever undergoes.** Before
 Phase 9, a `DietPlan` was fully immutable after `create()` — no
 `updated_at` even existed, since nothing ever changed. `PATCH
 /diet-plans/{id}/meals` → `DietPlan.reschedule_meal(day_number, meal_name,
@@ -945,7 +949,11 @@ never in-place mutation) and bumps the now-meaningful `updated_at`. An
 unknown day/meal raises `MealNotFoundError` → **400** (not 404 — the plan
 itself exists and belongs to the caller; it's a sub-part of it that
 doesn't, the same distinction `InvalidWeeklyObligationError` draws on the
-profile side).
+profile side). Phase 13 added a second, unrelated mutation: `PATCH
+/diet-plans/{id}` → `DietPlan.rename(name)`, setting or clearing (`None`)
+an optional custom `name` — same shape as `Conversation.rename(title)`
+below, and same "`None` clears it" convention as `User.set_display_name()`.
+Nothing else about a plan can change after generation.
 
 ## CSV export, archived to SFTP (Phase 9)
 
