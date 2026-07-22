@@ -178,6 +178,9 @@ describe('ChatCanvas', () => {
     await user.type(screen.getByPlaceholderText('Napisz wiadomość…'), 'Cześć')
     await user.click(screen.getByRole('button', { name: 'Wyślij' }))
 
+    // The user's own bubble appears immediately, before the AI response
+    // resolves — not only once the round trip completes.
+    expect(await screen.findByText('Cześć')).toBeInTheDocument()
     expect(await screen.findByText('Mycelo pisze odpowiedź…')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Napisz wiadomość…')).toBeDisabled()
 

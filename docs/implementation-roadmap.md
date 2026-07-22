@@ -666,12 +666,17 @@ gap Stage 2 didn't cover — it only touched read models):
 Goal: the rough day-to-day UX edges the user hit while actually using
 the app.
 
-- [ ] **Stage 1 — Optimistic own-message rendering**: the user's own
-      sent message appears in the chat immediately on submit, not only
-      after the AI's full response returns.
-  - Exit criteria: live-verified — typing and sending shows the user's
-    own bubble instantly, with the existing "Mycelo pisze
-    odpowiedź…" placeholder following it, not preceding it.
+- [x] **Stage 1 — Optimistic own-message rendering — DONE**: the
+      `sendMessage` mutation in `ChatCanvas.tsx` gained an `onMutate`
+      that appends the user's message to the cached conversation with a
+      temporary id and clears the composer immediately; `onSuccess`
+      reconciles it with the real `user_message_id` and appends the
+      assistant's reply; `onError` rolls back to the pre-mutate snapshot
+      and restores the typed text into the composer.
+  - Exit criteria met: `ChatCanvas.test.tsx`'s in-flight test asserts the
+    user's bubble ("Cześć") renders before the AI response resolves,
+    with "Mycelo pisze odpowiedź…" following it. 17/17 tests in this
+    file pass.
 - [ ] **Stage 2 — Diet-plan-generation feedback**: `onSuccess`/`onError`
       added to the generate-plan mutation — a success toast (or
       equivalent inline confirmation) and a clear error toast on

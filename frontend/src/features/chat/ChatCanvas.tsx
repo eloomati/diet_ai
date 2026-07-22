@@ -122,15 +122,39 @@ export function ChatCanvas({
     scrollRef.current?.scrollTo?.({ top: scrollRef.current.scrollHeight })
   }, [messages.length])
 
+  const OPTIMISTIC_USER_MESSAGE_ID = 'optimistic-user-message'
+
   const sendMessageMutation = useMutation({
     mutationFn: (content: string) => sendMessage(conversationId!, content),
+    // The user's own bubble appears immediately on submit, not only once the
+    // full AI round trip completes — the assistant's reply still arrives via
+    // onSuccess below, reconciling this temporary message with its real id.
+    onMutate: (content: string) => {
+      const previous = queryClient.getQueryData<ConversationDetail>(['conversation', conversationId])
+      queryClient.setQueryData(['conversation', conversationId], (old?: ConversationDetail) =>
+        old && {
+          ...old,
+          messages: [
+            ...old.messages,
+            {
+              id: OPTIMISTIC_USER_MESSAGE_ID,
+              role: 'USER' as const,
+              content,
+              created_at: new Date().toISOString(),
+            },
+          ],
+        },
+      )
+      setMessage('')
+      return { previous }
+    },
     onSuccess: (result, content) => {
       const now = new Date().toISOString()
       queryClient.setQueryData(['conversation', conversationId], (old?: ConversationDetail) =>
         old && {
           ...old,
           messages: [
-            ...old.messages,
+            ...old.messages.filter((msg) => msg.id !== OPTIMISTIC_USER_MESSAGE_ID),
             { id: result.user_message_id, role: 'USER' as const, content, created_at: now },
             {
               id: result.assistant_message_id,
@@ -142,7 +166,10 @@ export function ChatCanvas({
         },
       )
       void queryClient.invalidateQueries({ queryKey: ['conversations'] })
-      setMessage('')
+    },
+    onError: (_error, content, context) => {
+      queryClient.setQueryData(['conversation', conversationId], context?.previous)
+      setMessage(content)
     },
   })
 
