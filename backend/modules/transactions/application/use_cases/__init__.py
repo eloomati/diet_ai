@@ -1,6 +1,7 @@
 from .create_transaction_use_case import CreateTransactionUseCase
 from .exceptions import (
     DietitianNotFoundError,
+    EmailNotVerifiedError,
     TransactionApplicationError,
     TransactionNotFoundError,
 )
@@ -13,5 +14,6 @@ __all__ = [
     "GetMyPurchasesUseCase",
     "TransactionApplicationError",
     "DietitianNotFoundError",
+    "EmailNotVerifiedError",
     "TransactionNotFoundError",
 ]

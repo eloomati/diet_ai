@@ -120,6 +120,18 @@ services:
       start_period: 20s
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    container_name: diet_ai_redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -137,6 +149,8 @@ services:
       sftp:
         condition: service_healthy
       kafka:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     environment:
       APP_ENV: dev
@@ -157,7 +171,11 @@ services:
       POSTGRES_URL: postgresql+asyncpg://postgres:postgres@db:5432/diet_ai
       MONGO_URL: mongodb://mongo:27017
 
-      JWT_SECRET_KEY: change-me-in-prod
+      # Dev-only placeholder, 32+ bytes to satisfy PyJWT's own minimum
+      # recommended HS256 key length (a shorter value previously here
+      # triggered a real InsecureKeyLengthWarning on every request) —
+      # still a "change-me" value, rotate for any real deployment.
+      JWT_SECRET_KEY: vh8hQ546ZThSx-yJwvaN9UM1eZYjAcmwIseqmvez2Bs-change-me-in-prod
       JWT_ALGORITHM: HS256
       JWT_ACCESS_TTL_MINUTES: 15
       JWT_REFRESH_TTL_DAYS: 7
@@ -175,6 +193,9 @@ services:
 
       KAFKA_PROVIDER: kafka
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+
+      RATE_LIMIT_PROVIDER: redis
+      REDIS_URL: redis://redis:6379/0
 
       SFTP_PROVIDER: sftp
       SFTP_HOST: sftp

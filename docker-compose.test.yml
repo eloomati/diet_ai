@@ -71,3 +71,17 @@ services:
       timeout: 5s
       retries: 20
       start_period: 20s
+
+  # Only started on demand by the `redis_test_broker` fixture — same
+  # on-demand-only reasoning as kafka-test above (one integration test
+  # needs it, the rest of the suite runs on NoOpRateLimiter).
+  redis-test:
+    image: redis:7-alpine
+    container_name: diet_ai_redis_test
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20

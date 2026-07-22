@@ -32,6 +32,7 @@ from backend.shared.exceptions import register_exception_handlers
 from backend.shared.logging import setup_logging
 from backend.shared.messaging import close_kafka_producer, init_kafka_producer
 from backend.shared.middleware import RequestIdMiddleware
+from backend.shared.redis import close_redis_client, init_redis_client
 
 
 @asynccontextmanager
@@ -67,6 +68,12 @@ async def lifespan(app: FastAPI):
             asyncio.create_task(run_transaction_paid_thread_consumer(settings)),
         ]
 
+    # Real Redis only when rate_limit_provider=redis (Settings) — same
+    # mock/real split as the providers above. Nothing to connect to if
+    # rate limiting is running on the in-memory NoOpRateLimiter instead.
+    if settings.rate_limit_provider == "redis":
+        await init_redis_client(settings.redis_url)
+
     yield
 
     email_retry_task.cancel()
@@ -80,6 +87,9 @@ async def lifespan(app: FastAPI):
             await task
     if kafka_consumer_tasks:
         await close_kafka_producer()
+
+    if settings.rate_limit_provider == "redis":
+        await close_redis_client()
 
     await close_postgres()
     await close_mongo()

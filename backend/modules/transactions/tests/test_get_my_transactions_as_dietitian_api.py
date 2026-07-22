@@ -7,6 +7,7 @@ from backend.modules.transactions.tests.db_helpers import (
     mark_transaction_paid_directly,
     promote_to_dietitian,
     register_and_login,
+    verify_email,
 )
 
 
@@ -25,11 +26,12 @@ def test_get_my_transactions_requires_authentication(client: TestClient) -> None
 
 
 def test_get_my_transactions_returns_only_own_transactions(client: TestClient) -> None:
-    buyer_token, _ = register_and_login(client, "txn.mybuyer")
+    buyer_token, buyer_id = register_and_login(client, "txn.mybuyer")
     dietitian_token, dietitian_id = register_and_login(client, "txn.mydietitian")
     asyncio.run(promote_to_dietitian(dietitian_id))
     _, other_dietitian_id = register_and_login(client, "txn.otherdietitian")
     asyncio.run(promote_to_dietitian(other_dietitian_id))
+    asyncio.run(verify_email(buyer_id))
 
     client.post(
         "/api/v1/transactions",
@@ -52,9 +54,10 @@ def test_get_my_transactions_returns_only_own_transactions(client: TestClient) -
 
 
 def test_get_my_transactions_reveals_buyer_email_once_paid(client: TestClient) -> None:
-    buyer_token, _ = register_and_login(client, "txn.revealbuyer")
+    buyer_token, buyer_id = register_and_login(client, "txn.revealbuyer")
     dietitian_token, dietitian_id = register_and_login(client, "txn.revealdiet")
     asyncio.run(promote_to_dietitian(dietitian_id))
+    asyncio.run(verify_email(buyer_id))
 
     created = client.post(
         "/api/v1/transactions",
@@ -73,9 +76,10 @@ def test_get_my_transactions_reveals_buyer_email_once_paid(client: TestClient) -
 
 
 def test_get_my_transactions_hides_buyer_email_while_unpaid(client: TestClient) -> None:
-    buyer_token, _ = register_and_login(client, "txn.hidebuyer")
+    buyer_token, buyer_id = register_and_login(client, "txn.hidebuyer")
     dietitian_token, dietitian_id = register_and_login(client, "txn.hidediet")
     asyncio.run(promote_to_dietitian(dietitian_id))
+    asyncio.run(verify_email(buyer_id))
 
     client.post(
         "/api/v1/transactions",

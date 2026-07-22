@@ -15,6 +15,7 @@ from backend.modules.transactions.application.use_cases.create_transaction_use_c
 )
 from backend.modules.transactions.application.use_cases.exceptions import (
     DietitianNotFoundError,
+    EmailNotVerifiedError,
 )
 from backend.modules.transactions.domain.exceptions.transaction_domain_errors import (
     InvalidTransactionError,
@@ -37,18 +38,20 @@ async def test_create_transaction_succeeds_for_a_real_dietitian() -> None:
     dietitian = User.create(email=Email("dietitian@example.com"), password_hash=_password_hash())
     dietitian.change_role(Role.DIET_USER)
     await user_repo.save(dietitian)
+    buyer = User.create(email=Email("buyer@example.com"), password_hash=_password_hash())
+    buyer.mark_email_verified()
+    await user_repo.save(buyer)
     use_case = CreateTransactionUseCase(transaction_repo, user_repo)
-    buyer_id = uuid4()
 
     result = await use_case.execute(
         CreateTransactionCommand(
-            user_id=buyer_id, dietitian_id=dietitian.id, offer_type=OfferType.PLAN_REVIEW
+            user_id=buyer.id, dietitian_id=dietitian.id, offer_type=OfferType.PLAN_REVIEW
         )
     )
 
     assert result.status == TransactionStatus.UNPAID
     assert result.dietitian_id == dietitian.id
-    assert result.user_id == buyer_id
+    assert result.user_id == buyer.id
 
 
 @pytest.mark.asyncio
@@ -87,6 +90,7 @@ async def test_create_transaction_rejects_buying_your_own_offer() -> None:
     transaction_repo = InMemoryTransactionRepository()
     dietitian = User.create(email=Email("self@example.com"), password_hash=_password_hash())
     dietitian.change_role(Role.DIET_USER)
+    dietitian.mark_email_verified()
     await user_repo.save(dietitian)
     use_case = CreateTransactionUseCase(transaction_repo, user_repo)
 
@@ -94,5 +98,24 @@ async def test_create_transaction_rejects_buying_your_own_offer() -> None:
         await use_case.execute(
             CreateTransactionCommand(
                 user_id=dietitian.id, dietitian_id=dietitian.id, offer_type=OfferType.PLAN_REVIEW
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_create_transaction_raises_when_buyer_email_not_verified() -> None:
+    user_repo = InMemoryUserRepository()
+    transaction_repo = InMemoryTransactionRepository()
+    dietitian = User.create(email=Email("dietitian2@example.com"), password_hash=_password_hash())
+    dietitian.change_role(Role.DIET_USER)
+    await user_repo.save(dietitian)
+    buyer = User.create(email=Email("unverified@example.com"), password_hash=_password_hash())
+    await user_repo.save(buyer)
+    use_case = CreateTransactionUseCase(transaction_repo, user_repo)
+
+    with pytest.raises(EmailNotVerifiedError):
+        await use_case.execute(
+            CreateTransactionCommand(
+                user_id=buyer.id, dietitian_id=dietitian.id, offer_type=OfferType.PLAN_REVIEW
             )
         )

@@ -14,6 +14,7 @@ from backend.modules.transactions.application.use_cases.create_transaction_use_c
 )
 from backend.modules.transactions.application.use_cases.exceptions import (
     DietitianNotFoundError,
+    EmailNotVerifiedError,
 )
 from backend.modules.transactions.application.use_cases.get_my_purchases_use_case import (
     GetMyPurchasesUseCase,
@@ -46,6 +47,12 @@ async def create_transaction(
     except DietitianNotFoundError as exc:
         raise AppException(
             code=ErrorCode.NOT_FOUND, message=str(exc), status_code=status.HTTP_404_NOT_FOUND
+        ) from exc
+    except EmailNotVerifiedError as exc:
+        raise AppException(
+            code=ErrorCode.EMAIL_NOT_VERIFIED,
+            message=str(exc),
+            status_code=status.HTTP_403_FORBIDDEN,
         ) from exc
     except InvalidTransactionError as exc:
         raise AppException(

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -7,7 +8,12 @@ import { clearTokens, getAccessToken, getRefreshToken, setRefreshToken } from '.
 import { useAuth } from './useAuth'
 
 function wrapper({ children }: { children: ReactNode }) {
-  return <AuthProvider>{children}</AuthProvider>
+  const queryClient = new QueryClient()
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>{children}</AuthProvider>
+    </QueryClientProvider>
+  )
 }
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -182,6 +188,71 @@ describe('AuthContext', () => {
     })
 
     expect(result.current.user?.email_verified).toBe(true)
+  })
+
+  it('login clears any cached data left over from a previous session', async () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(['profile'], { stale: 'from-previous-account' })
+    function scopedWrapper({ children }: { children: ReactNode }) {
+      return (
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>{children}</AuthProvider>
+        </QueryClientProvider>
+      )
+    }
+    stubAuthEndpoints()
+
+    const { result } = renderHook(() => useAuth(), { wrapper: scopedWrapper })
+    await act(async () => {
+      await result.current.login('user@example.com', 'password123')
+    })
+
+    expect(queryClient.getQueryData(['profile'])).toBeUndefined()
+  })
+
+  it('logout clears any cached data so a next login never sees it', async () => {
+    const queryClient = new QueryClient()
+    function scopedWrapper({ children }: { children: ReactNode }) {
+      return (
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>{children}</AuthProvider>
+        </QueryClientProvider>
+      )
+    }
+    stubAuthEndpoints()
+
+    const { result } = renderHook(() => useAuth(), { wrapper: scopedWrapper })
+    await act(async () => {
+      await result.current.login('user@example.com', 'password123')
+    })
+    await waitFor(() => expect(result.current.isAuthenticated).toBe(true))
+    queryClient.setQueryData(['profile'], { belongs: 'to-this-account' })
+
+    await act(async () => {
+      await result.current.logout()
+    })
+
+    expect(queryClient.getQueryData(['profile'])).toBeUndefined()
+  })
+
+  it('register clears any cached data left over from browsing as a guest', async () => {
+    const queryClient = new QueryClient()
+    queryClient.setQueryData(['dietitian-listing'], [{ user_id: 'guest-cached' }])
+    function scopedWrapper({ children }: { children: ReactNode }) {
+      return (
+        <QueryClientProvider client={queryClient}>
+          <AuthProvider>{children}</AuthProvider>
+        </QueryClientProvider>
+      )
+    }
+    stubAuthEndpoints()
+
+    const { result } = renderHook(() => useAuth(), { wrapper: scopedWrapper })
+    await act(async () => {
+      await result.current.register('new@example.com', 'password123', 'captcha-token')
+    })
+
+    expect(queryClient.getQueryData(['dietitian-listing'])).toBeUndefined()
   })
 
   it('drops the confirmed user if the token store loses its access token in the background', async () => {
