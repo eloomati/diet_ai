@@ -39,6 +39,7 @@ class DietPlanMapper:
                 )
                 for day in document.days
             ),
+            name=document.name,
             created_at=document.created_at,
             updated_at=document.updated_at,
         )
@@ -69,6 +70,7 @@ class DietPlanMapper:
                 )
                 for day in plan.days
             ],
+            name=plan.name,
             created_at=plan.created_at,
             updated_at=plan.updated_at,
         )

@@ -12,6 +12,7 @@ from backend.modules.nutrition.application import (
     GetDietPlanUseCase,
     ListDietPlanExportsUseCase,
     ListDietPlansUseCase,
+    RenameDietPlanUseCase,
     RescheduleMealUseCase,
 )
 from backend.modules.nutrition.application.ports.sftp_client import SftpClient
@@ -67,6 +68,12 @@ def get_reschedule_meal_use_case(
     repository: DietPlanRepository = Depends(get_diet_plan_repository),
 ) -> RescheduleMealUseCase:
     return RescheduleMealUseCase(repository)
+
+
+def get_rename_diet_plan_use_case(
+    repository: DietPlanRepository = Depends(get_diet_plan_repository),
+) -> RenameDietPlanUseCase:
+    return RenameDietPlanUseCase(repository)
 
 
 def get_export_diet_plan_use_case(

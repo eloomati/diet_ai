@@ -232,6 +232,65 @@ def test_cannot_archive_other_users_conversation(client: TestClient) -> None:
     assert response.status_code == 404
 
 
+def test_rename_conversation_returns_200_and_updates_title(client: TestClient) -> None:
+    token = _register_and_login(client, "convo.rename")
+    created = client.post(
+        "/api/v1/conversations",
+        json={"title": "Old title", "categories": ["GENERAL"]},
+        headers=_auth_headers(token),
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/conversations/{created['conversation_id']}",
+        json={"title": "New title"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["title"] == "New title"
+
+    fetched = client.get(
+        f"/api/v1/conversations/{created['conversation_id']}",
+        headers=_auth_headers(token),
+    )
+    assert fetched.json()["title"] == "New title"
+
+
+def test_cannot_rename_other_users_conversation(client: TestClient) -> None:
+    token_owner = _register_and_login(client, "convo.renameowner")
+    token_other = _register_and_login(client, "convo.renameother")
+    created = client.post(
+        "/api/v1/conversations",
+        json={"title": "Private", "categories": ["GENERAL"]},
+        headers=_auth_headers(token_owner),
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/conversations/{created['conversation_id']}",
+        json={"title": "Sneaky"},
+        headers=_auth_headers(token_other),
+    )
+
+    assert response.status_code == 404
+
+
+def test_rename_conversation_rejects_blank_title(client: TestClient) -> None:
+    token = _register_and_login(client, "convo.renameblank")
+    created = client.post(
+        "/api/v1/conversations",
+        json={"title": "Old title", "categories": ["GENERAL"]},
+        headers=_auth_headers(token),
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/conversations/{created['conversation_id']}",
+        json={"title": ""},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 422
+
+
 def test_delete_conversation_returns_204_and_removes_it(client: TestClient) -> None:
     token = _register_and_login(client, "convo.delete")
     created = client.post(

@@ -290,6 +290,58 @@ def test_reschedule_meal_on_other_users_plan_returns_404(client: TestClient) -> 
     assert response.status_code == 404
 
 
+def test_rename_diet_plan_updates_only_the_name(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.rename")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}",
+        json={"name": "Summer cut"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Summer cut"
+    assert body["goal"] == created["goal"]
+
+    refetched = client.get(f"/api/v1/diet-plans/{created['plan_id']}", headers=_auth_headers(token))
+    assert refetched.json()["name"] == "Summer cut"
+
+
+def test_rename_diet_plan_on_unknown_plan_returns_404(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.rename.unknown")
+
+    response = client.patch(
+        "/api/v1/diet-plans/00000000-0000-0000-0000-000000000000",
+        json={"name": "Summer cut"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "NOT_FOUND"
+
+
+def test_rename_diet_plan_on_other_users_plan_returns_404(client: TestClient) -> None:
+    owner_token = _register_and_login(client, "dietplan.rename.owner")
+    other_token = _register_and_login(client, "dietplan.rename.other")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(owner_token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(owner_token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}",
+        json={"name": "Sneaky"},
+        headers=_auth_headers(other_token),
+    )
+
+    assert response.status_code == 404
+
+
 def test_reschedule_unknown_meal_returns_400(client: TestClient) -> None:
     token = _register_and_login(client, "dietplan.reschedule.badmeal")
     client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))

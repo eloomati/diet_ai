@@ -73,3 +73,7 @@ class Conversation:
     def archive(self) -> None:
         self.status = ConversationStatus.ARCHIVED
         self.updated_at = datetime.now(UTC)
+
+    def rename(self, title: str) -> None:
+        self.title = title
+        self.updated_at = datetime.now(UTC)

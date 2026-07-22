@@ -1,17 +1,19 @@
-import { useQuery } from '@tanstack/react-query'
-import { ChevronLeft, Info, MessageSquare } from 'lucide-react'
-import { useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { ChevronLeft, Info, MessageSquare, Pencil } from 'lucide-react'
+import { useState, type KeyboardEvent } from 'react'
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { EmptyState } from '@/components/EmptyState'
 import { FieldError } from '@/components/FieldError'
 import { useAuth } from '@/lib/auth'
 import { categoryEmoji, categoryLabel } from '@/lib/categoryOptions'
-import { listConversations } from '@/api/conversations'
+import { listConversations, renameConversation } from '@/api/conversations'
 import type { ConversationCategory, ConversationSummary } from '@/api/conversations'
+import { notifyError } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 
 import { AboutDialog } from './AboutDialog'
@@ -65,7 +67,10 @@ export function LeftRail({
   createError,
 }: LeftRailProps) {
   const { isAuthenticated, user } = useAuth()
+  const queryClient = useQueryClient()
   const [aboutOpen, setAboutOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
   const initials = user?.email.slice(0, 2).toUpperCase() ?? '?'
 
   const conversationsQuery = useQuery({
@@ -73,6 +78,42 @@ export function LeftRail({
     queryFn: listConversations,
     enabled: isAuthenticated,
   })
+
+  const renameMutation = useMutation({
+    mutationFn: ({ conversationId, title }: { conversationId: string; title: string }) =>
+      renameConversation(conversationId, title),
+    onSuccess: (updated) => {
+      queryClient.setQueryData(['conversations'], (old?: ConversationSummary[]) =>
+        old?.map((c) => (c.conversation_id === updated.conversation_id ? { ...c, title: updated.title } : c)),
+      )
+    },
+    onError: () => notifyError('Nie udało się zmienić nazwy rozmowy. Spróbuj ponownie.'),
+    onSettled: () => setEditingId(null),
+  })
+
+  function startEditing(conversation: ConversationSummary) {
+    setEditingId(conversation.conversation_id)
+    setEditValue(conversation.title)
+  }
+
+  function commitEdit(conversationId: string) {
+    const title = editValue.trim()
+    if (!title) {
+      setEditingId(null)
+      return
+    }
+    renameMutation.mutate({ conversationId, title })
+  }
+
+  function handleEditKeyDown(event: KeyboardEvent<HTMLInputElement>, conversationId: string) {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      commitEdit(conversationId)
+    } else if (event.key === 'Escape') {
+      event.preventDefault()
+      setEditingId(null)
+    }
+  }
 
   return (
     <>
@@ -119,23 +160,47 @@ export function LeftRail({
             <ul className="flex flex-col gap-0.5 py-1.5">
               {[...conversationsQuery.data]
                 .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
-                .map((conversation) => (
-                  <li key={conversation.conversation_id}>
-                    <button
-                      onClick={() => onSelectConversation(conversation)}
-                      className={cn(
-                        'w-full rounded-lg px-2.5 py-2 text-left text-[13px] font-bold hover:bg-accent/60',
-                        conversation.conversation_id === activeConversationId
-                          ? 'bg-accent text-accent-foreground'
-                          : 'text-foreground',
-                        conversation.status === 'ARCHIVED' && 'opacity-60',
-                      )}
-                    >
-                      <span className="block truncate">{conversation.title}</span>
-                      <ConversationRowTags conversation={conversation} />
-                    </button>
-                  </li>
-                ))}
+                .map((conversation) =>
+                  editingId === conversation.conversation_id ? (
+                    <li key={conversation.conversation_id} className="px-2.5 py-1">
+                      <Input
+                        autoFocus
+                        value={editValue}
+                        onChange={(event) => setEditValue(event.target.value)}
+                        onKeyDown={(event) => handleEditKeyDown(event, conversation.conversation_id)}
+                        onBlur={() => commitEdit(conversation.conversation_id)}
+                        disabled={renameMutation.isPending}
+                        className="h-8 text-[13px] font-bold"
+                      />
+                    </li>
+                  ) : (
+                    <li key={conversation.conversation_id} className="group/row relative">
+                      <button
+                        onClick={() => onSelectConversation(conversation)}
+                        className={cn(
+                          'w-full rounded-lg px-2.5 py-2 pr-8 text-left text-[13px] font-bold hover:bg-accent/60',
+                          conversation.conversation_id === activeConversationId
+                            ? 'bg-accent text-accent-foreground'
+                            : 'text-foreground',
+                          conversation.status === 'ARCHIVED' && 'opacity-60',
+                        )}
+                      >
+                        <span className="block truncate">{conversation.title}</span>
+                        <ConversationRowTags conversation={conversation} />
+                      </button>
+                      <button
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          startEditing(conversation)
+                        }}
+                        aria-label="Zmień nazwę rozmowy"
+                        className="absolute top-2 right-1.5 rounded-md p-1 text-muted-foreground opacity-0 hover:bg-accent hover:text-foreground group-hover/row:opacity-100"
+                      >
+                        <Pencil className="size-3.5" />
+                      </button>
+                    </li>
+                  ),
+                )}
             </ul>
           )
         ) : (

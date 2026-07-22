@@ -690,12 +690,23 @@ the app.
     `ChatCanvas.test.tsx` updated to assert against the mocked
     `notifyError`/`notifyInfo` calls instead of DOM text for these
     cases. 17/17 tests pass.
-- [ ] **Stage 3 — Rename conversations + diet plans**: new
-      rename/edit-title endpoints for both (`PATCH` on each), plus
-      inline-edit UI (e.g. click-to-edit the title) in the left rail's
-      conversation history and the Plany tab's plan list.
-  - Exit criteria: renaming persists across a refresh for both entity
-    types.
+- [x] **Stage 3 — Rename conversations + diet plans — DONE**:
+      `Conversation.rename()`/`RenameConversationUseCase` +
+      `PATCH /conversations/{id}` (same shape as `GET`); `DietPlan`
+      gained a new optional `name` field (`rename()`, `None` clears back
+      to the default goal/diet_type/duration display, same convention
+      as `User.display_name`) + `RenameDietPlanUseCase` +
+      `PATCH /diet-plans/{id}`. Frontend: hover-reveal pencil icon
+      toggles an inline `<Input>` in both `LeftRail.tsx`'s conversation
+      list and `PlanyTab.tsx`'s plan list, committing on Enter/blur,
+      cancelling on Escape; `PlanyTab` shows `plan.name` when set,
+      falling back to the existing composed label otherwise.
+  - Exit criteria met: renamed titles persist across a refetch
+    (asserted directly against the API responses in both new frontend
+    tests, and via a follow-up `GET` in both new backend API tests) for
+    both entity types. Full suites run since this touched shared DTOs on
+    two backend modules and API types used by multiple components:
+    backend 637 passed, frontend 145 passed.
 - [ ] **Stage 4 — Copy + layout fixes**: empty-state copy in the left
       rail changes from "Brak jeszcze żadnych rozmów." to "Jeszcze z
       nami nie pogadałeś :("; root layout gets `overflow-hidden` (or

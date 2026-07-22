@@ -8,6 +8,7 @@ from backend.modules.conversation.api.dependencies import (
     get_create_conversation_use_case,
     get_delete_conversation_use_case,
     get_list_conversations_use_case,
+    get_rename_conversation_use_case,
     get_send_message_use_case,
 )
 from backend.modules.conversation.api.schemas import (
@@ -16,6 +17,7 @@ from backend.modules.conversation.api.schemas import (
     CreateConversationRequest,
     CreateConversationResponse,
     MessageResponse,
+    RenameConversationRequest,
     SendMessageRequest,
     SendMessageResponse,
 )
@@ -31,6 +33,8 @@ from backend.modules.conversation.application import (
     GetConversationHistoryUseCase,
     ListConversationsQuery,
     ListConversationsUseCase,
+    RenameConversationCommand,
+    RenameConversationUseCase,
     SendMessageCommand,
     SendMessageUseCase,
 )
@@ -92,6 +96,47 @@ async def get_conversation(
     try:
         result = await use_case.execute(
             GetConversationHistoryQuery(conversation_id=conversation_id, user_id=current_user.id)
+        )
+    except ConversationNotFoundError as exc:
+        raise AppException(
+            code=ErrorCode.NOT_FOUND,
+            message="Conversation not found.",
+            status_code=status.HTTP_404_NOT_FOUND,
+        ) from exc
+
+    return ConversationHistoryResponse(
+        conversation_id=result.conversation_id,
+        title=result.title,
+        categories=result.categories,
+        status=result.status,
+        messages=[
+            MessageResponse(
+                id=message.id,
+                role=message.role,
+                content=message.content,
+                created_at=message.created_at,
+            )
+            for message in result.messages
+        ],
+    )
+
+
+@router.patch(
+    "/{conversation_id}",
+    response_model=ConversationHistoryResponse,
+    status_code=status.HTTP_200_OK,
+)
+async def rename_conversation(
+    conversation_id: UUID,
+    request: RenameConversationRequest,
+    current_user: User = Depends(get_current_user),
+    use_case: RenameConversationUseCase = Depends(get_rename_conversation_use_case),
+) -> ConversationHistoryResponse:
+    try:
+        result = await use_case.execute(
+            RenameConversationCommand(
+                conversation_id=conversation_id, user_id=current_user.id, title=request.title
+            )
         )
     except ConversationNotFoundError as exc:
         raise AppException(
