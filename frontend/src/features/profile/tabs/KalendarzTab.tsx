@@ -1,15 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { CalendarOff } from 'lucide-react'
+import { CalendarOff, Check } from 'lucide-react'
 import { Fragment, useEffect, useRef, useState } from 'react'
 
 import { Button } from '@/components/ui/button'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
 import { EmptyState } from '@/components/EmptyState'
@@ -75,6 +68,17 @@ function addDays(date: Date, days: number): Date {
   const d = new Date(date)
   d.setDate(d.getDate() + days)
   return d
+}
+
+/** A plan's inclusive [start, end] date span, from `created_at` +
+ * `duration_days` — the API has no per-plan date range of its own. */
+function planDateRange(plan: DietPlanSummary): [Date, Date] {
+  const start = startOfDay(new Date(plan.created_at))
+  return [start, addDays(start, plan.duration_days - 1)]
+}
+
+function rangesOverlap(a: [Date, Date], b: [Date, Date]): boolean {
+  return a[0] <= b[1] && b[0] <= a[1]
 }
 
 /** Monday of the week containing `date` — `getDay()` is 0=Sun..6=Sat. */
@@ -183,13 +187,25 @@ export function KalendarzTab() {
     retry: false,
   })
 
-  // No separate "auto-select" effect: deriving the effective id directly
-  // during render (falling back to the newest plan) means `Select` never
-  // flips from uncontrolled (undefined) to controlled once data arrives.
-  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null)
+  // No separate "auto-select" effect: deriving the effective selection
+  // directly during render (falling back to the newest plan) means the
+  // picker never flips from uncontrolled (undefined) to controlled once
+  // data arrives.
+  const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>([])
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [overlapError, setOverlapError] = useState<string | null>(null)
   const [weekIndex, setWeekIndex] = useState(0)
   const [viewMode, setViewMode] = useState<'szczegolowy' | 'ogolny'>('szczegolowy')
-  const effectivePlanId = selectedPlanId ?? plansQuery.data?.[0]?.plan_id ?? null
+  const effectiveSelectedIds =
+    selectedPlanIds.length > 0
+      ? selectedPlanIds
+      : plansQuery.data?.[0]
+        ? [plansQuery.data[0].plan_id]
+        : []
+  // Stage 2 only wires up multi-select + overlap validation — the calendar
+  // grid itself still renders a single plan (the first selected one) until
+  // Stage 3 merges every selected plan's days into one combined view.
+  const effectivePlanId = effectiveSelectedIds[0] ?? null
 
   const planQuery = useQuery({
     queryKey: ['diet-plan', effectivePlanId],
@@ -275,8 +291,30 @@ export function KalendarzTab() {
     return () => clearTimeout(timeout)
   }, [confirmation])
 
-  function handleSelectPlan(planId: string) {
-    setSelectedPlanId(planId)
+  function togglePlanSelection(plan: DietPlanSummary) {
+    setOverlapError(null)
+    const isSelected = effectiveSelectedIds.includes(plan.plan_id)
+
+    if (isSelected) {
+      if (effectiveSelectedIds.length === 1) return // at least one plan must stay selected
+      setSelectedPlanIds(effectiveSelectedIds.filter((id) => id !== plan.plan_id))
+      return
+    }
+
+    const candidateRange = planDateRange(plan)
+    const overlapping = (plansQuery.data ?? []).find(
+      (other) =>
+        effectiveSelectedIds.includes(other.plan_id) &&
+        rangesOverlap(candidateRange, planDateRange(other)),
+    )
+    if (overlapping) {
+      setOverlapError(
+        `Nie można wybrać nakładających się planów — "${planOptionLabel(plan)}" nakłada się z "${planOptionLabel(overlapping)}".`,
+      )
+      return
+    }
+
+    setSelectedPlanIds([...effectiveSelectedIds, plan.plan_id])
     setWeekIndex(0)
   }
 
@@ -336,23 +374,57 @@ export function KalendarzTab() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Select value={effectivePlanId ?? undefined} onValueChange={(value) => value && handleSelectPlan(value)}>
-        <SelectTrigger className="w-full">
-          <SelectValue>
-            {(planId: string) => {
-              const p = plansQuery.data.find((item) => item.plan_id === planId)
-              return p ? planOptionLabel(p) : planId
-            }}
-          </SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {plansQuery.data.map((p) => (
-            <SelectItem key={p.plan_id} value={p.plan_id}>
-              {planOptionLabel(p)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+      <div className="relative">
+        <Button
+          type="button"
+          variant="outline"
+          className="w-full justify-between font-normal"
+          data-testid="plan-picker-trigger"
+          onClick={() => setPickerOpen((wasOpen) => !wasOpen)}
+        >
+          <span className="truncate">
+            {effectiveSelectedIds
+              .map((id) => plansQuery.data.find((p) => p.plan_id === id))
+              .filter((p): p is DietPlanSummary => !!p)
+              .map((p) => planOptionLabel(p))
+              .join('  +  ') || 'Wybierz plan'}
+          </span>
+        </Button>
+
+        {pickerOpen && (
+          <div className="absolute top-[calc(100%+6px)] right-0 left-0 z-20 flex flex-col gap-0.5 rounded-2xl border border-border bg-popover p-1.5 shadow-lg">
+            <p className="px-2.5 pt-1.5 pb-1 text-[10.5px] font-bold tracking-wide text-muted-foreground uppercase">
+              Wybierz plany do wyświetlenia (nienakładające się)
+            </p>
+            {plansQuery.data.map((p) => {
+              const checked = effectiveSelectedIds.includes(p.plan_id)
+              return (
+                <button
+                  key={p.plan_id}
+                  type="button"
+                  data-testid={`plan-option-${p.plan_id}`}
+                  onClick={() => togglePlanSelection(p)}
+                  className={cn(
+                    'flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13px] font-bold',
+                    checked ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent/60',
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'flex size-4 shrink-0 items-center justify-center rounded border',
+                      checked ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
+                    )}
+                  >
+                    {checked && <Check className="size-3" />}
+                  </span>
+                  {planOptionLabel(p)}
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+      {overlapError && <FieldError message={overlapError} />}
 
       {planQuery.isPending ? (
         <div className="flex flex-col gap-3" role="status" aria-label="Ładowanie kalendarza…">

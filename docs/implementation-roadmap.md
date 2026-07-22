@@ -802,14 +802,25 @@ days, and export the combined selection directly from that view.
     couldn't start; deferred rather than chasing an unrelated
     system-level issue. Full suites: backend 643 passed, frontend 149
     passed, clean `tsc --noEmit`.
-- [ ] **Stage 2 — Multi-select plan picker**: `KalendarzTab`'s current
-      single-`Select` plan picker becomes a multi-select; client-side
-      overlap validation (from each plan's `created_at` +
-      `duration_days`) prevents selecting two plans whose ranges
-      intersect.
-  - Exit criteria: attempting to select two overlapping plans is
-    blocked with a clear message; non-overlapping plans can be selected
-    together.
+- [x] **Stage 2 — Multi-select plan picker — DONE**: replaced
+      `KalendarzTab`'s single Radix `<Select>` with a custom checklist
+      popover (same toggle-panel pattern as `CategoryMenu.tsx`'s
+      category picker) — `selectedPlanIds: string[]`, defaulting to the
+      newest plan when nothing's been explicitly toggled yet (mirrors
+      the old single-select's "no separate auto-select effect" comment).
+      `planDateRange()`/`rangesOverlap()` compute each plan's inclusive
+      `[start, end]` from `created_at` + `duration_days` and check
+      intersection before allowing a new selection; a blocked attempt
+      shows an inline `FieldError` naming both conflicting plans and
+      leaves the checkbox unchecked. Deselecting the last remaining
+      plan is a no-op (at least one always stays selected). The
+      calendar grid itself still renders only the first selected plan —
+      Stage 3 wires up the actual multi-plan merge.
+  - Exit criteria met: `KalendarzTab.test.tsx` gained 3 tests —
+    selecting a second non-overlapping plan, blocking an overlapping
+    one with the error message, and rejecting deselection down to zero.
+    Full frontend suite: 152 passed, clean `tsc --noEmit`. Frontend-only
+    change, so no backend run needed this stage.
 - [ ] **Stage 3 — Combined week-by-week navigation**: the calendar's
       week grid merges all currently-selected plans' days into one
       continuous range, replacing the current single-plan `totalWeeks`

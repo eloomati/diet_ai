@@ -454,4 +454,67 @@ describe('KalendarzTab', () => {
       await screen.findByText('Nie udało się przenieść posiłku — plan mógł się zmienić w międzyczasie.'),
     ).toBeInTheDocument()
   })
+
+  describe('multi-select plan picker (Etap 3 Stage 2)', () => {
+    // p1: 15-17 stycznia (3 days). p2: 20-21 stycznia (2 days) — no overlap
+    // with p1. p3: 16 stycznia (1 day) — overlaps p1's 15-17 span.
+    const PLAN_A = { ...PLAN_SUMMARY, plan_id: 'p1', created_at: '2026-01-15T10:00:00Z', duration_days: 3 }
+    const PLAN_B = { ...PLAN_SUMMARY, plan_id: 'p2', created_at: '2026-01-20T10:00:00Z', duration_days: 2 }
+    const PLAN_C = { ...PLAN_SUMMARY, plan_id: 'p3', created_at: '2026-01-16T10:00:00Z', duration_days: 1 }
+
+    function multiPlanFetchMock() {
+      return vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/diet-plans/p1')) return Promise.resolve(jsonResponse(200, threeDayPlan()))
+        if (url.includes('/diet-plans/')) return Promise.resolve(jsonResponse(200, threeDayPlan()))
+        return Promise.resolve(jsonResponse(200, [PLAN_A, PLAN_B, PLAN_C]))
+      })
+    }
+
+    it('selects a second, non-overlapping plan alongside the first', async () => {
+      const user = userEvent.setup()
+      vi.stubGlobal('fetch', multiPlanFetchMock())
+
+      renderKalendarzTab()
+      await screen.findByTestId('meal-day1-Owsianka')
+
+      await user.click(screen.getByTestId('plan-picker-trigger'))
+      await user.click(screen.getByTestId('plan-option-p2'))
+
+      expect(screen.queryByText(/Nie można wybrać/)).not.toBeInTheDocument()
+      expect(screen.getByTestId('plan-option-p1')).toHaveClass('bg-accent')
+      expect(screen.getByTestId('plan-option-p2')).toHaveClass('bg-accent')
+      expect(screen.getByTestId('plan-picker-trigger')).toHaveTextContent(/15–17 stycznia 2026.*20–21 stycznia 2026/)
+    })
+
+    it('blocks selecting a plan that overlaps an already-selected one', async () => {
+      const user = userEvent.setup()
+      vi.stubGlobal('fetch', multiPlanFetchMock())
+
+      renderKalendarzTab()
+      await screen.findByTestId('meal-day1-Owsianka')
+
+      await user.click(screen.getByTestId('plan-picker-trigger'))
+      await user.click(screen.getByTestId('plan-option-p3'))
+
+      expect(await screen.findByText(/Nie można wybrać nakładających się planów/)).toBeInTheDocument()
+      expect(screen.getByTestId('plan-option-p3')).not.toHaveClass('bg-accent')
+      expect(screen.getByTestId('plan-picker-trigger')).not.toHaveTextContent(/16 stycznia 2026/)
+    })
+
+    it('does not allow deselecting the last remaining plan', async () => {
+      const user = userEvent.setup()
+      vi.stubGlobal('fetch', multiPlanFetchMock())
+
+      renderKalendarzTab()
+      await screen.findByTestId('meal-day1-Owsianka')
+
+      await user.click(screen.getByTestId('plan-picker-trigger'))
+      // p1 is selected by default — clicking its own checked row again must
+      // not clear the selection down to zero.
+      await user.click(screen.getByTestId('plan-option-p1'))
+
+      expect(screen.getByTestId('plan-option-p1')).toHaveClass('bg-accent')
+      expect(screen.getByTestId('plan-picker-trigger')).toHaveTextContent(/15–17 stycznia 2026/)
+    })
+  })
 })
