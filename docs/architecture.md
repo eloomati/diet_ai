@@ -582,6 +582,48 @@ Two route groups, both gated by `require_role(ADMIN, SUPER_ADMIN)`:
   anything, since only a transaction *becoming* paid is a meaningful
   business event.
 
+### Pagination (Phase 13 / Etap 4)
+
+All three list endpoints above (`GET /admin/users`,
+`/admin/dietitian-applications`, `/admin/transactions`) gained
+`limit`/`offset` query params and now respond with a `Page[T]` envelope
+(`{items: [...], total: N}`) instead of a bare array — the first
+offset-based pagination pattern in this codebase (the only prior
+query-param-filtering precedent, `GET /diet-plans`'s `from`/`to` date
+range, is a different concern, not pagination). `limit` omitted (the
+default) returns every matching row with no SQL `LIMIT` — a deliberate
+backwards-compatibility choice: any caller that doesn't pass it still
+gets the full list, just now wrapped with an accurate `total` alongside
+it, rather than silently truncated to some default page size.
+
+Each of the three owning repositories (`UserRepository`,
+`DietitianApplicationRepository`, `TransactionRepository`) gained
+`limit`/`offset` params on `list_all()` plus a new `count_all()` method,
+both on the abstract port and its `SqlAlchemy*` implementation —
+`.offset()` always applied, `.limit()` only when given, `count_all` a
+separate `SELECT count(*)` honoring the same filters (e.g. dietitian
+applications' `status`). `TransactionRepository.list_by_user_id`/
+`list_by_dietitian_id` (backing the non-admin `/transactions/me*`
+endpoints) were deliberately left unpaginated — only the admin-facing
+`list_all` needed it. A new generic `PageResult[T]` DTO
+(`backend/modules/admin/application/dto/pagination_dto.py`) is what each
+`List*UseCase.execute()` returns; the routers wrap that into the API's
+`Page[T]` Pydantic generic
+(`backend/modules/admin/api/schemas/pagination_schemas.py`).
+
+`frontend-admin` gained one shared `PaginationControls` component
+(`frontend-admin/src/components/PaginationControls.tsx`) — fixed
+20-row page size, prev/next buttons, an "X–Y z Z" count, renders
+nothing once everything already fits on one page — wired into all
+three tabs (`UzytkownicyTab`/`DietetycyTab`/`TransakcjeTab`), each
+holding its own `offset` state. `DietetycyTab`'s existing status filter
+resets `offset` back to 0 on change, so switching filters can never
+strand the view on a now out-of-range page. The two side-queries that
+resolve `user_id` → email in `DietetycyTab`/`TransakcjeTab` deliberately
+call `getUsers()` with no `limit`/`offset` — they need the *entire* user
+list for the lookup map, relying on the "omitted limit returns
+everything" behavior above rather than paginating a lookup table.
+
 ---
 
 ## Transactions Module (Phase 12)

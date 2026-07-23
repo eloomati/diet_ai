@@ -1825,7 +1825,17 @@ separate, `SUPER_ADMIN`-only endpoint — see
 
 ## GET /admin/users
 
-Lists every user account.
+Lists every user account, paginated.
+
+### Query parameters
+
+```
+limit    optional, 1-200 — page size. Omitted (the default) returns
+         every user, no LIMIT applied — existing callers that don't
+         pass it keep getting the full list, just now wrapped in the
+         {items, total} envelope below instead of a bare array.
+offset   optional, >= 0, default 0
+```
 
 ### Response
 
@@ -1838,23 +1848,31 @@ Status:
 Body:
 
 ```json
-[
-  {
-    "id": "uuid",
-    "email": "user@example.com",
-    "status": "ACTIVE",
-    "role": "USER",
-    "email_verified": false,
-    "created_at": "2026-07-19T12:00:00+00:00"
-  }
-]
+{
+  "items": [
+    {
+      "id": "uuid",
+      "email": "user@example.com",
+      "status": "ACTIVE",
+      "role": "USER",
+      "email_verified": false,
+      "created_at": "2026-07-19T12:00:00+00:00"
+    }
+  ],
+  "total": 155
+}
 ```
+
+`total` is the full matching count, independent of `limit`/`offset` — use
+it to compute how many pages remain.
 
 ### Errors
 
 ```
 401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
 403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+422 Unprocessable Entity code=VALIDATION_ERROR — limit outside 1-200, or
+                offset < 0
 ```
 
 ---
@@ -1871,7 +1889,7 @@ Status:
 200 OK
 ```
 
-Body: same shape as one entry of `GET /admin/users`.
+Body: same shape as one entry of `GET /admin/users`'s `items` array.
 
 ### Errors
 
@@ -1895,7 +1913,7 @@ Status:
 200 OK
 ```
 
-Body: same shape as one entry of `GET /admin/users`.
+Body: same shape as one entry of `GET /admin/users`'s `items` array.
 
 ### Errors
 
@@ -1940,13 +1958,19 @@ Status:
 
 ## GET /admin/dietitian-applications
 
-Lists dietitian applications, optionally filtered by status.
+Lists dietitian applications, optionally filtered by status, paginated.
 
 ### Query parameters
 
 ```
 status   optional, one of PENDING | APPROVED | REJECTED
+limit    optional, 1-200 — page size. Omitted (the default) returns
+         every matching application, no LIMIT applied.
+offset   optional, >= 0, default 0
 ```
+
+`total` (see Response below) reflects the count for the current `status`
+filter, not the grand total across all statuses.
 
 ### Response
 
@@ -1956,14 +1980,25 @@ Status:
 200 OK
 ```
 
-Body: an array in the same shape as `POST /dietitian/applications`'s
-response (see the Dietitian API above).
+Body:
+
+```json
+{
+  "items": [
+    // same shape as POST /dietitian/applications's response (see the
+    // Dietitian API above)
+  ],
+  "total": 22
+}
+```
 
 ### Errors
 
 ```
 401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
 403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+422 Unprocessable Entity code=VALIDATION_ERROR — limit outside 1-200, or
+                offset < 0
 ```
 
 ---
@@ -1983,7 +2018,7 @@ Status:
 200 OK
 ```
 
-Body: same shape as `GET /admin/dietitian-applications`'s entries.
+Body: same shape as one entry of `GET /admin/dietitian-applications`'s `items` array.
 
 ### Errors
 
@@ -2009,7 +2044,7 @@ Status:
 200 OK
 ```
 
-Body: same shape as `GET /admin/dietitian-applications`'s entries.
+Body: same shape as one entry of `GET /admin/dietitian-applications`'s `items` array.
 
 ### Errors
 
@@ -2024,7 +2059,15 @@ Body: same shape as `GET /admin/dietitian-applications`'s entries.
 
 ## GET /admin/transactions
 
-Lists every transaction, across every user and dietitian.
+Lists every transaction, across every user and dietitian, paginated.
+
+### Query parameters
+
+```
+limit    optional, 1-200 — page size. Omitted (the default) returns
+         every transaction, no LIMIT applied.
+offset   optional, >= 0, default 0
+```
 
 ### Response
 
@@ -2034,14 +2077,25 @@ Status:
 200 OK
 ```
 
-Body: an array in the same shape as `POST /transactions`'s response
-(see the Transactions API below).
+Body:
+
+```json
+{
+  "items": [
+    // same shape as POST /transactions's response (see the
+    // Transactions API below)
+  ],
+  "total": 22
+}
+```
 
 ### Errors
 
 ```
 401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
 403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+422 Unprocessable Entity code=VALIDATION_ERROR — limit outside 1-200, or
+                offset < 0
 ```
 
 ---

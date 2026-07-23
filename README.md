@@ -224,7 +224,7 @@ Allow users to:
 | Frontend | ✅ |
 | Reporting | ⏳ |
 | Phase 12 — Dietitian Marketplace, Admin Panel & Roles | ✅ |
-| Phase 13 — Quality, Security & Personalization | 🚧 in progress — see `docs/implementation-roadmap.md` |
+| Phase 13 — Quality, Security & Personalization | ✅ |
 
 See `docs/implementation/implementation-roadmap-done190726.md` and `docs/implementation/implementation-roadmap-done220726.md` for the full stage-by-stage history of Phases 0-12; `docs/implementation-roadmap.md` holds the current phase's prospective plan.
 

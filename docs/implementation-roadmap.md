@@ -17,12 +17,12 @@ complete stage-by-stage logs. This document picks up at Phase 13.
 
 ---
 
-## Status (as of 2026-07-22)
+## Status (as of 2026-07-23)
 
 ```
 Phase 0-12  - Foundation through Dietitian  DONE — see the two archived
               Marketplace                    roadmaps
-Phase 13    - Quality, Security &           IN PROGRESS —
+Phase 13    - Quality, Security &           DONE —
               Personalization                Etap 0 (Security & session
                                                 hardening): DONE
                                               Etap 1 (User display
@@ -32,7 +32,7 @@ Phase 13    - Quality, Security &           IN PROGRESS —
                                               Etap 3 (Multi-plan
                                                 calendar): DONE
                                               Etap 4 (Admin panel
-                                                pagination): not started
+                                                pagination): DONE
 ```
 
 ---
@@ -937,7 +937,7 @@ days, and export the combined selection directly from that view.
 
 ---
 
-### Etap 4 — Admin Panel Pagination
+### Etap 4 — Admin Panel Pagination — DONE
 
 Goal: all three `frontend-admin` tabs (Users, Dietitian Applications,
 Transactions) paginate instead of rendering every row unpaginated.
@@ -1025,7 +1025,35 @@ Transactions) paginate instead of rendering every row unpaginated.
     (page-2 shows different rows, correct labels, filter-change resets
     to page 1, pager hidden at ≤1 page). Full frontend-admin suite: 33
     passed, clean `tsc -b`.
-- [ ] **Stage 3 — Tests + docs sync**: closing stage for this etap.
+- [x] **Stage 3 — Tests + docs sync — DONE**: closing stage for this
+      etap. Docs sync only — Stage 1/2 were already tested continuously
+      as they landed, so this stage ran the full suites without redoing
+      the live browser/Docker verification. `docs/api.md`: all three
+      admin list endpoints (`GET /admin/users`,
+      `/admin/dietitian-applications`, `/admin/transactions`) documented
+      with their new `limit`/`offset` query params and `{items, total}`
+      response envelope (previously undocumented as bare-array
+      responses); the four `POST .../activate|ban|approve|reject`
+      single-object responses' "same shape as ... entries" wording
+      updated to point at the `items` array specifically. `docs/
+      architecture.md` gained a "Pagination (Phase 13 / Etap 4)"
+      subsection under Admin Module: the `Page[T]`/`PageResult[T]`
+      generic envelope, the `limit=None`-means-everything backwards-
+      compatibility choice, which repository methods gained
+      `count_all()`, and the frontend `PaginationControls` component
+      plus the two intentionally-unpaginated `getUsers()` side-queries
+      (email-lookup maps need every user, not one page).
+      `docs/openapi.json` re-checked — already in sync (Stage 2 was
+      frontend-only, no schema change since Stage 1's export).
+  - Exit criteria met: full suites run clean — backend 668 passed;
+    frontend (main app) 159 passed (one `KalendarzTab.test.tsx` timeout
+    reproduced as a re-run-clean flake, unrelated to this etap — passes
+    in isolation and on a second full-suite run), clean `tsc --noEmit`;
+    frontend-admin 33 passed (one filter-reset test flaked once under
+    concurrent background test runs, passed clean on two immediate
+    reruns — not a real bug), clean `tsc -b`. No new live-browser pass
+    this stage — Stage 2 already did that against a real Docker backend
+    with seeded multi-page data for all three tabs.
 
 ---
 
