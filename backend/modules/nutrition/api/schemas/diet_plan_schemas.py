@@ -17,8 +17,17 @@ class GenerateDietPlanRequest(BaseModel):
 
 class RescheduleMealRequest(BaseModel):
     day_number: int = Field(ge=1)
-    meal_name: str = Field(min_length=1)
+    meal_index: int = Field(ge=0)
     new_time: time
+    # Omit (or send the same value as day_number) for a same-day retime —
+    # only set this to actually move the meal to a different day.
+    new_day_number: int | None = Field(default=None, ge=1)
+
+
+class RenameDietPlanRequest(BaseModel):
+    # Explicit `null` clears it back to the default goal/diet_type/duration
+    # display — same convention as `UpdateMeRequest.display_name`.
+    name: str | None = Field(default=None, min_length=1, max_length=200)
 
 
 class MealResponse(BaseModel):
@@ -61,6 +70,7 @@ class DietPlanResponse(BaseModel):
     duration_days: int
     requirements: list[str]
     days: list[DietDayResponse]
+    name: str | None
     created_at: str
     updated_at: str
 
@@ -74,6 +84,7 @@ class DietPlanResponse(BaseModel):
             duration_days=result.duration_days,
             requirements=list(result.requirements),
             days=[DietDayResponse.from_result(day) for day in result.days],
+            name=result.name,
             created_at=result.created_at,
             updated_at=result.updated_at,
         )
@@ -84,6 +95,7 @@ class DietPlanSummaryResponse(BaseModel):
     goal: str
     diet_type: str
     duration_days: int
+    name: str | None
     created_at: str
 
     @classmethod
@@ -93,5 +105,6 @@ class DietPlanSummaryResponse(BaseModel):
             goal=result.goal,
             diet_type=result.diet_type,
             duration_days=result.duration_days,
+            name=result.name,
             created_at=result.created_at,
         )

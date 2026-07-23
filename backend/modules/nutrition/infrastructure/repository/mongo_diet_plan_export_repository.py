@@ -28,3 +28,6 @@ class MongoDietPlanExportRepository(DietPlanExportRepository):
             .to_list()
         )
         return [DietPlanExportMapper.to_domain(document) for document in documents]
+
+    async def delete_by_user_id(self, user_id: UUID) -> None:
+        await DietPlanExportDocument.find(DietPlanExportDocument.user_id == user_id).delete()

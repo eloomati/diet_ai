@@ -32,8 +32,16 @@ class RescheduleMealCommand:
     user_id: UUID
     plan_id: UUID
     day_number: int
-    meal_name: str
+    meal_index: int
     new_time: time
+    new_day_number: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RenameDietPlanCommand:
+    user_id: UUID
+    plan_id: UUID
+    name: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +89,7 @@ class DietPlanResult:
     days: tuple[DietDayResult, ...]
     created_at: str
     updated_at: str
+    name: str | None = None
 
     @classmethod
     def from_domain(cls, plan: DietPlan) -> "DietPlanResult":
@@ -92,6 +101,7 @@ class DietPlanResult:
             duration_days=plan.duration_days,
             requirements=plan.requirements,
             days=tuple(DietDayResult.from_domain(day) for day in plan.days),
+            name=plan.name,
             created_at=plan.created_at.isoformat(),
             updated_at=plan.updated_at.isoformat(),
         )
@@ -104,6 +114,7 @@ class DietPlanSummaryResult:
     diet_type: str
     duration_days: int
     created_at: str
+    name: str | None = None
 
     @classmethod
     def from_domain(cls, plan: DietPlan) -> "DietPlanSummaryResult":
@@ -112,5 +123,6 @@ class DietPlanSummaryResult:
             goal=plan.goal.value,
             diet_type=plan.diet_type.value,
             duration_days=plan.duration_days,
+            name=plan.name,
             created_at=plan.created_at.isoformat(),
         )

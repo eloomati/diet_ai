@@ -3,14 +3,20 @@ import contextlib
 import logging
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from backend.app.api_router import api_router
 from backend.modules.ai.infrastructure import close_llm_provider, init_llm_provider
 from backend.modules.conversation.infrastructure.documents import ConversationDocument
 from backend.modules.identity.infrastructure.email.email_retry_scheduler import run_email_retry_loop
+from backend.modules.messaging.infrastructure.consumers import run_transaction_paid_thread_consumer
+from backend.modules.notifications.infrastructure.consumers import run_transaction_paid_consumer
 from backend.modules.nutrition.infrastructure.documents import (
+    CombinedDietPlanExportDocument,
     DietPlanDocument,
     DietPlanExportDocument,
     NutritionProfileDocument,
@@ -25,7 +31,9 @@ from backend.shared.database import (
 )
 from backend.shared.exceptions import register_exception_handlers
 from backend.shared.logging import setup_logging
+from backend.shared.messaging import close_kafka_producer, init_kafka_producer
 from backend.shared.middleware import RequestIdMiddleware
+from backend.shared.redis import close_redis_client, init_redis_client
 
 
 @asynccontextmanager
@@ -37,7 +45,13 @@ async def lifespan(app: FastAPI):
         await init_postgres(settings.postgres_url)
         await init_mongo(settings.mongo_url)
         await init_beanie_documents(
-            [ConversationDocument, NutritionProfileDocument, DietPlanDocument, DietPlanExportDocument]
+            [
+                ConversationDocument,
+                NutritionProfileDocument,
+                DietPlanDocument,
+                DietPlanExportDocument,
+                CombinedDietPlanExportDocument,
+            ]
         )
         await init_llm_provider(settings)
     except Exception as e:
@@ -46,11 +60,43 @@ async def lifespan(app: FastAPI):
 
     email_retry_task = asyncio.create_task(run_email_retry_loop(settings))
 
+    # Real broker only when kafka_provider=kafka (Settings) — same
+    # mock/real split as ai_provider/email_provider/sftp_provider. Nothing
+    # to consume if nothing real is publishing, so neither consumer
+    # starts in mock mode either. Two independent consumer groups react
+    # to the same TransactionPaid topic (notifications' own badge,
+    # messaging's own thread-creation) — standard Kafka fan-out, not one
+    # consumer doing both.
+    kafka_consumer_tasks: list[asyncio.Task] = []
+    if settings.kafka_provider == "kafka":
+        await init_kafka_producer(settings.kafka_bootstrap_servers)
+        kafka_consumer_tasks = [
+            asyncio.create_task(run_transaction_paid_consumer(settings)),
+            asyncio.create_task(run_transaction_paid_thread_consumer(settings)),
+        ]
+
+    # Real Redis only when rate_limit_provider=redis (Settings) — same
+    # mock/real split as the providers above. Nothing to connect to if
+    # rate limiting is running on the in-memory NoOpRateLimiter instead.
+    if settings.rate_limit_provider == "redis":
+        await init_redis_client(settings.redis_url)
+
     yield
 
     email_retry_task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await email_retry_task
+
+    for task in kafka_consumer_tasks:
+        task.cancel()
+    for task in kafka_consumer_tasks:
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+    if kafka_consumer_tasks:
+        await close_kafka_producer()
+
+    if settings.rate_limit_provider == "redis":
+        await close_redis_client()
 
     await close_postgres()
     await close_mongo()
@@ -80,6 +126,13 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     register_exception_handlers(app)
+
+    Path(settings.dietitian_photos_storage_dir).mkdir(parents=True, exist_ok=True)
+    app.mount(
+        settings.dietitian_photos_base_url,
+        StaticFiles(directory=settings.dietitian_photos_storage_dir),
+        name="dietitian-photos",
+    )
 
     @app.get(f"{settings.api_prefix}/health", tags=["system"])
     async def health() -> dict[str, str]:

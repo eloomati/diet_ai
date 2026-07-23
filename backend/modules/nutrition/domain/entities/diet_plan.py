@@ -22,6 +22,7 @@ class DietPlan:
     duration_days: int
     requirements: tuple[str, ...]
     days: tuple[DietDay, ...]
+    name: str | None = None
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
@@ -49,7 +50,20 @@ class DietPlan:
             updated_at=now,
         )
 
-    def reschedule_meal(self, day_number: int, meal_name: str, new_time: time) -> None:
+    def rename(self, name: str | None) -> None:
+        # `None` clears back to the auto-generated goal/diet_type/duration
+        # display — same "explicit None clears it" convention as
+        # `User.set_display_name()`.
+        self.name = name
+        self.updated_at = datetime.now(UTC)
+
+    def reschedule_meal(
+        self,
+        day_number: int,
+        meal_index: int,
+        new_time: time,
+        new_day_number: int | None = None,
+    ) -> None:
         day_index = next(
             (i for i, day in enumerate(self.days) if day.day_number == day_number), None
         )
@@ -57,18 +71,38 @@ class DietPlan:
             raise MealNotFoundError(f"Day {day_number} not found in this plan.")
 
         day = self.days[day_index]
-        meal_index = next(
-            (i for i, meal in enumerate(day.meals) if meal.name == meal_name), None
-        )
-        if meal_index is None:
-            raise MealNotFoundError(f"Meal '{meal_name}' not found on day {day_number}.")
+        if not (0 <= meal_index < len(day.meals)):
+            raise MealNotFoundError(f"Meal at index {meal_index} not found on day {day_number}.")
 
-        new_meals = list(day.meals)
-        new_meals[meal_index] = replace(new_meals[meal_index], time=new_time)
-        new_day = replace(day, meals=tuple(new_meals))
+        target_day_number = new_day_number if new_day_number is not None else day_number
 
-        new_days = list(self.days)
-        new_days[day_index] = new_day
+        if target_day_number == day_number:
+            new_meals = list(day.meals)
+            new_meals[meal_index] = replace(new_meals[meal_index], time=new_time)
+            new_day = replace(day, meals=tuple(new_meals))
+
+            new_days = list(self.days)
+            new_days[day_index] = new_day
+        else:
+            target_index = next(
+                (i for i, d in enumerate(self.days) if d.day_number == target_day_number), None
+            )
+            if target_index is None:
+                raise MealNotFoundError(f"Day {target_day_number} not found in this plan.")
+
+            moved_meal = replace(day.meals[meal_index], time=new_time)
+
+            source_meals = list(day.meals)
+            source_meals.pop(meal_index)
+            new_source_day = replace(day, meals=tuple(source_meals))
+
+            target_day = self.days[target_index]
+            new_target_day = replace(target_day, meals=(*target_day.meals, moved_meal))
+
+            new_days = list(self.days)
+            new_days[day_index] = new_source_day
+            new_days[target_index] = new_target_day
+
         self.days = tuple(new_days)
         self.updated_at = datetime.now(UTC)
 

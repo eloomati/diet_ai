@@ -8,6 +8,7 @@ from .dto import (
     GetConversationHistoryResult,
     ListConversationsQuery,
     MessageView,
+    RenameConversationCommand,
     SendMessageCommand,
     SendMessageResult,
 )
@@ -19,6 +20,7 @@ from .use_cases import (
     DeleteConversationUseCase,
     GetConversationHistoryUseCase,
     ListConversationsUseCase,
+    RenameConversationUseCase,
     SendMessageUseCase,
 )
 
@@ -34,12 +36,14 @@ __all__ = [
     "ConversationSummary",
     "ArchiveConversationCommand",
     "DeleteConversationCommand",
+    "RenameConversationCommand",
     "CreateConversationUseCase",
     "SendMessageUseCase",
     "GetConversationHistoryUseCase",
     "ListConversationsUseCase",
     "ArchiveConversationUseCase",
     "DeleteConversationUseCase",
+    "RenameConversationUseCase",
     "ConversationApplicationError",
     "ConversationNotFoundError",
 ]

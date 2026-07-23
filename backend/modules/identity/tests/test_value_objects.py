@@ -5,6 +5,7 @@ from backend.modules.identity.domain import (
     InvalidEmailError,
     InvalidPasswordHashError,
     PasswordHash,
+    Role,
 )
 
 
@@ -26,3 +27,7 @@ def test_password_hash_accepts_bcrypt() -> None:
 def test_password_hash_invalid() -> None:
     with pytest.raises(InvalidPasswordHashError):
         PasswordHash("plain-text")
+
+
+def test_role_has_expected_members() -> None:
+    assert {r.value for r in Role} == {"USER", "DIET_USER", "ADMIN", "SUPER_ADMIN"}

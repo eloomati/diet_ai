@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from 'react'
 
-import { confirmEmailVerification } from '@/api/auth'
+import { confirmEmailVerification, updateMe } from '@/api/auth'
 import { FieldError } from '@/components/FieldError'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ApiError } from '@/lib/apiFetch'
 import { useAuth } from '@/lib/auth'
+import { notifyError, notifyInfo } from '@/lib/toast'
 
+import { DietitianApplicationSection } from './DietitianApplicationSection'
 import { NutritionProfileForm } from './NutritionProfileForm'
 
 function verifyErrorMessage(error: unknown): string {
@@ -16,11 +18,38 @@ function verifyErrorMessage(error: unknown): string {
   return 'Coś poszło nie tak. Spróbuj ponownie.'
 }
 
+function displayNameErrorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.code === 'INVALID_DISPLAY_NAME') {
+    return 'Nazwa może zawierać tylko litery, cyfry i pojedyncze spacje.'
+  }
+  return 'Coś poszło nie tak. Spróbuj ponownie.'
+}
+
 export function ProfilTab() {
   const { user, logout, refreshUser } = useAuth()
   const [token, setToken] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [displayName, setDisplayName] = useState(user?.display_name ?? '')
+  const [displayNameSubmitting, setDisplayNameSubmitting] = useState(false)
+  const [displayNameError, setDisplayNameError] = useState<string | null>(null)
+
+  async function handleSaveDisplayName(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setDisplayNameError(null)
+    setDisplayNameSubmitting(true)
+    try {
+      await updateMe({ display_name: displayName.trim() || null })
+      await refreshUser()
+      notifyInfo('Nazwa wyświetlana zapisana.')
+    } catch (err) {
+      const message = displayNameErrorMessage(err)
+      setDisplayNameError(message)
+      notifyError(message)
+    } finally {
+      setDisplayNameSubmitting(false)
+    }
+  }
 
   async function handleVerify(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -41,6 +70,32 @@ export function ProfilTab() {
   return (
     <div className="flex flex-col gap-6">
       {user && <p className="text-sm text-foreground">Zalogowano jako <b>{user.email}</b></p>}
+
+      <div className="rounded-xl border border-border p-4">
+        <p className="mb-2 text-xs font-bold tracking-wide text-muted-foreground uppercase">
+          Nazwa wyświetlana
+        </p>
+        <form className="flex items-end gap-2" onSubmit={handleSaveDisplayName}>
+          <div className="flex-1">
+            <label
+              htmlFor="display-name"
+              className="mb-1 block text-xs font-bold text-muted-foreground"
+            >
+              Widoczna zamiast adresu e-mail (opcjonalnie)
+            </label>
+            <Input
+              id="display-name"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              placeholder={user?.email}
+            />
+          </div>
+          <Button type="submit" disabled={displayNameSubmitting}>
+            {displayNameSubmitting ? 'Zapisywanie…' : 'Zapisz'}
+          </Button>
+        </form>
+        {displayNameError && <FieldError message={displayNameError} className="mt-2" />}
+      </div>
 
       <div className="rounded-xl border border-border p-4">
         <p className="mb-3 text-xs font-bold tracking-wide text-muted-foreground uppercase">
@@ -82,6 +137,8 @@ export function ProfilTab() {
       <Button variant="outline" className="w-fit" onClick={() => void logout()}>
         Wyloguj się
       </Button>
+
+      <DietitianApplicationSection />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-# Diet AI
+# Mycelo
 
 > AI-powered nutrition assistant built with Python, FastAPI, Domain-Driven Design and Hexagonal Architecture.
 
@@ -6,7 +6,7 @@
 
 # Overview
 
-Diet AI is an AI-powered nutrition assistant that allows authenticated users to chat with a Large Language Model (LLM), maintain a nutrition profile, and generate personalized structured diet plans.
+Mycelo is an AI-powered nutrition assistant that allows authenticated users to chat with a Large Language Model (LLM), maintain a nutrition profile, and generate personalized structured diet plans.
 
 The application combines modern backend architecture with AI integration while following enterprise software engineering practices inspired by Java/Spring Boot development.
 
@@ -37,17 +37,20 @@ cd diet_ai
 docker compose up -d --build
 ```
 
-This builds the backend and frontend images and starts seven containers:
+This builds the backend and frontend images and starts ten containers:
 
 | Service    | Container          | Port        | Purpose                                             |
 |------------|--------------------|-------------|------------------------------------------------------|
 | `backend`  | `diet_ai_backend`  | 8000        | FastAPI application                                  |
 | `frontend` | `diet_ai_frontend` | 5173        | React + Vite dev server — the web UI                 |
-| `db`       | `diet_ai_db`       | 5432        | PostgreSQL — Identity module                         |
+| `frontend-admin` | `diet_ai_frontend_admin` | 5174 | React + Vite dev server — the admin panel (Phase 12; login requires an `ADMIN`/`SUPER_ADMIN` account) |
+| `db`       | `diet_ai_db`       | 5432        | PostgreSQL — Identity, Dietitian, Transactions, Notifications, Messaging modules |
 | `mongo`    | `diet_ai_mongo`    | 27017       | MongoDB — Conversation + Nutrition modules           |
 | `ollama`   | `diet_ai_ollama`   | 11434       | Local LLM — powers chat + diet-plan generation by default |
 | `mailhog`  | `diet_ai_mailhog`  | 1025 / 8025 | Local SMTP catcher — password-reset/verification emails land here, not a real inbox. Web UI at http://localhost:8025 |
 | `sftp`     | `diet_ai_sftp`     | 2222        | Local SFTP server — diet-plan CSV exports are archived here so a user can re-download one later. User `dietai`/`dietai` |
+| `kafka`    | `diet_ai_kafka`    | 9094        | Single-node broker (KRaft mode) — `TransactionPaid` events power the Notifications badge + auto-created Messaging threads |
+| `redis`    | `diet_ai_redis`    | 6379        | Rate-limits `POST /auth/login`, `/auth/register`, `/auth/password-reset/request` — one counter bucket per action per client IP |
 
 **First start takes a few minutes** — two things happen automatically, no action needed:
 
@@ -70,6 +73,20 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
   -d '{"email": "you@example.com", "password": "StrongPass123"}'
 ```
 
+## Technical accounts
+
+A migration (`backend/alembic/version/20260723_14_technical_users.py`)
+seeds one ready-to-use account per role, so anyone running the stack
+locally can log in immediately without registering/promoting an account
+by hand. Same password for all four: **`DemoPass123!`**
+
+| Email | Role | Notes |
+|---|---|---|
+| `demo.user@example.com` | `USER` | plain account, no nutrition profile yet |
+| `demo.dietitian@example.com` | `DIET_USER` | has a `DietitianProfile` already, so it shows up in the marketplace |
+| `demo.admin@example.com` | `ADMIN` | log into the admin panel at http://localhost:5174 |
+| `demo.superadmin@example.com` | `SUPER_ADMIN` | admin panel, plus the role-change dropdown |
+
 ## 4. Try the full flow
 
 `docs/https/*.http` files (compatible with the VS Code **REST Client** extension or JetBrains' built-in HTTP client) walk through each module end-to-end with real requests:
@@ -80,7 +97,7 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
 | `docs/https/conversation.http` | create a conversation → chat with the AI → view history → archive → delete |
 | `docs/https/nutrition.http` | create/get/update a nutrition profile, including a weekly obligations schedule (work/training hours) |
 | `docs/https/diet-plan.http` | generate a plan → reschedule a meal's time → export to CSV → list/download previous exports → filter plan history by date |
-| `docs/frontend-smoke-walkthrough.md` | the same end-to-end journey, but through the actual web UI: register → login → complete profile → chat → generate plan → reschedule → export |
+| `docs/implementation/frontend-smoke-walkthrough.md` | the same end-to-end journey, but through the actual web UI: register → login → complete profile → chat → generate plan → reschedule → export |
 
 The email-related steps in `user.http` need `EMAIL_PROVIDER=smtp` (the
 `docker-compose.yml` default) so mail actually lands in Mailhog — see the
@@ -220,8 +237,10 @@ Allow users to:
 | Meal Scheduling & Calendar Export (weekly obligations, AI meal times, reschedule, CSV export/archive, date-range filtering) | ✅ |
 | Frontend | ✅ |
 | Reporting | ⏳ |
+| Phase 12 — Dietitian Marketplace, Admin Panel & Roles | ✅ |
+| Phase 13 — Quality, Security & Personalization | ✅ |
 
-See `docs/implementation-roadmap.md` for the full stage-by-stage history of every phase.
+See `docs/implementation/implementation-roadmap-done190726.md` and `docs/implementation/implementation-roadmap-done220726.md` for the full stage-by-stage history of Phases 0-12; `docs/implementation-roadmap.md` holds the current phase's prospective plan.
 
 ---
 
@@ -376,11 +395,12 @@ Or via Docker — `docker compose up -d --build frontend` (depends on the
 
 - Docker
 - Docker Compose
+- Kafka (single-node, KRaft mode)
+- Redis (auth rate limiting)
 
 Future:
 
 - Kubernetes
-- Redis
 - Vector Database
 
 ---
@@ -394,12 +414,14 @@ diet_ai/
 │
 ├── frontend/              # React + Vite + TS + Tailwind v4 + shadcn/ui (Phase 10, done)
 │
+├── frontend-admin/        # separate admin panel app (Phase 12) — ADMIN/SUPER_ADMIN only
+│
 ├── docs/                  # architecture, domain model, API contract, roadmap, .http smoke tests
 │
 ├── docker/                # entrypoint.sh (waits for Postgres, runs migrations, then execs uvicorn)
 │
 ├── Dockerfile
-├── docker-compose.yml       # dev stack: db, mongo, ollama, mailhog, sftp, backend, frontend
+├── docker-compose.yml       # dev stack: db, mongo, ollama, mailhog, sftp, backend, frontend, frontend-admin
 ├── docker-compose.test.yml  # ephemeral test stack, auto-managed by conftest.py
 ├── conftest.py
 ├── pytest.ini
@@ -620,7 +642,8 @@ Project documentation lives in `docs/`:
 | `docs/api.md` | Full REST API contract (all modules), narrative/prose |
 | `docs/openapi.json` | Machine-generated OpenAPI 3.1 schema (`scripts/export_openapi.py`) — same schema served live at `/openapi.json`/`/docs` |
 | `docs/auth-runbook.md` | Auth error format + manual verification runbook |
-| `docs/implementation-roadmap.md` | Stage-by-stage build history for every phase, including verification notes |
+| `docs/implementation-roadmap.md` | The current phase's prospective plan, implemented stage by stage |
+| `docs/implementation/implementation-roadmap-done190726.md` | Full stage-by-stage build history for every completed phase (0-11), including verification notes |
 | `docs/https/*.http` | Runnable end-to-end request walkthroughs per module (see [Getting Started](#4-try-the-full-flow)) |
 
 ---
@@ -644,6 +667,16 @@ Project documentation lives in `docs/`:
 This project is intentionally designed to resemble an enterprise backend system.
 
 The focus is on understanding software architecture, domain modeling and clean application design rather than simply implementing features.
+
+---
+
+# License
+
+Licensed under the [Business Source License 1.1](LICENSE). The source is
+public and free to use for personal, educational, or internal purposes —
+offering Mycelo (or a substantially derived product) as a competing
+commercial service requires a separate license from the author. Converts
+automatically to Apache License 2.0 on 2030-07-21.
 
 ---
 

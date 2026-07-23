@@ -30,6 +30,10 @@ class DietPlanDocument(Document):
     duration_days: int
     requirements: list[str]
     days: list[DietDayEmbed]
+    # Optional custom title (Phase 13) — None means "show the default
+    # goal/diet_type/duration display", same as plans generated before this
+    # field existed, which have no value to backfill.
+    name: str | None = None
     created_at: datetime
     # Defaulted (unlike created_at): plans generated before Phase 9 Stage 3
     # predate this field and have no value to backfill from.

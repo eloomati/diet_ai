@@ -66,6 +66,13 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, CONVERSATIONS))
       }
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -90,6 +97,13 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -97,7 +111,7 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
     renderApp()
     await loginViaPopup(user)
 
-    expect(await screen.findByText('Brak jeszcze żadnych rozmów.')).toBeInTheDocument()
+    expect(await screen.findByText('Jeszcze z nami nie pogadałeś :(')).toBeInTheDocument()
   })
 
   it('creates a conversation from the category picker and navigates to it', async () => {
@@ -130,6 +144,13 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -137,7 +158,7 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
     renderApp()
     await loginViaPopup(user)
 
-    await screen.findByText('Brak jeszcze żadnych rozmów.')
+    await screen.findByText('Jeszcze z nami nie pogadałeś :(')
     await user.click(screen.getByRole('button', { name: 'Nowy czat' }))
     await user.click(screen.getByRole('button', { name: '🥗 Dieta' }))
     await user.click(screen.getByRole('button', { name: 'Rozpocznij czat' }))
@@ -169,6 +190,13 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -176,7 +204,7 @@ describe('AppShell conversations (Etap 3 Stage 1)', () => {
     renderApp()
     await loginViaPopup(user)
 
-    await screen.findByText('Brak jeszcze żadnych rozmów.')
+    await screen.findByText('Jeszcze z nami nie pogadałeś :(')
     await user.click(screen.getByRole('button', { name: 'Nowy czat' }))
     await user.click(screen.getByRole('button', { name: '🥗 Dieta' }))
     await user.click(screen.getByRole('button', { name: 'Rozpocznij czat' }))
@@ -221,6 +249,13 @@ describe('AppShell conversations (Etap 3 Stage 3 — archive & delete)', () => {
       if (url.endsWith('/conversations')) {
         conversationsListCalls += 1
         return Promise.resolve(jsonResponse(200, conversationsListCalls === 1 ? CONVERSATIONS : []))
+      }
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
+        return Promise.resolve(jsonResponse(200, []))
       }
       return Promise.resolve(jsonResponse(200, {}))
     })
@@ -274,6 +309,13 @@ describe('AppShell responsiveness (Etap 5 Stage 2)', () => {
       if (url.endsWith('/conversations')) {
         return Promise.resolve(jsonResponse(200, []))
       }
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -288,19 +330,19 @@ describe('AppShell responsiveness (Etap 5 Stage 2)', () => {
     await loginViaPopup(user)
 
     expect(await screen.findByLabelText('Profil')).toBeInTheDocument()
-    expect(screen.getByText('Co nowego')).toBeInTheDocument()
+    expect(screen.getByText('Dietetycy')).toBeInTheDocument()
 
     const [collapseLeft] = screen.getAllByRole('button', { name: 'Zwiń panel' })
     await user.click(collapseLeft)
     expect(screen.queryByLabelText('Profil')).not.toBeInTheDocument()
-    expect(screen.getByText('Co nowego')).toBeInTheDocument()
+    expect(screen.getByText('Dietetycy')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Rozwiń panel' }))
     expect(await screen.findByLabelText('Profil')).toBeInTheDocument()
 
     const [, collapseRight] = screen.getAllByRole('button', { name: 'Zwiń panel' })
     await user.click(collapseRight)
-    expect(screen.queryByText('Co nowego')).not.toBeInTheDocument()
+    expect(screen.queryByText('Dietetycy')).not.toBeInTheDocument()
     expect(screen.getByLabelText('Profil')).toBeInTheDocument()
   })
 
@@ -313,7 +355,7 @@ describe('AppShell responsiveness (Etap 5 Stage 2)', () => {
     await loginViaPopup(user)
 
     expect(screen.queryByLabelText('Profil')).not.toBeInTheDocument()
-    expect(screen.queryByText('Co nowego')).not.toBeInTheDocument()
+    expect(screen.queryByText('Dietetycy')).not.toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: 'Rozwiń panel' })).toHaveLength(2)
     expect(screen.queryByTestId('rail-backdrop')).not.toBeInTheDocument()
   })
@@ -334,5 +376,62 @@ describe('AppShell responsiveness (Etap 5 Stage 2)', () => {
 
     await user.click(screen.getByTestId('rail-backdrop'))
     expect(screen.queryByLabelText('Profil')).not.toBeInTheDocument()
+  })
+})
+
+describe('AppShell human-chat routing (Etap 5 Stage 3)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    clearTokens()
+  })
+
+  it('renders HumanChatCanvas instead of the AI ChatCanvas on the /dietitian-chat/:threadId route', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/me')) {
+        return Promise.resolve(
+          jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true }),
+        )
+      }
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      if (url.endsWith('/conversations')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      if (
+        url.endsWith('/dietitian') ||
+        url.endsWith('/transactions/me/purchases') ||
+        url.endsWith('/notifications')
+      ) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      if (url.endsWith('/messaging/threads')) {
+        return Promise.resolve(
+          jsonResponse(200, [
+            {
+              id: 'thread-1',
+              user_id: 'u1',
+              dietitian_id: 'd1',
+              created_at: '2026-07-22T00:00:00Z',
+              other_participant_name: 'dietitian@example.com',
+            },
+          ]),
+        )
+      }
+      if (url.endsWith('/messaging/threads/thread-1/messages')) {
+        return Promise.resolve(jsonResponse(200, []))
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderApp(['/dietitian-chat/thread-1'])
+    await loginViaPopup(user)
+
+    // Appears twice — the right rail's own "Wiadomości" contact card and
+    // HumanChatCanvas's header — confirming both rendered correctly.
+    expect((await screen.findAllByText('dietitian@example.com')).length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByText('Cześć! W czym mogę Ci dziś pomóc?')).not.toBeInTheDocument()
   })
 })

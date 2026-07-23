@@ -6,6 +6,7 @@ from .conversation_dependencies import (
     get_delete_conversation_use_case,
     get_list_conversations_use_case,
     get_llm_provider,
+    get_rename_conversation_use_case,
     get_send_message_use_case,
 )
 
@@ -18,4 +19,5 @@ __all__ = [
     "get_send_message_use_case",
     "get_archive_conversation_use_case",
     "get_delete_conversation_use_case",
+    "get_rename_conversation_use_case",
 ]

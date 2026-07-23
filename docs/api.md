@@ -1,8 +1,8 @@
-# Diet AI - API Contract
+# Mycelo - API Contract
 
 ## Overview
 
-This document defines the REST API contract for the Diet AI application.
+This document defines the REST API contract for the Mycelo application.
 It's a hand-written, narrative companion to the machine-generated
 OpenAPI/Swagger schema — see **Machine-readable schema** below for where
 that lives and how the two relate.
@@ -15,7 +15,13 @@ The API provides functionality for:
 - AI conversations,
 - conversation history, archiving, and deletion,
 - diet plan generation, AI-suggested + user-editable meal scheduling,
-- diet plan CSV export (archived for later re-download) and date-range filtering of plan history.
+- diet plan CSV export (archived for later re-download) and date-range filtering of plan history,
+- dietitian applications and (once approved) dietitian profile management, including up to 3 photos,
+- public marketplace browsing (dietitian listing + profile, no authentication required) and reviews,
+- admin user management and dietitian-application review (ADMIN/SUPER_ADMIN-only),
+- purchasing a dietitian's offer and admin-toggled paid/unpaid transaction records (no real payment gateway),
+- notifications (a right-rail badge, populated via Kafka + a direct call from sending a message) and mark-all-read,
+- a human-to-human chat thread between a buyer and their dietitian, auto-created when a transaction is marked paid.
 
 Base URL:
 
@@ -66,6 +72,14 @@ Database:
 ```
 PostgreSQL
 ```
+
+`POST /auth/register`, `/auth/login`, and `/auth/password-reset/request`
+are each individually rate-limited by client IP (Phase 13) — a separate
+counter bucket per action, so flooding one never blocks the others from
+the same IP. Backed by Redis in real deployments
+(`RATE_LIMIT_PROVIDER=redis`); an in-memory no-op that never blocks is
+the default, so `pytest` and local dev without Redis running are
+unaffected.
 
 ---
 
@@ -118,6 +132,8 @@ Body:
 
 409 Conflict — `USER_ALREADY_EXISTS`
 
+429 Too Many Requests — `RATE_LIMITED` (more than `RATE_LIMIT_MAX_ATTEMPTS` register attempts from the same IP within `RATE_LIMIT_WINDOW_SECONDS` — Phase 13; a separate counter bucket per action, so this never blocks `/auth/login` from the same IP)
+
 ---
 
 ## POST /auth/login
@@ -159,6 +175,8 @@ Body:
 401 Unauthorized — `INVALID_CREDENTIALS`
 
 403 Forbidden — `INACTIVE_USER`
+
+429 Too Many Requests — `RATE_LIMITED` (more than `RATE_LIMIT_MAX_ATTEMPTS` login attempts from the same IP within `RATE_LIMIT_WINDOW_SECONDS` — Phase 13, guards against brute-force; counted regardless of whether the credentials given were actually correct)
 
 ---
 
@@ -256,15 +274,122 @@ Body:
   "user_id": "uuid",
   "email": "user@example.com",
   "status": "ACTIVE",
-  "email_verified": false
+  "role": "USER",
+  "email_verified": false,
+  "display_name": null
 }
 ```
+
+`role`: one of `USER`, `DIET_USER`, `ADMIN`, `SUPER_ADMIN` — every user
+is `USER` until either a `SUPER_ADMIN` promotes them (see
+`PATCH /admin/users/{user_id}/role` below) or a future dietitian-
+application approval flow promotes them to `DIET_USER` (Phase 12).
+
+`display_name`: `null` until the user sets one via `PATCH /auth/me`
+below. Wherever the app shows this user's identity to someone else
+(chat, messaging threads, reviews), it resolves to `display_name` if
+set, falling back to `email` otherwise (Phase 13).
 
 ### Errors
 
 401 Unauthorized — `INVALID_ACCESS_TOKEN` (missing/malformed/expired token, or token references a deleted user)
 
 403 Forbidden — `INACTIVE_USER`
+
+---
+
+## PATCH /auth/me
+
+Sets or clears the authenticated user's own `display_name` — the name
+shown to other users instead of their email in chat, messaging threads,
+and reviews.
+
+Authentication:
+
+Required — `Authorization: Bearer {access_token}`.
+
+### Request
+
+```json
+{
+  "display_name": "Jan Kowalski"
+}
+```
+
+`display_name`: Polish letters, digits, and single spaces between words
+only, max 50 characters. Pass `null` to clear it back to unset (the
+user's email becomes the shown identity again).
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `GET /auth/me` above, reflecting the new
+`display_name`.
+
+### Errors
+
+400 Bad Request — `INVALID_DISPLAY_NAME`
+
+401 Unauthorized — `INVALID_ACCESS_TOKEN`
+
+---
+
+## PATCH /admin/users/{user_id}/role
+
+Changes another user's role. `SUPER_ADMIN`-only — this is the only way
+any user ever gains `ADMIN`/`SUPER_ADMIN`/`DIET_USER`; there is no
+self-escalation path anywhere in the API. A `SUPER_ADMIN` also cannot
+change their *own* role through this endpoint (400) — otherwise the
+only `SUPER_ADMIN` in the system could accidentally demote or lock
+themselves out with a single request.
+
+Authentication:
+
+Required — `Authorization: Bearer {access_token}`, and the caller's own
+role must be `SUPER_ADMIN`.
+
+### Request
+
+```json
+{
+  "new_role": "DIET_USER"
+}
+```
+
+`new_role`: one of `USER`, `DIET_USER`, `ADMIN`, `SUPER_ADMIN`.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "user_id": "uuid",
+  "email": "user@example.com",
+  "role": "DIET_USER"
+}
+```
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not SUPER_ADMIN
+400 Bad Request code=BAD_REQUEST — user_id is the caller's own id
+404 Not Found code=NOT_FOUND — user_id doesn't exist
+422 Unprocessable Entity code=VALIDATION_ERROR — new_role isn't one of the 4 valid values
+```
 
 ---
 
@@ -309,6 +434,8 @@ Body:
 400 Bad Request — `BAD_REQUEST` (CAPTCHA verification failed)
 
 422 Unprocessable Entity — `VALIDATION_ERROR` (missing `captcha_token`)
+
+429 Too Many Requests — `RATE_LIMITED` (more than `RATE_LIMIT_MAX_ATTEMPTS` reset requests from the same IP within `RATE_LIMIT_WINDOW_SECONDS` — Phase 13)
 
 Otherwise always `200`, whether or not the email exists.
 
@@ -698,6 +825,39 @@ Body:
 
 ---
 
+## PATCH /conversations/{conversation_id}
+
+Renames a conversation.
+
+### Request
+
+```json
+{
+  "title": "New title"
+}
+```
+
+`title`: 1-200 characters.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `GET /conversations/{conversation_id}`, with the
+updated `title`.
+
+### Errors
+
+404 Not Found — `NOT_FOUND` (same not-found-vs-not-yours ambiguity as above)
+
+422 Unprocessable Entity — `VALIDATION_ERROR` (blank or over-length title)
+
+---
+
 ## POST /conversations/{conversation_id}/messages
 
 Appends a user message, generates an AI response (via whichever provider `AI_PROVIDER` selects — see auth-runbook.md-style config in `.env.example`), appends the response, and returns both.
@@ -848,6 +1008,7 @@ Body:
       ]
     }
   ],
+  "name": null,
   "created_at": "2026-01-01T10:00:00.482391+00:00",
   "updated_at": "2026-01-01T10:00:00.482391+00:00"
 }
@@ -856,6 +1017,10 @@ Body:
 `created_at`/`updated_at` are plain `datetime.isoformat()` output —
 microseconds and a `+00:00` offset, **not** `Z`-normalized like the error
 envelope's `timestamp` field below.
+
+`name` (Phase 13): `null` until set via `PATCH /diet-plans/{diet_plan_id}`
+below — the frontend falls back to a composed
+`goal · diet_type · duration_days` label while it's unset.
 
 `time` (Phase 9): AI-suggested time of day for the meal, `"HH:MM"` or
 `null` if the model didn't provide one (never required — see
@@ -881,21 +1046,72 @@ Errors:
 
 ---
 
+## PATCH /diet-plans/{diet_plan_id}
+
+Renames a plan (or clears a custom name back to the default composed
+label — see `name` above).
+
+### Request
+
+```json
+{
+  "name": "Summer cut"
+}
+```
+
+`name`: 1-200 characters, or `null` to clear it.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `POST /diet-plans/generate`, with the updated `name`.
+
+### Errors
+
+```
+404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another user
+422 Unprocessable Entity code=VALIDATION_ERROR — name is empty or over-length
+```
+
+---
+
 ## PATCH /diet-plans/{diet_plan_id}/meals
 
-Reschedules a single meal's time within an already-generated plan. The
-only mutation a plan ever undergoes after generation — everything else
-about it (macros, meal identity, day count) is immutable.
+Reschedules a single meal's time within an already-generated plan.
+Together with the rename endpoint above, these are the only mutations a
+plan ever undergoes after generation — everything else about it (macros,
+meal identity, day count) is immutable.
 
 ### Request
 
 ```json
 {
   "day_number": 1,
-  "meal_name": "Protein oatmeal",
-  "new_time": "07:30:00"
+  "meal_index": 0,
+  "new_time": "07:30:00",
+  "new_day_number": 2
 }
 ```
+
+`meal_index`: the meal's position within that day's `meals` array (as
+returned by `GET /diet-plans/{id}`) — not its name. The AI planner
+routinely produces two meals named the same thing (e.g. two "Snack"s) on
+one day, so identifying the target by name alone is ambiguous; the index
+is the only reliable way to say which one.
+
+`new_day_number`: optional. Omit it (or send the same value as
+`day_number`) for a same-day retime — only set this to actually move the
+meal to a different day of the same plan. When given and different from
+`day_number`, the meal is removed from its source day and appended (with
+the new time) to the target day; the meal's index within its *new* day is
+whatever position it lands at (last), not necessarily `meal_index` again.
+Moving a meal to a day outside this plan's own `duration_days`, or to a
+different plan entirely, is not supported by this endpoint.
 
 ### Response
 
@@ -912,11 +1128,12 @@ Errors:
 
 ```
 404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another user
-400 Bad Request code=BAD_REQUEST — day_number or meal_name doesn't exist
-                within this plan (the plan itself is fine, so this is 400,
-                not 404 — see architecture.md)
-422 Unprocessable Entity code=VALIDATION_ERROR — day_number < 1, or
-                meal_name is empty — request-shape validation, checked
+400 Bad Request code=BAD_REQUEST — day_number doesn't exist, meal_index is
+                out of range for that day, or new_day_number doesn't
+                exist in this plan (the plan itself is fine, so this is
+                400, not 404 — see architecture.md)
+422 Unprocessable Entity code=VALIDATION_ERROR — day_number < 1, meal_index < 0,
+                or new_day_number < 1 — request-shape validation, checked
                 before the day/meal lookup above ever runs
 ```
 
@@ -955,6 +1172,7 @@ Body:
     "goal": "MUSCLE_GAIN",
     "diet_type": "VEGETARIAN",
     "duration_days": 3,
+    "name": null,
     "created_at": "2026-01-01T10:00:00.482391+00:00"
   }
 ]
@@ -1053,6 +1271,86 @@ Errors:
 
 ---
 
+## POST /diet-plans/export-combined
+
+Builds one combined CSV across **several** of the caller's own plans and
+archives it on SFTP — same "archive now, download separately" shape as
+the single-plan export above, and deliberately not nested under any one
+`diet_plan_id`, since a combined export doesn't belong to a single plan.
+A separate `CombinedDietPlanExport` record is persisted (not the same
+collection as single-plan exports).
+
+### Request
+
+```json
+{
+  "plan_ids": ["uuid-1", "uuid-2"]
+}
+```
+
+`plan_ids`: at least 1 id, every one of which must belong to the caller.
+The frontend only ever sends non-overlapping plans (enforced client-side
+in the calendar's plan picker), but this endpoint itself doesn't check
+overlap — it just includes whatever plans it's given, one CSV row per
+meal, sorted chronologically by date/time across all of them (not
+grouped plan-by-plan) via `build_combined_diet_plan_csv()`. Each row
+carries a `plan_id` column since `day_number` alone resets to 1 for every
+plan.
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body:
+
+```json
+{
+  "export_id": "uuid",
+  "diet_plan_ids": ["uuid-1", "uuid-2"],
+  "filename": "combined-3fa8...-a1b2c3d4.csv",
+  "created_at": "2026-01-01T10:05:00.482391+00:00"
+}
+```
+
+No file content is returned — download it separately via the endpoint
+below.
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — one of plan_ids doesn't exist, or doesn't
+                belong to the caller
+422 Unprocessable Entity code=VALIDATION_ERROR — plan_ids is empty
+```
+
+---
+
+## GET /diet-plans/exports-combined/{export_id}/download
+
+Streams a previously archived combined export back as a CSV file
+(`Content-Type: text/csv`, `Content-Disposition: attachment`) — same
+SFTP-proxying behavior as the single-plan download.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Errors:
+
+```
+404 Not Found code=NOT_FOUND — export doesn't exist, or belongs to another user
+```
+
+---
+
 ## GET /diet-plans/{diet_plan_id}
 
 Returns one full diet plan (with `days`/`meals`) — same body shape as the
@@ -1071,6 +1369,1191 @@ Errors:
 ```
 404 Not Found code=NOT_FOUND — plan doesn't exist, or belongs to another
                 user (not distinguished, so existence isn't leaked)
+```
+
+---
+
+# Dietitian API
+
+Module:
+
+```
+Dietitian
+```
+
+Database:
+
+```
+PostgreSQL
+```
+
+Most endpoints below require `Authorization: Bearer {access_token}`. The
+application endpoints (`POST`/`GET .../applications*`) are open to any
+authenticated `USER`. The profile endpoints (`.../profile*`) additionally
+require the caller's role to already be `DIET_USER` — granted via the
+admin dietitian-application-approval flow (see `POST
+/admin/dietitian-applications/{id}/approve` below), which also creates
+the `DietitianProfile` row. The marketplace read endpoints (bare `GET
+/dietitian` and `GET /dietitian/{dietitian_id}`, Phase 12 Etap 4) are the
+one exception — genuinely public, no token required, matching real
+marketplace browse-before-signup UX. Submitting a review (`POST
+/dietitian/{dietitian_id}/reviews`) is open to any authenticated user,
+same as the application endpoints.
+
+---
+
+## POST /dietitian/applications
+
+Submits a dietitian application. One application per user, ever — a
+second submission is rejected regardless of the first one's status (no
+reapply-after-rejection flow in this MVP scope).
+
+### Request
+
+```json
+{
+  "experience": "5 years as a clinical dietitian",
+  "diplomas": ["MSc Dietetics"],
+  "description": "I specialize in weight management and sports nutrition."
+}
+```
+
+`diplomas` may be an empty list.
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body:
+
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "experience": "5 years as a clinical dietitian",
+  "diplomas": ["MSc Dietetics"],
+  "description": "I specialize in weight management and sports nutrition.",
+  "status": "PENDING",
+  "created_at": "2026-07-19T12:00:00+00:00"
+}
+```
+
+`status` is one of `PENDING`, `APPROVED`, `REJECTED` — always `PENDING`
+on submission.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+409 Conflict code=CONFLICT — an application already exists for this user
+422 Unprocessable Entity code=VALIDATION_ERROR — experience/description blank
+```
+
+---
+
+## GET /dietitian/applications/me
+
+Returns the caller's own application, whatever its status — lets the
+frontend show "pending"/"approved"/"rejected" instead of the apply
+button once one exists.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `POST /dietitian/applications`'s response.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+404 Not Found code=NOT_FOUND — no application submitted yet
+```
+
+---
+
+## GET /dietitian/profile/me
+
+Returns the caller's own dietitian profile.
+
+Authentication:
+
+Required — caller's role must be `DIET_USER`.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "experience": "5 years as a clinical dietitian",
+  "diplomas": ["MSc Dietetics"],
+  "description": "I specialize in weight management and sports nutrition.",
+  "photos": ["/static/dietitian-photos/<uuid>.jpg"],
+  "created_at": "2026-07-19T12:00:00+00:00",
+  "first_name": null,
+  "last_name": null
+}
+```
+
+`photos` holds up to 3 entries — each a root-absolute path served by a
+static file mount, not under `/api/v1` (see `POST .../photos` below).
+
+`first_name`/`last_name`: both `null` until set via `PUT
+/dietitian/profile` below — entirely optional (Phase 13). Setting both
+is the dietitian's own choice to show their real name publicly instead
+of their `display_name`/email; see `GET /dietitian` and `GET
+/dietitian/{dietitian_id}` for the resolution order.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
+404 Not Found code=NOT_FOUND — no profile exists for this user
+```
+
+---
+
+## PUT /dietitian/profile
+
+Partial update — only the given fields change (same convention as
+`PUT /profile`). At least one field should be given, but none are
+individually required.
+
+Authentication:
+
+Required — caller's role must be `DIET_USER`.
+
+### Request
+
+```json
+{
+  "description": "Updated description."
+}
+```
+
+`experience`, `diplomas`, `description`, `first_name`, `last_name` — all
+optional.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `GET /dietitian/profile/me`.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
+404 Not Found code=NOT_FOUND — no profile exists for this user
+400 Bad Request code=BAD_REQUEST — experience/description blanked out
+```
+
+---
+
+## POST /dietitian/profile/photos
+
+Uploads one photo, appending it to the profile's `photos` list — up to
+3 total. `multipart/form-data`, field name `file`. Accepts
+`image/jpeg`, `image/png`, `image/webp`, max 5 MB. Stored on local disk
+(MVP decision, not object storage) under a server-generated filename —
+the client's own filename is never trusted beyond its extension, which
+also rules out path traversal by construction.
+
+Authentication:
+
+Required — caller's role must be `DIET_USER`.
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body: same shape as `GET /dietitian/profile/me`, with the new photo
+appended to `photos`.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
+404 Not Found code=NOT_FOUND — no profile exists for this user
+400 Bad Request code=BAD_REQUEST — unsupported content-type, file over 5 MB,
+                                     or the profile already has 3 photos
+```
+
+---
+
+## DELETE /dietitian/profile/photos/{index}
+
+Removes the photo at `index` (0-based, matching the `photos` array
+order returned by `GET .../me`) from the profile. The file itself is
+left on disk — this endpoint only detaches it from the profile record.
+
+Authentication:
+
+Required — caller's role must be `DIET_USER`.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `GET /dietitian/profile/me`, with the photo removed
+from `photos`.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
+404 Not Found code=NOT_FOUND — no profile exists for this user
+400 Bad Request code=BAD_REQUEST — index out of range
+```
+
+---
+
+## GET /dietitian
+
+The marketplace listing — every dietitian with a profile whose owning
+user is still `ACTIVE` and still `DIET_USER` (a banned account, or one a
+`SUPER_ADMIN` demoted, is excluded — not discoverable or hireable).
+**Public — no authentication required.**
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+[
+  {
+    "user_id": "uuid",
+    "name": "Jan Kowalski",
+    "experience": "5 years as a clinical dietitian",
+    "description": "I specialize in weight management and sports nutrition.",
+    "photos": ["/static/dietitian-photos/abc.jpg"],
+    "average_rating": 8.5,
+    "review_count": 4
+  }
+]
+```
+
+`average_rating` is `null` when `review_count` is `0`. `name` (Phase
+13, was `email`) resolves in priority order: the dietitian's own
+`first_name + last_name` if both are set → their `display_name` if set
+→ their email as the final fallback.
+
+### Errors
+
+None — always `200`, with an empty array when no dietitian qualifies.
+
+---
+
+## GET /dietitian/{dietitian_id}
+
+The full public profile behind one marketplace card — same
+active/`DIET_USER` filter as `GET /dietitian`, and all three failure
+reasons (no profile, banned, role reversed) collapse into a single `404`
+so an unauthenticated caller can't distinguish them. **Public — no
+authentication required.**
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "user_id": "uuid",
+  "name": "Jan Kowalski",
+  "experience": "5 years as a clinical dietitian",
+  "diplomas": ["MSc Dietetics"],
+  "description": "I specialize in weight management and sports nutrition.",
+  "photos": ["/static/dietitian-photos/abc.jpg"],
+  "created_at": "2026-07-19T12:00:00+00:00",
+  "average_rating": 8.5,
+  "review_count": 1,
+  "reviews": [
+    {
+      "rating": 9,
+      "comment": "Very helpful, clear plan.",
+      "created_at": "2026-07-20T12:00:00+00:00",
+      "reviewer_name": "BuyerNick"
+    }
+  ]
+}
+```
+
+`name`: same resolution order as `GET /dietitian` above. Each entry in
+`reviews` now includes `reviewer_name` (Phase 13, resolved the same way
+— the reviewer's `display_name` or email) — reviews are no longer
+anonymous, since this endpoint being public/no-auth was never actually
+the reason they omitted the reviewer's identity (the raw `reviewer_id`
+was already returned by `POST .../reviews` below all along).
+
+### Errors
+
+```
+404 Not Found code=NOT_FOUND — no profile for this id, or the owning user isn't an active DIET_USER
+```
+
+---
+
+## POST /dietitian/{dietitian_id}/reviews
+
+Submits or edits the caller's own review of a dietitian — one review per
+`(reviewer, dietitian)` pair; a second call for the same pair updates the
+existing review's `rating`/`comment` instead of creating another one.
+Any authenticated user may call this (not role-gated, and nothing in
+this etap's scope requires a prior paid transaction with the dietitian
+first — a deliberate scope decision, not an oversight).
+
+### Request
+
+```json
+{
+  "rating": 9,
+  "comment": "Very helpful, clear plan."
+}
+```
+
+`rating`: integer, 1-10 inclusive.
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body:
+
+```json
+{
+  "id": "uuid",
+  "reviewer_id": "uuid",
+  "reviewer_name": "BuyerNick",
+  "dietitian_id": "uuid",
+  "rating": 9,
+  "comment": "Very helpful, clear plan.",
+  "created_at": "2026-07-20T12:00:00+00:00",
+  "updated_at": "2026-07-20T12:00:00+00:00"
+}
+```
+
+`reviewer_name` (Phase 13): the reviewer's own `display_name` or email —
+same resolution as elsewhere, just without the dietitian real-name step
+(a reviewer isn't necessarily a dietitian).
+
+Always `201`, even when this call updated an existing review rather
+than creating a new one — the response itself (an unchanged `id` versus
+one seen before) is how a caller would notice the difference, not the
+status code.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+404 Not Found code=NOT_FOUND — dietitian_id doesn't exist, or isn't a DIET_USER
+400 Bad Request code=BAD_REQUEST — dietitian_id is the caller's own id
+422 Unprocessable Entity code=VALIDATION_ERROR — rating out of 1-10 range, or comment blank
+```
+
+---
+
+# Admin API
+
+Module:
+
+```
+Admin
+```
+
+Database:
+
+```
+none — this module has no persistence of its own; see docs/architecture.md
+```
+
+All endpoints below require `Authorization: Bearer {access_token}` and
+the caller's role to be `ADMIN` or `SUPER_ADMIN`. Changing a user's role
+directly (as opposed to via dietitian-application approval, below) is a
+separate, `SUPER_ADMIN`-only endpoint — see
+`PATCH /admin/users/{user_id}/role` under the Authentication API above.
+
+---
+
+## GET /admin/users
+
+Lists every user account, paginated.
+
+### Query parameters
+
+```
+limit    optional, 1-200 — page size. Omitted (the default) returns
+         every user, no LIMIT applied — existing callers that don't
+         pass it keep getting the full list, just now wrapped in the
+         {items, total} envelope below instead of a bare array.
+offset   optional, >= 0, default 0
+```
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "items": [
+    {
+      "id": "uuid",
+      "email": "user@example.com",
+      "status": "ACTIVE",
+      "role": "USER",
+      "email_verified": false,
+      "created_at": "2026-07-19T12:00:00+00:00"
+    }
+  ],
+  "total": 155
+}
+```
+
+`total` is the full matching count, independent of `limit`/`offset` — use
+it to compute how many pages remain.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+422 Unprocessable Entity code=VALIDATION_ERROR — limit outside 1-200, or
+                offset < 0
+```
+
+---
+
+## POST /admin/users/{user_id}/activate
+
+Sets the user's status to `ACTIVE`.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as one entry of `GET /admin/users`'s `items` array.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — user_id doesn't exist
+```
+
+---
+
+## POST /admin/users/{user_id}/ban
+
+Sets the user's status to `BLOCKED` — they can no longer authenticate.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as one entry of `GET /admin/users`'s `items` array.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — user_id doesn't exist
+```
+
+---
+
+## DELETE /admin/users/{user_id}
+
+Permanently deletes the user and all of their data — Postgres rows
+(refresh/reset/verification tokens, dietitian application/profile, via
+`ON DELETE CASCADE`) and Mongo documents (conversations, nutrition
+profile, diet plans, diet plan exports, deleted explicitly since
+Postgres cascades can't reach Mongo). `email_logs` rows are
+deliberately left behind — they have no foreign key to the user by
+design. Cannot be undone.
+
+An admin cannot delete their own account through this endpoint.
+
+### Response
+
+Status:
+
+```
+204 No Content
+```
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+400 Bad Request code=BAD_REQUEST — user_id is the caller's own id
+404 Not Found code=NOT_FOUND — user_id doesn't exist
+```
+
+---
+
+## GET /admin/dietitian-applications
+
+Lists dietitian applications, optionally filtered by status, paginated.
+
+### Query parameters
+
+```
+status   optional, one of PENDING | APPROVED | REJECTED
+limit    optional, 1-200 — page size. Omitted (the default) returns
+         every matching application, no LIMIT applied.
+offset   optional, >= 0, default 0
+```
+
+`total` (see Response below) reflects the count for the current `status`
+filter, not the grand total across all statuses.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "items": [
+    // same shape as POST /dietitian/applications's response (see the
+    // Dietitian API above)
+  ],
+  "total": 22
+}
+```
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+422 Unprocessable Entity code=VALIDATION_ERROR — limit outside 1-200, or
+                offset < 0
+```
+
+---
+
+## POST /admin/dietitian-applications/{application_id}/approve
+
+Approves the application: sets its status to `APPROVED`, promotes the
+applicant's role to `DIET_USER`, and creates their `DietitianProfile`
+from the application's own experience/diplomas/description (unless one
+already exists, which is not expected in normal operation).
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as one entry of `GET /admin/dietitian-applications`'s `items` array.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — application_id doesn't exist
+409 Conflict code=CONFLICT — application was already approved/rejected
+```
+
+---
+
+## POST /admin/dietitian-applications/{application_id}/reject
+
+Rejects the application: sets its status to `REJECTED`. Does not change
+the applicant's role.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as one entry of `GET /admin/dietitian-applications`'s `items` array.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — application_id doesn't exist
+409 Conflict code=CONFLICT — application was already approved/rejected
+```
+
+---
+
+## GET /admin/transactions
+
+Lists every transaction, across every user and dietitian, paginated.
+
+### Query parameters
+
+```
+limit    optional, 1-200 — page size. Omitted (the default) returns
+         every transaction, no LIMIT applied.
+offset   optional, >= 0, default 0
+```
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+{
+  "items": [
+    // same shape as POST /transactions's response (see the
+    // Transactions API below)
+  ],
+  "total": 22
+}
+```
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+422 Unprocessable Entity code=VALIDATION_ERROR — limit outside 1-200, or
+                offset < 0
+```
+
+---
+
+## POST /admin/transactions/{transaction_id}/mark-paid
+
+Marks the transaction `PAID` and sets `paid_at` to now. A reversible
+toggle, not a one-way approval — re-marking an already-paid transaction
+paid is not an error, it just refreshes `paid_at`. Also triggers the
+`TransactionEventPublisher` port (a no-op today — see
+docs/architecture.md — a real Kafka publish once Phase 12 Etap 5 exists).
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `POST /transactions`'s response.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — transaction_id doesn't exist
+```
+
+---
+
+## POST /admin/transactions/{transaction_id}/mark-unpaid
+
+Marks the transaction `UNPAID` and clears `paid_at`. Does not publish
+any event — only a transaction *becoming* paid is a meaningful business
+event.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: same shape as `POST /transactions`'s response.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not ADMIN/SUPER_ADMIN
+404 Not Found code=NOT_FOUND — transaction_id doesn't exist
+```
+
+---
+
+# Transactions API
+
+Module:
+
+```
+Transactions
+```
+
+Database:
+
+```
+PostgreSQL
+```
+
+The demo has no real payment gateway (an explicit scope decision, same
+spirit as this project's Mock AI provider / Mailhog / local SFTP
+stand-ins for other real external services) — `POST /transactions`
+creates the record, and an admin manually flips it to paid from the
+admin panel (see `POST /admin/transactions/{id}/mark-paid` above).
+
+---
+
+## POST /transactions
+
+Creates a transaction for one of a dietitian's two fixed offers. `amount`
+is always server-computed from `offer_type` — never accepted from the
+client. Any authenticated user may call this (not role-gated — anyone
+might want to hire a dietitian) — but the caller's own email must be
+verified first (Phase 13): an unverified buyer is rejected with `403
+EMAIL_NOT_VERIFIED`, distinct from the banned/inactive `403
+INACTIVE_USER` every authenticated endpoint already enforces.
+
+### Request
+
+```json
+{
+  "dietitian_id": "uuid",
+  "offer_type": "PLAN_REVIEW"
+}
+```
+
+`offer_type`: one of `PLAN_REVIEW` (49.00) or `INDIVIDUAL_PLAN` (149.00).
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body:
+
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "dietitian_id": "uuid",
+  "offer_type": "PLAN_REVIEW",
+  "amount": "49.00",
+  "status": "UNPAID",
+  "created_at": "2026-07-19T12:00:00+00:00",
+  "paid_at": null,
+  "buyer_email": null
+}
+```
+
+`status` is one of `UNPAID`, `PAID` — a reversible admin-toggled flag,
+not a one-way approval state. `dietitian_id` can be `null` on an
+*existing* transaction if that dietitian's account has since been
+deleted (the row itself is never deleted when that happens — see
+docs/architecture.md's Data Ownership Rules). `buyer_email` is always
+`null` here — only `GET /transactions/me` below ever resolves it.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=INACTIVE_USER — caller's account is banned/inactive
+403 Forbidden code=EMAIL_NOT_VERIFIED — caller's email isn't verified yet
+404 Not Found code=NOT_FOUND — dietitian_id doesn't exist, or isn't a DIET_USER
+400 Bad Request code=BAD_REQUEST — dietitian_id is the caller's own id
+422 Unprocessable Entity code=VALIDATION_ERROR — offer_type isn't one of the 2 valid values
+```
+
+---
+
+## GET /transactions/me
+
+Lists every transaction where the caller is the *dietitian* side —
+"my sales". See `GET /transactions/me/purchases` below for the buyer
+side.
+
+`buyer_email` is `null` while `status` is `UNPAID`, and resolved to the
+buyer's real email the moment `status` is `PAID` — a synchronous
+derived property computed in this same endpoint (`GET
+/transactions/me`), **not** something a `TransactionPaid` Kafka event
+sets or that persists as its own flag. That makes it correctly
+reversible on `POST /admin/transactions/{id}/mark-unpaid` (the email
+disappears again) and immune to the Kafka consumer's own lag or
+downtime (Phase 12 Etap 5's separate `notifications`/`messaging`
+consumers only ever produce a notification badge and auto-create a
+chat thread from the same event — they have no bearing on this field).
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: an array in the same shape as `POST /transactions`'s response,
+with `buyer_email` populated per the rule above.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+403 Forbidden code=FORBIDDEN — caller's role is not DIET_USER
+```
+
+---
+
+## GET /transactions/me/purchases
+
+Lists every transaction where the caller is the *buyer* side — "my
+purchases". Any authenticated user may call this (not role-gated — a
+plain `USER` is exactly who buys, not who sells). Added in Phase 12
+Etap 4 Stage 2 as this stage's own prerequisite — the marketplace right
+rail needs it to know which dietitians the current user already has an
+open or completed transaction with, so it can pin them above the rest of
+the roster.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: an array in the same shape as `POST /transactions`'s response.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+```
+
+---
+
+# Notifications API
+
+Module:
+
+```
+Notifications
+```
+
+Database:
+
+```
+PostgreSQL
+```
+
+One unread/read marker per recipient, backing Phase 12 Etap 5's
+right-rail badge. Populated from two independent sources — a Kafka
+consumer reacting to `TransactionPaid` (`TRANSACTION_PAID`), and a
+direct call from `POST /messaging/threads/{id}/messages` (`NEW_MESSAGE`)
+— never created directly through an endpoint of its own. Both endpoints
+below are open to any authenticated user (no role gate — everyone has
+notifications).
+
+---
+
+## GET /notifications
+
+Lists the caller's own notifications, most recent first.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+[
+  {
+    "id": "uuid",
+    "type": "TRANSACTION_PAID",
+    "reference_id": "uuid",
+    "created_at": "2026-07-22T12:00:00+00:00",
+    "read_at": null
+  }
+]
+```
+
+`type` is one of `TRANSACTION_PAID`, `NEW_MESSAGE`. `reference_id` is
+deliberately polymorphic — a transaction id for `TRANSACTION_PAID`, a
+`DietitianThread` id for `NEW_MESSAGE` — and carries no FK of its own.
+`recipient_user_id` is intentionally omitted from the response — it's
+always the caller.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+```
+
+---
+
+## POST /notifications/mark-all-read
+
+Marks every one of the caller's currently-unread notifications as read,
+in one bulk action — not a per-notification mark-read endpoint. A
+small-badge UI has few enough notifications that "mark everything I can
+currently see as read" is the only action that makes sense; already-read
+notifications are left untouched (idempotent, same spirit as
+`Transaction.mark_paid()`/`mark_unpaid()`).
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body: the caller's full notification list, in the same shape as `GET
+/notifications`, with `read_at` now set on every entry.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+```
+
+---
+
+# Messaging API
+
+Module:
+
+```
+Messaging
+```
+
+Database:
+
+```
+PostgreSQL
+```
+
+A one-thread-per-buyer/dietitian-pair channel, auto-created by a Kafka
+consumer reacting to `TransactionPaid` — there is **no** endpoint to
+create a thread directly. Thread existence is itself the access gate to
+the two endpoints below it; it's permanent once granted, never
+re-checked against the transaction's live `status` (unlike the
+dietitian-facing buyer-contact reveal on `GET /transactions/me`, which
+*is* live and reversible — see the Transactions API section above).
+
+---
+
+## GET /messaging/threads
+
+Lists every thread the caller is a participant of — symmetric by
+design, since the same endpoint serves a buyer's "my dietitians" list
+and a dietitian's "my clients" list with no role branching.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+[
+  {
+    "id": "uuid",
+    "user_id": "uuid",
+    "dietitian_id": "uuid",
+    "created_at": "2026-07-22T12:00:00+00:00",
+    "other_participant_name": "Jan Kowalski"
+  }
+]
+```
+
+`other_participant_name` (Phase 13, was `other_participant_email`)
+resolves to whichever side the caller *isn't*. When the other side is
+the dietitian, it uses the same `first_name + last_name` → `display_name`
+→ email priority as `GET /dietitian`; when it's the buyer, it's their
+`display_name` or email. `null` if that user's account has since been
+deleted (the thread itself outlives them either way — both `user_id`
+and `dietitian_id` are `ON DELETE CASCADE`, so a thread is only ever
+actually removed once *both* participants are gone).
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+```
+
+---
+
+## GET /messaging/threads/{thread_id}/messages
+
+Lists every message on a thread, oldest first. Caller must be a
+participant of the thread.
+
+### Response
+
+Status:
+
+```
+200 OK
+```
+
+Body:
+
+```json
+[
+  {
+    "id": "uuid",
+    "thread_id": "uuid",
+    "sender": "USER",
+    "content": "Cześć, mam pytanie odnośnie mojego planu.",
+    "diet_plan_id": null,
+    "created_at": "2026-07-22T12:00:00+00:00"
+  }
+]
+```
+
+`sender` is one of `USER`, `DIETITIAN` — always the value the message
+was created with server-side (see `POST` below), never client-editable
+after the fact. `diet_plan_id` is set only on messages sent via the
+"send my plan" action (carries no FK — a cross-database pointer into a
+Mongo-held `DietPlan`).
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+404 Not Found code=NOT_FOUND — thread_id doesn't exist
+403 Forbidden code=FORBIDDEN — caller is not a participant of this thread
+```
+
+---
+
+## POST /messaging/threads/{thread_id}/messages
+
+Sends a message on a thread. Also creates a `NEW_MESSAGE` notification
+for the *other* participant — a direct, synchronous call to the
+Notifications module, not a second Kafka round-trip (see the
+Notifications API section above).
+
+### Request
+
+```json
+{
+  "content": "Cześć, mam pytanie odnośnie mojego planu.",
+  "diet_plan_id": "uuid"
+}
+```
+
+`diet_plan_id` is optional — omit it for a plain text message. When
+present, the frontend renders the message as a `DietPlanCard` instead of
+a text bubble.
+
+`sender` is **never** accepted from the client — it's derived
+server-side from which participant the caller is (`caller_id ==
+thread.user_id` → `USER`, `== thread.dietitian_id` → `DIETITIAN`,
+neither → `403`).
+
+### Response
+
+Status:
+
+```
+201 Created
+```
+
+Body: the created message, in the same shape as `GET
+/messaging/threads/{thread_id}/messages`'s response items.
+
+### Errors
+
+```
+401 Unauthorized code=INVALID_ACCESS_TOKEN — missing/malformed/expired token
+404 Not Found code=NOT_FOUND — thread_id doesn't exist
+403 Forbidden code=FORBIDDEN — caller is not a participant of this thread
+400 Bad Request code=BAD_REQUEST — content is blank
 ```
 
 ---
@@ -1183,6 +2666,4 @@ Possible future endpoints:
 /recipes
 
 /reports
-
-/notifications
 ```

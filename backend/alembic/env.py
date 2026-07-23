@@ -7,6 +7,11 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from backend.shared.database.postgres import Base
+from backend.modules.dietitian.infrastructure.persistence.models import (
+    DietitianApplicationModel,
+    DietitianProfileModel,
+    ReviewModel,
+)
 from backend.modules.identity.infrastructure.persistence.models import (
     EmailLogModel,
     EmailVerificationTokenModel,
@@ -14,6 +19,12 @@ from backend.modules.identity.infrastructure.persistence.models import (
     RefreshTokenModel,
     UserModel,
 )
+from backend.modules.messaging.infrastructure.persistence.models import (
+    DietitianMessageModel,
+    DietitianThreadModel,
+)
+from backend.modules.notifications.infrastructure.persistence.models import NotificationModel
+from backend.modules.transactions.infrastructure.persistence.models import TransactionModel
 
 # this is the Alembic Config object
 config = context.config

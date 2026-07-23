@@ -6,6 +6,10 @@ class InvalidEmailError(IdentityDomainError):
     pass
 
 
+class InvalidDisplayNameError(IdentityDomainError):
+    pass
+
+
 class InvalidPasswordError(IdentityDomainError):
     pass
 

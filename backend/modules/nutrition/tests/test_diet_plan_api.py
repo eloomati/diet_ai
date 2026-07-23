@@ -1,7 +1,15 @@
 import uuid
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 from fastapi.testclient import TestClient
+
+
+def _today() -> date:
+    # DietPlan.created_at is stored in UTC — comparing against the local
+    # calendar date (date.today()) flakes for ~2 hours a day in any
+    # timezone ahead of UTC (e.g. CEST), where local "today" has already
+    # rolled over but the row's own UTC date hasn't yet.
+    return datetime.now(UTC).date()
 
 
 def unique_email(prefix: str) -> str:
@@ -122,7 +130,7 @@ def test_list_diet_plans_from_in_the_future_excludes_todays_plan(client: TestCli
     client.post(
         "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
     )
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    tomorrow = (_today() + timedelta(days=1)).isoformat()
 
     response = client.get(
         "/api/v1/diet-plans", params={"from": tomorrow}, headers=_auth_headers(token)
@@ -138,7 +146,7 @@ def test_list_diet_plans_from_today_includes_todays_plan(client: TestClient) -> 
     client.post(
         "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
     )
-    today = date.today().isoformat()
+    today = _today().isoformat()
 
     response = client.get("/api/v1/diet-plans", params={"from": today}, headers=_auth_headers(token))
 
@@ -152,7 +160,7 @@ def test_list_diet_plans_to_in_the_past_excludes_todays_plan(client: TestClient)
     client.post(
         "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
     )
-    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    yesterday = (_today() - timedelta(days=1)).isoformat()
 
     response = client.get("/api/v1/diet-plans", params={"to": yesterday}, headers=_auth_headers(token))
 
@@ -166,7 +174,7 @@ def test_list_diet_plans_to_today_includes_todays_plan(client: TestClient) -> No
     client.post(
         "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
     )
-    today = date.today().isoformat()
+    today = _today().isoformat()
 
     response = client.get("/api/v1/diet-plans", params={"to": today}, headers=_auth_headers(token))
 
@@ -176,8 +184,8 @@ def test_list_diet_plans_to_today_includes_todays_plan(client: TestClient) -> No
 
 def test_list_diet_plans_from_after_to_returns_400(client: TestClient) -> None:
     token = _register_and_login(client, "dietplan.badrange")
-    tomorrow = (date.today() + timedelta(days=1)).isoformat()
-    today = date.today().isoformat()
+    tomorrow = (_today() + timedelta(days=1)).isoformat()
+    today = _today().isoformat()
 
     response = client.get(
         "/api/v1/diet-plans",
@@ -238,7 +246,7 @@ def test_reschedule_meal_updates_only_that_meal(client: TestClient) -> None:
 
     response = client.patch(
         f"/api/v1/diet-plans/{created['plan_id']}/meals",
-        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        json={"day_number": 1, "meal_index": 0, "new_time": "08:00:00"},
         headers=_auth_headers(token),
     )
 
@@ -252,12 +260,63 @@ def test_reschedule_meal_updates_only_that_meal(client: TestClient) -> None:
     assert refetched.json()["days"][1]["meals"][0]["time"] is None
 
 
+def test_reschedule_meal_moves_it_to_a_different_day(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.reschedule.move")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 2}, headers=_auth_headers(token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}/meals",
+        json={
+            "day_number": 1,
+            "meal_index": 0,
+            "new_time": "08:00:00",
+            "new_day_number": 2,
+        },
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["days"][0]["meals"] == []
+    assert len(body["days"][1]["meals"]) == 2
+    moved = next(meal for meal in body["days"][1]["meals"] if meal["time"] == "08:00")
+    assert moved["name"] == "Mock meal"
+
+    refetched = client.get(f"/api/v1/diet-plans/{created['plan_id']}", headers=_auth_headers(token)).json()
+    assert refetched["days"][0]["meals"] == []
+    assert len(refetched["days"][1]["meals"]) == 2
+
+
+def test_reschedule_meal_to_an_unknown_day_returns_400(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.reschedule.badday")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}/meals",
+        json={
+            "day_number": 1,
+            "meal_index": 0,
+            "new_time": "08:00:00",
+            "new_day_number": 99,
+        },
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 400
+
+
 def test_reschedule_meal_on_unknown_plan_returns_404(client: TestClient) -> None:
     token = _register_and_login(client, "dietplan.reschedule.unknown")
 
     response = client.patch(
         "/api/v1/diet-plans/00000000-0000-0000-0000-000000000000/meals",
-        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        json={"day_number": 1, "meal_index": 0, "new_time": "08:00:00"},
         headers=_auth_headers(token),
     )
 
@@ -275,7 +334,59 @@ def test_reschedule_meal_on_other_users_plan_returns_404(client: TestClient) -> 
 
     response = client.patch(
         f"/api/v1/diet-plans/{created['plan_id']}/meals",
-        json={"day_number": 1, "meal_name": "Mock meal", "new_time": "08:00:00"},
+        json={"day_number": 1, "meal_index": 0, "new_time": "08:00:00"},
+        headers=_auth_headers(other_token),
+    )
+
+    assert response.status_code == 404
+
+
+def test_rename_diet_plan_updates_only_the_name(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.rename")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}",
+        json={"name": "Summer cut"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == "Summer cut"
+    assert body["goal"] == created["goal"]
+
+    refetched = client.get(f"/api/v1/diet-plans/{created['plan_id']}", headers=_auth_headers(token))
+    assert refetched.json()["name"] == "Summer cut"
+
+
+def test_rename_diet_plan_on_unknown_plan_returns_404(client: TestClient) -> None:
+    token = _register_and_login(client, "dietplan.rename.unknown")
+
+    response = client.patch(
+        "/api/v1/diet-plans/00000000-0000-0000-0000-000000000000",
+        json={"name": "Summer cut"},
+        headers=_auth_headers(token),
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "NOT_FOUND"
+
+
+def test_rename_diet_plan_on_other_users_plan_returns_404(client: TestClient) -> None:
+    owner_token = _register_and_login(client, "dietplan.rename.owner")
+    other_token = _register_and_login(client, "dietplan.rename.other")
+    client.post("/api/v1/profile", json=_PROFILE_PAYLOAD, headers=_auth_headers(owner_token))
+    created = client.post(
+        "/api/v1/diet-plans/generate", json={"duration_days": 1}, headers=_auth_headers(owner_token)
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/diet-plans/{created['plan_id']}",
+        json={"name": "Sneaky"},
         headers=_auth_headers(other_token),
     )
 
@@ -291,7 +402,7 @@ def test_reschedule_unknown_meal_returns_400(client: TestClient) -> None:
 
     response = client.patch(
         f"/api/v1/diet-plans/{created['plan_id']}/meals",
-        json={"day_number": 1, "meal_name": "Nonexistent", "new_time": "08:00:00"},
+        json={"day_number": 1, "meal_index": 99, "new_time": "08:00:00"},
         headers=_auth_headers(token),
     )
 

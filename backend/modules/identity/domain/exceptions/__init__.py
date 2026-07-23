@@ -1,6 +1,7 @@
 from .identity_domain_errors import (
     IdentityDomainError,
     InactiveUserAuthenticationError,
+    InvalidDisplayNameError,
     InvalidEmailError,
     InvalidEmailVerificationTokenError,
     InvalidPasswordError,
@@ -12,6 +13,7 @@ from .identity_domain_errors import (
 __all__ = [
     "IdentityDomainError",
     "InvalidEmailError",
+    "InvalidDisplayNameError",
     "InvalidPasswordError",
     "InvalidPasswordHashError",
     "InactiveUserAuthenticationError",

@@ -16,11 +16,17 @@ function jsonResponse(status: number, body: unknown): Response {
   })
 }
 
-function stubLoggedInFetch() {
+function stubLoggedInFetch(role: string = 'USER') {
   const fetchMock = vi.fn().mockImplementation((url: string) => {
     if (url.includes('/auth/me')) {
       return Promise.resolve(
-        jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true }),
+        jsonResponse(200, {
+          user_id: 'u1',
+          email: 'user@example.com',
+          status: 'ACTIVE',
+          email_verified: true,
+          role,
+        }),
       )
     }
     if (url.includes('/auth/login')) {
@@ -28,6 +34,25 @@ function stubLoggedInFetch() {
     }
     if (url.includes('/auth/logout')) {
       return Promise.resolve(jsonResponse(200, { message: 'Logged out successfully.' }))
+    }
+    if (url.includes('/dietitian/applications')) {
+      return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no application yet' }))
+    }
+    if (url.includes('/transactions/me')) {
+      return Promise.resolve(jsonResponse(200, []))
+    }
+    if (url.includes('/dietitian/profile')) {
+      return Promise.resolve(
+        jsonResponse(200, {
+          id: 'profile-1',
+          user_id: 'u1',
+          experience: 'exp',
+          diplomas: [],
+          description: 'desc',
+          photos: [],
+          created_at: '2026-07-19T00:00:00Z',
+        }),
+      )
     }
     if (url.includes('/profile')) {
       return Promise.resolve(jsonResponse(404, { code: 'NOT_FOUND', message: 'no profile yet' }))
@@ -128,5 +153,30 @@ describe('ProfileModal', () => {
     await user.click(screen.getByRole('button', { name: 'Wyloguj się' }))
 
     await waitFor(() => expect(onClose).toHaveBeenCalled())
+  })
+
+  it('hides the Profil dietetyka and Transakcje tabs for a regular USER', async () => {
+    stubLoggedInFetch('USER')
+
+    renderOpenModal()
+    await screen.findByText('Profil żywieniowy')
+
+    expect(screen.queryByRole('tab', { name: 'Profil dietetyka' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Transakcje' })).not.toBeInTheDocument()
+  })
+
+  it('shows the Profil dietetyka and Transakcje tabs for a DIET_USER', async () => {
+    const user = userEvent.setup()
+    stubLoggedInFetch('DIET_USER')
+
+    renderOpenModal()
+    await screen.findByText('Profil żywieniowy')
+
+    expect(screen.getByRole('tab', { name: 'Profil dietetyka' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('tab', { name: 'Transakcje' }))
+    expect(
+      await screen.findByText('Nie masz jeszcze żadnych transakcji.'),
+    ).toBeInTheDocument()
   })
 })

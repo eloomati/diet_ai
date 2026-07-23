@@ -1,8 +1,8 @@
-# Diet AI - Architecture
+# Mycelo - Architecture
 
 ## 1. Overview
 
-Diet AI is an AI-powered nutrition assistant that allows users to communicate with an AI model and receive personalized dietary recommendations.
+Mycelo is an AI-powered nutrition assistant that allows users to communicate with an AI model and receive personalized dietary recommendations.
 
 The system allows users to:
 
@@ -47,7 +47,7 @@ The project uses a **Modular Monolith** architecture.
 The application is a single deployable backend, but internally consists of independent business modules.
 
 ```
-Diet AI Backend
+Mycelo Backend
 
 +--------------------------------+
 
@@ -205,6 +205,13 @@ small packages:
   module's Ollama integration once it became clear the functions have zero
   coupling to `Prompt`/`AIResponse` or anything Ollama-specific — they only
   ever touched `dict`/`type[BaseModel]`.
+- `shared/validation/` (Phase 13) — `is_valid_human_name()`, a pure
+  predicate (Polish letters, digits, single spaces, max 50 chars) with no
+  exceptions of its own. Passes the same test as everything else here:
+  unlike `PasswordPolicy` above, it raises nothing module-specific, so it
+  qualifies for `shared/` even though three different call sites
+  (`identity`'s `DisplayName`, `dietitian`'s `first_name`/`last_name`)
+  wrap it in their own domain exception on failure.
 
 The dependency direction only ever goes one way: a module may depend on
 `shared/`, `shared/` never depends on a module. That's the test applied
@@ -251,6 +258,13 @@ own `InvalidPasswordError` directly, so it stays put).
                 Claude Provider / Ollama (local)
 ```
 
+`frontend-admin` (Phase 12) is a second, separate frontend
+calling the same FastAPI API — omitted from the diagram above to keep
+it to the original chat/nutrition flow. It talks to a new `Admin`
+module, which has no database of its own (see "Admin Module" below) —
+so it isn't drawn with a persistence box the way `Identity`/
+`Conversation`/`Nutrition` are.
+
 ---
 
 # 7. Application Modules
@@ -269,7 +283,9 @@ Responsibilities:
 - password reset,
 - email verification,
 - email delivery logging + retry for failed sends,
-- user account management.
+- user account management,
+- role-based access control (Phase 12),
+- rate limiting the three sensitive auth endpoints against brute-force/spam (Phase 13).
 
 Database:
 
@@ -283,7 +299,8 @@ Technology:
 Main entities:
 
 ```
-User                     — gained email_verified: bool (Phase 8)
+User                     — gained email_verified: bool (Phase 8),
+                            role: Role (Phase 12)
 
 RefreshToken
 
@@ -310,9 +327,64 @@ see "Shared Kernel" below for where it actually lives.
 `RefreshTokenRepository.revoke_all_for_user()` after a successful reset —
 every other session is forced to re-authenticate, standard practice after
 a credential change. Email verification does **not** gate login:
-`LoginUserUseCase` is untouched by `email_verified` — this is a deliberate
-scope boundary, not an oversight; verifying email is tracked but not
-enforced.
+`LoginUserUseCase` is untouched by `email_verified` — this remains a
+deliberate scope boundary, not an oversight. It's no longer true that
+`email_verified` is tracked-but-never-enforced anywhere, though: Phase 13
+Etap 0 added the first real enforcement of it, scoped narrowly to buying
+a dietitian's offer (`CreateTransactionUseCase`, see the Transactions
+Module below) — a buyer must verify their email before purchasing,
+independent of whether they can otherwise log in and browse fine.
+
+### Role-based access control (Phase 12)
+
+`Role` is a `StrEnum` on `User` — `USER` (default), `DIET_USER`, `ADMIN`,
+`SUPER_ADMIN`. `User.change_role()` is a plain state transition + a
+`UserRoleChanged` domain event; it enforces no authorization rule of its
+own (the entity has no notion of "who's asking"). Authorization —
+*who* may call an endpoint at all, and *who* may change *whose* role —
+is entirely an API-layer concern, via a dependency factory:
+
+```python
+require_role(*roles: Role) -> Callable[[User], Awaitable[User]]
+```
+
+built on top of `get_current_user`, only adding a role-membership check.
+Every role-gated endpoint in every module (`identity`, `dietitian`,
+`admin`) depends on this same function — none of them re-implement
+their own role check.
+
+The only way any user's role ever changes is `PATCH /admin/users/{user_id}/role`
+(`SUPER_ADMIN`-only) or the dietitian-application approval flow (the
+`admin` module, below, promoting an applicant to `DIET_USER`) — there is
+no self-escalation path anywhere in the API, and a `SUPER_ADMIN` cannot
+even change their *own* role through the role-change endpoint (a single
+misclick could otherwise demote or lock out the only such account in
+the system).
+
+### Rate Limiting (Phase 13)
+
+`RateLimiter` (`application/ports/rate_limiter.py`) is a port — one
+method, `hit(key, max_attempts, window_seconds) -> bool` — with the same
+mock/real split as every other swappable provider in this codebase:
+`NoOpRateLimiter` (default, `RATE_LIMIT_PROVIDER=mock`, always returns
+`True`, so `pytest` never needs a real Redis) and `RedisRateLimiter`
+(`RATE_LIMIT_PROVIDER=redis`, a fixed-window counter — `INCR` the key,
+`EXPIRE` it only on the first hit in the window — not a sliding-window/
+token-bucket algorithm, an acceptable tradeoff for a demo-scoped
+anti-brute-force guard rather than a billing-grade limiter). The Redis
+connection itself is a lifespan-managed singleton
+(`shared/redis/client.py`), same `init`/`close`/`get` shape as the Kafka
+producer and the Postgres engine — started only when
+`rate_limit_provider == "redis"`.
+
+Enforcement is a FastAPI dependency factory,
+`rate_limited(action: str)` (same "factory returning a dependency" shape
+as `require_role`), added as a fourth `Depends(...)` on
+`register`/`login`/`request_password_reset` — it reads the request's
+client IP and calls `RateLimiter.hit()` with a `f"{action}:{client_ip}"`
+key, raising `429 RATE_LIMITED` when exceeded. One counter bucket per
+*action* per IP, not one shared bucket per IP — flooding `/auth/login`
+never also blocks `/auth/register` from the same address.
 
 ### EmailSender, Mailhog, and the delivery log
 
@@ -371,6 +443,385 @@ duplicate row per attempt instead of tracking the original one.
 
 ---
 
+## Dietitian Module (Phase 12)
+
+Responsible for the dietitian's own side of the marketplace: applying
+to become one, managing the resulting public profile, and (once Etap 4
+added it) the public browsing surface and reviews built on top of that
+profile.
+
+Responsibilities:
+
+- submitting/reading a dietitian application (`dietitian_applications`),
+- managing an approved dietitian's own profile — experience, diplomas,
+  description, up to 3 photos (`dietitian_profiles`),
+- the public, unauthenticated marketplace listing and single-profile
+  view (`GET /dietitian`, `GET /dietitian/{id}`), and submitting/editing
+  a review (`POST /dietitian/{id}/reviews`).
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+DietitianApplication
+
+DietitianProfile
+
+Review
+```
+
+`DietitianApplication`/`DietitianProfile` themselves grant no role and
+create no profile — that's the Admin module's
+`ApproveDietitianApplicationUseCase` (see below), which promotes the
+user and creates the profile from the application's own data. This
+module's own endpoints only ever operate on an *already-existing*
+`DIET_USER`'s own profile (`require_role(DIET_USER)`).
+
+Photo uploads go through a `FileStorage` port
+(`LocalDiskFileStorage` today — a real object-storage adapter is a
+drop-in swap later, same shape as `EmailSender`/`SftpClient` elsewhere).
+
+### Marketplace listing/profile — public by design (Phase 12 Etap 4)
+
+`GET /dietitian` and `GET /dietitian/{dietitian_id}` carry no
+`require_role` (not even `get_current_user`) — a real marketplace lets
+you browse before signing up, and nothing about seeing a dietitian's
+public profile needs to be gated. Both filter to profiles whose owning
+user is still `ACTIVE` and still `DIET_USER` — the same role/status
+check `transactions`' `CreateTransactionUseCase` already applies when
+validating a purchase target, reused here so a banned dietitian, or one
+a `SUPER_ADMIN` demoted back to plain `USER`, is neither discoverable
+nor hireable. The single-profile endpoint collapses "no profile",
+"banned", and "role reversed" into one `404` — an unauthenticated caller
+has no reason to be able to tell those apart.
+
+Average rating is computed on read (`ReviewRepository
+.rating_summary_by_dietitian_id()`, a small SQL `AVG`/`COUNT`), not
+stored redundantly on `DietitianProfile` — one query per listed/viewed
+dietitian, an accepted N+1 pattern at this project's demo scale, the
+same trade-off already made for `frontend-admin`'s client-side email
+resolution.
+
+### Review — one per (reviewer, dietitian), editable, no engagement gate
+
+`SubmitReviewUseCase` upserts: loads any existing review for the
+`(reviewer_id, dietitian_id)` pair and calls `update_content()` if
+found, else `Review.create()` — one endpoint (`POST
+/dietitian/{id}/reviews`) handles both create and edit. `Review.create()`
+itself rejects `reviewer_id == dietitian_id` (`SelfReviewError`), the
+same "pure data invariant belongs in the entity" reasoning as
+`Transaction.create()`'s self-purchase guard. Deliberately **no
+requirement of a prior paid transaction** with the dietitian before
+reviewing — nothing in Etap 4's own scope calls for that gate, and
+adding it would be inventing a requirement, not implementing one.
+
+Reviews shown through the public profile endpoint include a resolved
+`reviewer_name` (Phase 13) — `GetPublicDietitianProfileUseCase` looks up
+each reviewer's `User` and resolves `resolved_display_name`. The raw
+`reviewer_id` was already returned by the submit-review response since
+Phase 12, so this endpoint's reviews were never actually anonymous in
+practice — this closes that gap rather than removing protection that
+existed.
+
+---
+
+## Admin Module (Phase 12)
+
+Responsible for admin-facing orchestration: user management and
+dietitian-application review. Backs `frontend-admin` (see "Docker"
+below) — a separate app from the main `frontend`, gated to
+`ADMIN`/`SUPER_ADMIN` at login.
+
+Responsibilities:
+
+- listing/activating/banning/deleting user accounts,
+- listing dietitian applications and approving/rejecting them,
+- listing every transaction and marking one paid/unpaid.
+
+Database: **none of its own.** This module's use cases call the
+`identity`, `dietitian`, `nutrition`, `conversation`, and `transactions`
+modules' existing repository *ports* directly (`UserRepository`,
+`DietitianApplicationRepository`, `DietitianProfileRepository`,
+`ConversationRepository`, `NutritionProfileRepository`,
+`DietPlanRepository`, `DietPlanExportRepository`, `TransactionRepository`)
+rather than defining any persistence model or repository of its own.
+This is not an exception to "modules don't access each other's
+persistence directly" (see Data Ownership Rules below) — it goes
+through the exact same abstraction each owning module's own use cases
+go through, never a raw query against another module's tables/documents.
+
+Two route groups, both gated by `require_role(ADMIN, SUPER_ADMIN)`:
+
+- `/admin/users` — list, activate, ban, delete. `DELETE /admin/users/{id}`
+  is the one place in the backend that has to reason about *all* of a
+  user's data at once: Postgres's `ON DELETE CASCADE` only cleans up
+  other Postgres tables (refresh tokens, dietitian applications/profiles),
+  so the use case explicitly deletes the user's Mongo-held conversations,
+  nutrition profile, diet plans, and diet plan exports first — nothing
+  else in the codebase needed a "delete everything for this user" flow
+  before, so those repositories each gained a `delete`/`delete_by_user_id`
+  method just for this. Also refuses to let an admin delete their own
+  account (`CannotDeleteSelfError`, 400).
+- `/admin/dietitian-applications` — list (optional `?status=` filter),
+  approve, reject. Approving is the one flow in the codebase that
+  actually creates a `DietitianProfile` — it promotes the applicant to
+  `DIET_USER` (`user.change_role()`, called directly, not through
+  identity's `ChangeUserRoleUseCase`, since that object exists
+  specifically to back the separate `SUPER_ADMIN`-only role-change
+  endpoint) and creates the profile from the application's own
+  experience/diplomas/description.
+- `/admin/transactions` — list every transaction, mark one paid/unpaid.
+  Marking paid also calls `transactions`' `TransactionEventPublisher`
+  port (see the Transactions Module below) — a no-op by default, a real
+  Kafka publish since Phase 12 Etap 5; marking unpaid doesn't publish
+  anything, since only a transaction *becoming* paid is a meaningful
+  business event.
+
+### Pagination (Phase 13 / Etap 4)
+
+All three list endpoints above (`GET /admin/users`,
+`/admin/dietitian-applications`, `/admin/transactions`) gained
+`limit`/`offset` query params and now respond with a `Page[T]` envelope
+(`{items: [...], total: N}`) instead of a bare array — the first
+offset-based pagination pattern in this codebase (the only prior
+query-param-filtering precedent, `GET /diet-plans`'s `from`/`to` date
+range, is a different concern, not pagination). `limit` omitted (the
+default) returns every matching row with no SQL `LIMIT` — a deliberate
+backwards-compatibility choice: any caller that doesn't pass it still
+gets the full list, just now wrapped with an accurate `total` alongside
+it, rather than silently truncated to some default page size.
+
+Each of the three owning repositories (`UserRepository`,
+`DietitianApplicationRepository`, `TransactionRepository`) gained
+`limit`/`offset` params on `list_all()` plus a new `count_all()` method,
+both on the abstract port and its `SqlAlchemy*` implementation —
+`.offset()` always applied, `.limit()` only when given, `count_all` a
+separate `SELECT count(*)` honoring the same filters (e.g. dietitian
+applications' `status`). `TransactionRepository.list_by_user_id`/
+`list_by_dietitian_id` (backing the non-admin `/transactions/me*`
+endpoints) were deliberately left unpaginated — only the admin-facing
+`list_all` needed it. A new generic `PageResult[T]` DTO
+(`backend/modules/admin/application/dto/pagination_dto.py`) is what each
+`List*UseCase.execute()` returns; the routers wrap that into the API's
+`Page[T]` Pydantic generic
+(`backend/modules/admin/api/schemas/pagination_schemas.py`).
+
+`frontend-admin` gained one shared `PaginationControls` component
+(`frontend-admin/src/components/PaginationControls.tsx`) — fixed
+20-row page size, prev/next buttons, an "X–Y z Z" count, renders
+nothing once everything already fits on one page — wired into all
+three tabs (`UzytkownicyTab`/`DietetycyTab`/`TransakcjeTab`), each
+holding its own `offset` state. `DietetycyTab`'s existing status filter
+resets `offset` back to 0 on change, so switching filters can never
+strand the view on a now out-of-range page. The two side-queries that
+resolve `user_id` → email in `DietetycyTab`/`TransakcjeTab` deliberately
+call `getUsers()` with no `limit`/`offset` — they need the *entire* user
+list for the lookup map, relying on the "omitted limit returns
+everything" behavior above rather than paginating a lookup table.
+
+---
+
+## Transactions Module (Phase 12)
+
+Responsible for a user purchasing one of a dietitian's two fixed
+offers, and tracking whether that purchase has been paid.
+
+Responsibilities:
+
+- creating a transaction for a `{dietitian_id, offer_type}` pair,
+- letting a dietitian list transactions where they're the seller
+  (`GET /transactions/me`),
+- letting a buyer list their own purchases (`GET
+  /transactions/me/purchases`, added Phase 12 Etap 4 Stage 2 — the
+  marketplace right rail's own prerequisite, to know which dietitians
+  the current user already has an open or completed transaction with
+  and pin them above the rest of the roster).
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+Transaction
+```
+
+No real payment gateway — an explicit demo-scope decision, the same
+spirit as this project's Mock AI provider / Mailhog / local SFTP
+stand-ins for other real external services elsewhere in this codebase.
+`amount` is a fixed price per `offer_type`, resolved server-side in the
+entity's own `create()` — never accepted from the client, since letting
+a caller set their own price would be a real integrity hole for the one
+module whose entire job is tracking money.
+
+`CreateTransactionUseCase` also resolves the buyer via `identity`'s
+`UserRepository` (Phase 13 Etap 0) and rejects with `EmailNotVerifiedError`
+unless `email_verified` is `True` — the first real enforcement of that
+flag anywhere in the codebase (see the Identity Module above). The
+buyer's account *status* (banned/inactive) was already covered
+independently, further upstream, by `get_current_user`'s own
+`assert_can_authenticate()` check — every authenticated endpoint gets
+that for free, so this use case only ever needed to add the
+email-verification check on top, not duplicate the status one.
+
+`status` is a 2-state, admin-reversible toggle (`UNPAID`/`PAID`), not a
+one-way approval state machine like `DietitianApplication`'s
+`PENDING → APPROVED|REJECTED` — see the Admin Module above for the
+actual mark-paid/unpaid endpoints (this module owns the data and the
+buyer-facing `POST /transactions`, but the admin actions on it live in
+`admin`, same split as everywhere else).
+
+### `TransactionEventPublisher` — mock by default, real Kafka since Etap 5
+
+A transaction becoming `PAID` triggers a Kafka `TransactionPaid` event.
+Same "swappable port, mock/no-op default" shape as
+`EmailSender`/`SftpClient`/`FileStorage` elsewhere in this codebase:
+
+```python
+class TransactionEventPublisher(ABC):
+    async def publish_transaction_paid(self, transaction: Transaction) -> None: ...
+```
+
+`NoOpTransactionEventPublisher` just records what it would have
+published (`published: list[Transaction]`, mirroring
+`MockEmailSender.sent`) so tests can assert against it without a real
+broker — and stays the *default* (`kafka_provider: mock`), same
+mock/real split as `ai_provider`/`email_provider`/`sftp_provider`,
+precisely so `pytest` never needs a broker either. `Kafka
+TransactionEventPublisher` (Phase 12 Etap 5) is the real implementation,
+taking an `aiokafka.AIOKafkaProducer` via constructor injection (a
+`_KafkaProducerLike` Protocol exposing just `send_and_wait`, not the
+global singleton reached into directly) — the use case that calls
+`publish_transaction_paid()` (`MarkTransactionPaidUseCase`, in the
+Admin module) never changed when this was added.
+
+Kafka infrastructure itself (`backend/shared/messaging/`) is a single
+broker in KRaft mode (`apache/kafka:3.8.0`, no Zookeeper) — a producer
+singleton (`init_kafka_producer`/`close_kafka_producer`, same
+init/close shape as `shared/database/postgres.py`) plus a generic
+`run_kafka_consumer_loop(topics, bootstrap_servers, group_id,
+handle_message)` helper (decode JSON, dispatch, log-and-continue on a
+bad message rather than crashing the whole consumer task). Both only
+start in the app's `lifespan` when `kafka_provider == "kafka"` — nothing
+to consume if nothing real is publishing.
+
+**Two independent consumer groups** (`mycelo-notifications`,
+`mycelo-messaging`) subscribe to the same `transaction-paid` topic —
+standard Kafka fan-out, not one consumer handling two responsibilities.
+See the Notifications and Messaging Module sections below for what each
+one does on receipt.
+
+### FK behavior — the one relationship in this codebase where the same
+### entity plays two different roles with two different delete behaviors
+
+`user_id` (the buyer) is `ON DELETE CASCADE` — same as
+`dietitian_applications`/`dietitian_profiles`, owned data disappears
+with its owner, and this needed zero changes to the Admin module's
+`DeleteUserUseCase`. `dietitian_id` is `ON DELETE SET NULL` (mirrors
+`dietitian_applications.reviewed_by`) — deleting the dietitian's
+account shouldn't erase the *buyer's* transaction history, so the row
+survives with `dietitian_id = NULL`. Both behaviors were verified for
+real (not just trusted from the migration DDL) by deleting each side's
+user row directly and checking the transaction row's resulting state.
+
+---
+
+## Notifications Module (Phase 12)
+
+Responsible for one unread/read marker per recipient — the backing
+model for the right-rail badge.
+
+Responsibilities:
+
+- `GET /notifications` — the caller's own, most recent first,
+- `POST /notifications/mark-all-read` — one bulk action, not
+  per-notification mark-read (a small-badge UI has few enough
+  notifications that "mark everything I can currently see as read" is
+  the only action that makes sense).
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+Notification
+```
+
+This module never calls another module's ports itself — it's purely on
+the *receiving* end, populated from two independent sources: its own
+Kafka consumer (`run_transaction_paid_consumer`, reacting to
+`TransactionPaid` → creates a `TRANSACTION_PAID` notification for the
+transaction's dietitian, skipping silently if that dietitian's account
+has since been deleted) and a direct, synchronous call from
+`messaging`'s `SendDietitianMessageUseCase` (`NEW_MESSAGE`) — sending a
+message and notifying its recipient happen in the same request, same
+module boundary `messaging` already crosses, so this is a plain
+use-case-to-use-case call, not a second Kafka topic invented for a
+same-process event.
+
+---
+
+## Messaging Module (Phase 12)
+
+Responsible for the one-thread-per-buyer/dietitian-pair channel a
+`TransactionPaid` event auto-creates, and the messages exchanged on it.
+
+Responsibilities:
+
+- `GET /messaging/threads` — every thread the caller is a participant
+  of (symmetric — serves a buyer's "my dietitians" list and a
+  dietitian's "my clients" list with no role branching, since the
+  endpoint doesn't care which side of the pair the caller is),
+- `GET /messaging/threads/{id}/messages` / `POST
+  /messaging/threads/{id}/messages` — reading and sending on a thread
+  the caller is a participant of.
+
+Database:
+
+```
+PostgreSQL
+```
+
+Main entities:
+
+```
+DietitianThread
+
+DietitianMessage
+```
+
+**No endpoint creates a thread directly** — `EnsureDietitianThreadUseCase`
+get-or-creates one, called only from this module's own Kafka consumer
+(`run_transaction_paid_thread_consumer`, its own independent consumer
+group on the same `transaction-paid` topic `notifications`' consumer
+also subscribes to — see the Transactions Module's Kafka subsection
+above). Thread existence *is* the access gate to send/read messages on
+it, and it's permanent once granted — **not** re-checked against the
+transaction's live `status` the way the buyer-contact reveal on `GET
+/transactions/me` is; once a thread exists, it exists.
+
+`sender` (`USER` | `DIETITIAN`) on a message is always derived
+server-side from which participant the caller is — never accepted from
+the client. `diet_plan_id` is an optional, FK-less cross-database
+pointer into a Mongo-held `DietPlan` (same pattern as every other
+Postgres-row-points-at-Mongo-data case in this system) — set only when
+the frontend's "send my plan" action is used, and renders as a
+`DietPlanCard` instead of a text bubble.
+
+---
+
 # Conversation Module
 
 Responsible for AI conversations.
@@ -383,7 +834,11 @@ Responsibilities:
 - communication workflow with AI,
 - archiving conversations (Phase 8 — a conversation's existing
   `Conversation.archive()` domain method had no API route before this),
-- deleting conversations (Phase 8).
+- deleting conversations (Phase 8),
+- renaming conversations (Phase 13) — `PATCH /conversations/{id}` →
+  `Conversation.rename(title)`, a plain mutation with no `status`
+  restriction (an archived conversation can still be renamed, unlike
+  sending it a new message).
 
 Database:
 
@@ -526,17 +981,26 @@ a promise of a globally optimal schedule). A malformed AI time string is
 dropped (`Meal.time = None`) rather than failing the whole generation over
 a cosmetic field.
 
-**Rescheduling — the one mutation `DietPlan` ever undergoes.** Before
+**Rescheduling — one of two mutations `DietPlan` ever undergoes.** Before
 Phase 9, a `DietPlan` was fully immutable after `create()` — no
 `updated_at` even existed, since nothing ever changed. `PATCH
-/diet-plans/{id}/meals` → `DietPlan.reschedule_meal(day_number, meal_name,
+/diet-plans/{id}/meals` → `DietPlan.reschedule_meal(day_number, meal_index,
 new_time)` rebuilds the `Meal`/`DietDay`/`days` tuple chain (everything is
 frozen value objects, so this is reconstruction via `dataclasses.replace`,
-never in-place mutation) and bumps the now-meaningful `updated_at`. An
-unknown day/meal raises `MealNotFoundError` → **400** (not 404 — the plan
-itself exists and belongs to the caller; it's a sub-part of it that
-doesn't, the same distinction `InvalidWeeklyObligationError` draws on the
-profile side).
+never in-place mutation) and bumps the now-meaningful `updated_at`. The
+meal is identified by its position in `day.meals`, not by name — the AI
+planner routinely produces two meals named "Snack" on the same day, and a
+name-based lookup would always resolve to the first one regardless of
+which the caller meant (found via live testing in Phase 13's calendar
+drag-and-drop work). An unknown day or an out-of-range `meal_index` raises
+`MealNotFoundError` → **400** (not 404 — the plan itself exists and
+belongs to the caller; it's a sub-part of it that doesn't, the same
+distinction `InvalidWeeklyObligationError` draws on the profile side).
+Phase 13 added a second, unrelated mutation: `PATCH
+/diet-plans/{id}` → `DietPlan.rename(name)`, setting or clearing (`None`)
+an optional custom `name` — same shape as `Conversation.rename(title)`
+below, and same "`None` clears it" convention as `User.set_display_name()`.
+Nothing else about a plan can change after generation.
 
 ## CSV export, archived to SFTP (Phase 9)
 
@@ -596,6 +1060,95 @@ bound at the start of the *next* day, to sidestep any time-of-day
 granularity question). The router validates `from <= to` itself (400
 otherwise) — FastAPI's parameter name uses `Query(alias="from")` since
 `from` is a reserved Python keyword and can't be a literal parameter name.
+
+## Multi-plan calendar (Phase 13 / Etap 3)
+
+`KalendarzTab.tsx` originally rendered one plan at a time (a single
+Radix `<Select>`). Etap 3 replaced that with a checklist popover backing
+`selectedPlanIds: string[]`, with a client-side-only invariant: a newly
+toggled-on plan is rejected (inline error, checkbox stays unchecked) if
+its `[created_at, created_at + duration_days - 1]` date span overlaps
+any already-selected plan's own span (`planDateRange()`/
+`rangesOverlap()`). This isn't an API-level constraint — the backend
+happily allows a user's plans to overlap in real life — it exists purely
+so the combined calendar's per-date merge below never has to arbitrate
+"which plan owns this date" between two plans that both claim it.
+
+Every selected plan is fetched in parallel via one `useQueries` call
+(not N separate `useQuery` hooks — keeps hook count stable across
+selection changes) and merged into a single `Map<dateKey,
+{planId, day}>`; the non-overlap invariant above guarantees at most one
+plan ever claims a given calendar date, so the merge itself never has to
+resolve a conflict. The visible date range (`totalWeeks`) is
+deliberately decoupled from the plans' own data: it always spans at
+least a full year from the earliest selected plan's first Monday (so a
+user can freely scroll through empty future/past weeks), while a plan is
+still only ever generated for the exact days it covers — nothing is
+fabricated to fill the empty weeks, they just render as blank cells.
+
+Dragging a meal chip carries the meal's own `planId` and `dayNumber`
+(and, since the `meal_index` fix below, its `mealIndex`); a drop is only
+accepted onto a cell covered by that *same* plan — a cell with no plan
+at all, or one covered by a *different* selected plan, is rejected and
+styled as an invalid (red) target, exactly the same as an out-of-range
+date. Two different plans' days can both be "day 1" and land in the same
+visible week near a plan boundary, so cell/meal `data-testid`s embed the
+owning plan id once 2+ plans are actually loaded together (unchanged,
+simple format for the common single-plan case, so no pre-existing test
+needed to change).
+
+**Meal identification bug, found via live browser testing.** The AI
+planner routinely puts two meals with the same name (e.g. two "Snack"s)
+on one day. Both `DietPlan.reschedule_meal()`'s lookup and the frontend's
+drag state originally identified the target meal by `meal_name` alone —
+`next()` on the backend side always resolved to the *first* same-named
+match, so dragging the *second* "Snack" silently rescheduled the first
+one instead, and React logged a duplicate-key warning (the meal-chip
+`key` was also `meal.name`). Fixed by switching identification to
+`meal_index` — the meal's position within `day.meals` — end to end:
+`reschedule_meal(day_number, meal_index, new_time, new_day_number=None)`,
+`RescheduleMealCommand`/`RescheduleMealRequest`, and the frontend's
+`DraggedMeal`/`isDragging` check and React `key`.
+
+**Drop-rule messaging.** Rather than silently rejecting an invalid drop
+(the red-cell styling alone didn't make the *rule* obvious — user
+feedback after live-testing), `KalendarzTab` shows an explanatory message
+("posiłek można przenieść tylko na dzień i godzinę w obrębie planu, z
+którego pochodzi") when a drop lands on an invalid cell, and the same
+reschedule-API-error message on a failed request. Both render through a
+`createPortal(..., document.body)` — a fixed-position banner above the
+entire Profil/Plany/Kalendarz `Dialog`, not inside the tab's own scroll
+area — since the dialog itself is portaled to `document.body` with
+`z-50` and a message tucked inside the tab content (competing with the
+dialog's own internal scroll/overflow) wasn't visible enough. The banner
+clears on the next drag start or a successful reschedule.
+
+## Combined export across several plans (Phase 13 / Etap 3)
+
+`POST /diet-plans/export-combined` (request: `plan_ids: UUID[]`, min 1) +
+`GET /diet-plans/exports-combined/{export_id}/download` mirror the
+single-plan export's own "archive now, download later" shape (see CSV
+export above) but for a **set** of plans — a new `CombinedDietPlanExport`
+entity/repository/Mongo document, kept deliberately separate from
+`DietPlanExport` rather than merged into it, since a combined export
+doesn't belong to any single plan and isn't nested under one's URL path.
+`build_combined_diet_plan_csv()` sorts every included plan's meals
+chronologically across the whole set (not grouped plan-by-plan), with a
+`plan_id` column disambiguating rows since `day_number` alone resets to
+1 per plan. Wired into `DeleteUserUseCase`'s existing Mongo-cascade
+cleanup alongside the other nutrition repositories, per that use case's
+own documented rule that every Mongo collection keyed by user id must be
+cleaned up explicitly on account deletion.
+
+First built as a one-shot direct-CSV-download endpoint; revised
+mid-implementation (user feedback, after live-verifying that first
+version worked) to match the two-step shape instead — "Zapisz" archives
+the current plan selection and shows a confirmation, a "Pobierz" button
+then appears to download that specific saved export; changing the plan
+selection hides "Pobierz" again so it can never download a stale
+selection. The combined-CSV-building logic itself
+(`build_combined_diet_plan_csv()`) was untouched by that revision — only
+the endpoint/UI shape around it changed.
 
 ---
 
@@ -778,6 +1331,38 @@ Identity application interface
 Identity module
 ```
 
+The `admin` module (Phase 12) is a deliberate, narrow instance of this
+correct shape, not an exception to it: its use cases call other
+modules' repository *ports* — the same interfaces those modules' own
+use cases depend on — never a raw query against another module's
+Postgres tables or Mongo documents. It has no persistence layer of its
+own to enforce this against; it's pure orchestration over ports that
+already exist. See "Admin Module" above.
+
+`transactions` (Phase 12) does the same thing on a smaller scale:
+`CreateTransactionUseCase` calls `identity`'s `UserRepository` directly
+(to confirm the `dietitian_id` given actually belongs to a `DIET_USER`)
+— same port, same pattern, not a new exception.
+
+`dietitian`'s own `SubmitReviewUseCase`, `ListDietitiansUseCase`, and
+`GetPublicDietitianProfileUseCase` (Phase 12 Etap 4) do the same again —
+each calls `identity`'s `UserRepository` directly (to check
+role/status, and to resolve a dietitian's email — `User` has no separate
+display-name field) alongside its own module's `DietitianProfileRepository`
+and `ReviewRepository`. Same port, same pattern.
+
+`messaging`'s `ListMyDietitianThreadsUseCase` (Phase 12 Etap 5) and
+`transactions`' `GetMyTransactionsAsDietitianUseCase` (same etap) do the
+same again — the former resolves `other_participant_email` for each
+thread, the latter resolves `buyer_email` once a transaction is `PAID`
+— both via `identity`'s `UserRepository` directly, same port, same
+pattern. `notifications` (also Etap 5) is the first module in this
+codebase with **no** cross-module repository calls of its own at
+all — it only ever receives a `recipient_user_id` + `type` +
+`reference_id` from whichever module calls its `CreateNotificationUseCase`
+(either a Kafka consumer, or `messaging` directly), never resolving
+anything about the recipient itself.
+
 ---
 
 # 10. AI Communication Flow
@@ -858,16 +1443,21 @@ Examples:
 
 The application should be runnable locally using Docker Compose.
 
-Actual services (`docker-compose.yml`, as of Phase 10 — this list was a
+Actual services (`docker-compose.yml`, as of Phase 12 — this list was a
 sparse Phase 0 draft before and had drifted; several services were added
 since):
 
 ```
 backend
 
-frontend    — React + Vite dev server (Phase 10, the actual web UI)
+frontend        — React + Vite dev server (Phase 10, the actual web UI)
 
-db          — PostgreSQL (Identity)
+frontend-admin  — React + Vite dev server (Phase 12) — the admin
+                  panel, a fully separate app on its own port; login
+                  requires an ADMIN/SUPER_ADMIN account
+
+db          — PostgreSQL (Identity, Dietitian, Transactions,
+              Notifications, Messaging)
 
 mongo       — MongoDB (Conversation, Nutrition)
 
@@ -876,7 +1466,19 @@ ollama      — local LLM (default AI_PROVIDER)
 mailhog     — local SMTP catcher (Phase 8, password reset/email verification)
 
 sftp        — local SFTP server (Phase 9, diet-plan CSV export archive)
+
+kafka       — single-node broker, KRaft mode (Phase 12 Etap 5,
+              `TransactionPaid` events for Notifications + Messaging)
 ```
+
+`CORS_ORIGINS` on the `backend` service must list *both* frontend dev
+server origins (`http://localhost:5173,http://localhost:5174`) — this
+is set as a `docker-compose.yml` environment variable, which overrides
+`Settings.cors_origins`'s own Python default entirely; forgetting to
+update both when adding a new frontend origin silently breaks that
+origin's requests with no server-side error (browser-only CORS
+rejection) — this exact mistake was made and caught while building
+`frontend-admin` (Phase 12).
 
 Example:
 
@@ -890,8 +1492,10 @@ docker compose up
 
 Possible future improvements:
 
-- Redis cache,
-- message broker,
+- general-purpose Redis caching (marketplace listing, notification
+  polling) — Redis itself is in the stack since Phase 13, but scoped
+  narrowly to auth rate limiting; broader caching was considered and
+  deliberately deferred, not chosen speculatively,
 - background workers,
 - vector database,
 - semantic search,
@@ -927,7 +1531,7 @@ The following rules should always be respected:
 
 # 15. Summary
 
-Diet AI is designed as a modular backend application using:
+Mycelo is designed as a modular backend application using:
 
 - Python,
 - FastAPI,

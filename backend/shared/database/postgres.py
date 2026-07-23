@@ -1,3 +1,4 @@
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
@@ -41,3 +42,18 @@ async def get_postgres_session() -> AsyncSession:
 
     async with _async_sessionmaker() as session:
         yield session
+
+
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI-dependency-shaped session: commits on success, rolls back on
+    any exception. Originally lived only in the identity module (nothing
+    identity-specific about it) — promoted here once a second module
+    (dietitian) needed the exact same thing, rather than reaching into
+    identity's API layer or duplicating it."""
+    async with get_postgres_session() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

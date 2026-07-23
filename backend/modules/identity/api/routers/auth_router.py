@@ -11,6 +11,8 @@ from backend.modules.identity.api.dependencies import (
     get_refresh_access_token_use_case,
     get_register_user_use_case,
     get_request_password_reset_use_case,
+    get_update_display_name_use_case,
+    rate_limited,
 )
 from backend.modules.identity.api.schemas import (
     ConfirmEmailVerificationRequest,
@@ -28,6 +30,7 @@ from backend.modules.identity.api.schemas import (
     RegisterRequest,
     RegisterResponse,
     RequestPasswordResetRequest,
+    UpdateMeRequest,
 )
 from backend.modules.identity.application import (
     ConfirmEmailVerificationCommand,
@@ -47,11 +50,14 @@ from backend.modules.identity.application import (
     RegisterUserUseCase,
     RequestPasswordResetCommand,
     RequestPasswordResetUseCase,
+    UpdateDisplayNameCommand,
+    UpdateDisplayNameUseCase,
     UserAlreadyExistsError,
     UserNotFoundError,
 )
 from backend.modules.identity.domain import (
     InactiveUserAuthenticationError,
+    InvalidDisplayNameError,
     InvalidEmailVerificationTokenError,
     InvalidPasswordError,
     InvalidPasswordResetTokenError,
@@ -65,6 +71,7 @@ router = APIRouter(prefix="/auth", tags=["identity-auth"])
 async def register(
     request: RegisterRequest,
     use_case: RegisterUserUseCase = Depends(get_register_user_use_case),
+    _rate_limit: None = Depends(rate_limited("register")),
 ) -> RegisterResponse:
     try:
         result = await use_case.execute(
@@ -99,6 +106,7 @@ async def register(
 async def login(
     request: LoginRequest,
     use_case: LoginUserUseCase = Depends(get_login_user_use_case),
+    _rate_limit: None = Depends(rate_limited("login")),
 ) -> LoginResponse:
     try:
         result = await use_case.execute(
@@ -172,7 +180,36 @@ async def me(current_user: User = Depends(get_current_user)) -> MeResponse:
         user_id=str(current_user.id),
         email=current_user.email.value,
         status=current_user.status.value,
+        role=current_user.role.value,
         email_verified=current_user.email_verified,
+        display_name=current_user.display_name.value if current_user.display_name else None,
+    )
+
+
+@router.patch("/me", response_model=MeResponse, status_code=status.HTTP_200_OK)
+async def update_me(
+    request: UpdateMeRequest,
+    current_user: User = Depends(get_current_user),
+    use_case: UpdateDisplayNameUseCase = Depends(get_update_display_name_use_case),
+) -> MeResponse:
+    try:
+        updated = await use_case.execute(
+            UpdateDisplayNameCommand(user_id=current_user.id, display_name=request.display_name)
+        )
+    except InvalidDisplayNameError as exc:
+        raise AppException(
+            code=ErrorCode.INVALID_DISPLAY_NAME,
+            message=str(exc),
+            status_code=status.HTTP_400_BAD_REQUEST,
+        ) from exc
+
+    return MeResponse(
+        user_id=str(updated.id),
+        email=updated.email.value,
+        status=updated.status.value,
+        role=updated.role.value,
+        email_verified=updated.email_verified,
+        display_name=updated.display_name.value if updated.display_name else None,
     )
 
 
@@ -184,6 +221,7 @@ async def me(current_user: User = Depends(get_current_user)) -> MeResponse:
 async def request_password_reset(
     request: RequestPasswordResetRequest,
     use_case: RequestPasswordResetUseCase = Depends(get_request_password_reset_use_case),
+    _rate_limit: None = Depends(rate_limited("password-reset-request")),
 ) -> PasswordResetRequestedResponse:
     try:
         # Always 200 with a generic body — never reveals whether the email exists.

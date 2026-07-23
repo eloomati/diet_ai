@@ -1,9 +1,8 @@
-from collections.abc import AsyncGenerator
-
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.identity.application import (
+    ChangeUserRoleUseCase,
     ConfirmEmailVerificationUseCase,
     ConfirmPasswordResetUseCase,
     LoginUserUseCase,
@@ -11,6 +10,7 @@ from backend.modules.identity.application import (
     RefreshAccessTokenUseCase,
     RegisterUserUseCase,
     RequestPasswordResetUseCase,
+    UpdateDisplayNameUseCase,
 )
 from backend.modules.identity.application.ports.captcha_verifier import CaptchaVerifier
 from backend.modules.identity.application.ports.email_sender import EmailSender
@@ -36,17 +36,7 @@ from backend.modules.identity.infrastructure.persistence.repository.sqlalchemy_u
 )
 from backend.modules.identity.infrastructure.security import BcryptPasswordHasher, JwtTokenService
 from backend.shared.config import get_settings
-from backend.shared.database.postgres import get_postgres_session
-
-
-async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
-    async with get_postgres_session() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise
+from backend.shared.database import get_db_session
 
 
 def _build_token_service() -> JwtTokenService:
@@ -155,3 +145,17 @@ def get_logout_use_case(
 ) -> LogoutUseCase:
     refresh_repo = SqlAlchemyRefreshTokenRepository(session)
     return LogoutUseCase(refresh_repo)
+
+
+def get_change_user_role_use_case(
+    session: AsyncSession = Depends(get_db_session),
+) -> ChangeUserRoleUseCase:
+    user_repo = SqlAlchemyUserRepository(session)
+    return ChangeUserRoleUseCase(user_repo)
+
+
+def get_update_display_name_use_case(
+    session: AsyncSession = Depends(get_db_session),
+) -> UpdateDisplayNameUseCase:
+    user_repo = SqlAlchemyUserRepository(session)
+    return UpdateDisplayNameUseCase(user_repo)

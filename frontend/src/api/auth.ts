@@ -22,11 +22,19 @@ export interface TokenPair {
   token_type: string
 }
 
+export type UserRole = 'USER' | 'DIET_USER' | 'ADMIN' | 'SUPER_ADMIN'
+
 export interface MeResponse {
   user_id: string
   email: string
   status: string
   email_verified: boolean
+  role: UserRole
+  display_name: string | null
+}
+
+export interface UpdateMeRequest {
+  display_name: string | null
 }
 
 export interface MessageResponse {
@@ -51,6 +59,10 @@ export function logout(refreshToken: string): Promise<MessageResponse> {
 
 export function me(): Promise<MeResponse> {
   return apiFetch('/auth/me')
+}
+
+export function updateMe(payload: UpdateMeRequest): Promise<MeResponse> {
+  return apiFetch('/auth/me', { method: 'PATCH', body: payload })
 }
 
 export function requestPasswordReset(email: string, captchaToken: string): Promise<MessageResponse> {

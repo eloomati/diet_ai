@@ -5,7 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    app_name: str = "Diet AI"
+    app_name: str = "Mycelo"
     app_env: str = "dev"
     app_debug: bool = True
     api_prefix: str = "/api/v1"
@@ -13,11 +13,12 @@ class Settings(BaseSettings):
 
     testing: bool = False
 
-    # CORS — comma-separated origins allowed to call the API (the frontend's
-    # dev server by default). A plain comma-separated string rather than a
-    # list field: pydantic-settings would otherwise expect JSON syntax in a
-    # .env value, which is awkward to hand-edit.
-    cors_origins: str = "http://localhost:5173"
+    # CORS — comma-separated origins allowed to call the API (both frontend
+    # dev servers by default — the main app on 5173, frontend-admin on
+    # 5174). A plain comma-separated string rather than a list field:
+    # pydantic-settings would otherwise expect JSON syntax in a .env value,
+    # which is awkward to hand-edit.
+    cors_origins: str = "http://localhost:5173,http://localhost:5174"
 
     # CAPTCHA — provider selection: "mock" | "turnstile". Guards registration
     # and password-reset requests against bots.
@@ -59,10 +60,42 @@ class Settings(BaseSettings):
     sftp_password: str = "dietai"
     sftp_remote_dir: str = "/upload"
 
-    jwt_secret_key: str = "dev-secret-change-me"
+    # Dietitian profile photos — local disk for MVP (confirmed decision:
+    # local disk, not MinIO/S3). Swapping to object storage later only
+    # means a new `FileStorage` implementation, no call sites change.
+    dietitian_photos_storage_dir: str = "./data/dietitian_photos"
+    dietitian_photos_base_url: str = "/static/dietitian-photos"
+
+    # Kafka — provider selection: "mock" | "kafka". Mirrors ai_provider/
+    # email_provider/sftp_provider: pytest never spins up a real broker
+    # either, so the mock (NoOpTransactionEventPublisher) stays the
+    # default, and the notification consumer simply doesn't start in
+    # that mode — nothing to consume if nothing real is publishing.
+    kafka_provider: str = "mock"
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_transaction_paid_topic: str = "transaction-paid"
+    # Two independent consumer groups on the same topic (Etap 5 Stage 2) —
+    # notifications and messaging each react to TransactionPaid on their
+    # own terms, standard Kafka fan-out, not one consumer doing both.
+    kafka_notifications_consumer_group_id: str = "mycelo-notifications"
+    kafka_messaging_consumer_group_id: str = "mycelo-messaging"
+
+    jwt_secret_key: str = "dev-secret-change-me-Ysg2MEUxZebf-3yT-9mIO2bBSNvhsNLTXYtwNOCv8nI"
     jwt_algorithm: str = "HS256"
     jwt_access_ttl_minutes: int = 15
     jwt_refresh_ttl_days: int = 7
+
+    # Rate limiting — provider selection: "mock" | "redis". Same
+    # mock/real split as ai_provider/email_provider/sftp_provider/
+    # kafka_provider: pytest never needs a real Redis either, so the
+    # mock (NoOpRateLimiter, always allows) stays the default. Guards
+    # POST /auth/login, /auth/register, /auth/password-reset/request
+    # against brute-force/spam — one counter bucket per action per
+    # client IP, fixed-window (INCR + EXPIRE-on-first-hit).
+    rate_limit_provider: str = "mock"
+    redis_url: str = "redis://localhost:6379/0"
+    rate_limit_max_attempts: int = 5
+    rate_limit_window_seconds: int = 60
 
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -75,6 +108,22 @@ class Settings(BaseSettings):
     def _disable_debug_when_testing(self) -> "Settings":
         if self.testing or self.app_env == "test":
             self.app_debug = False
+        return self
+
+    @model_validator(mode="after")
+    def _reject_weak_jwt_secret_outside_dev(self) -> "Settings":
+        # PyJWT itself only warns (InsecureKeyLengthWarning) on a short
+        # HS256 key — easy to miss in a log stream. Fail fast instead,
+        # everywhere except local dev, where a short placeholder is
+        # merely annoying, not a real exposure.
+        if self.testing or self.app_env == "dev":
+            return self
+        if len(self.jwt_secret_key.encode("utf-8")) < 32:
+            raise ValueError(
+                "jwt_secret_key must be at least 32 bytes outside app_env=dev "
+                "(PyJWT's own recommended minimum for HS256) — generate one with "
+                "`python -c \"import secrets; print(secrets.token_urlsafe(32))\"`."
+            )
         return self
 
 

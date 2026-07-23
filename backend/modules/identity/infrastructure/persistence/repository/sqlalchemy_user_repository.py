@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.identity.domain.entities.user import User
@@ -41,7 +41,27 @@ class SqlAlchemyUserRepository(UserRepository):
             existing.email = user.email.value
             existing.password_hash = user.password_hash.value
             existing.status = user.status.value
+            existing.role = user.role.value
             existing.email_verified = user.email_verified
+            existing.display_name = user.display_name.value if user.display_name else None
             existing.updated_at = user.updated_at
 
         await self._session.flush()
+
+    async def list_all(self, limit: int | None = None, offset: int = 0) -> list[User]:
+        stmt = select(UserModel).order_by(UserModel.created_at).offset(offset)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        result = await self._session.execute(stmt)
+        return [UserMapper.to_domain(model) for model in result.scalars().all()]
+
+    async def count_all(self) -> int:
+        stmt = select(func.count()).select_from(UserModel)
+        result = await self._session.execute(stmt)
+        return result.scalar_one()
+
+    async def delete(self, user_id: UUID) -> None:
+        model = await self._session.get(UserModel, user_id)
+        if model is not None:
+            await self._session.delete(model)
+            await self._session.flush()

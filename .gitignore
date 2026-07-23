@@ -17,8 +17,10 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+# Anchored to repo root — an unanchored `lib/` also matched
+# frontend/src/lib/ (real source, not a Python build artifact) at any depth.
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -146,6 +148,9 @@ rabbitmq-data/
 
 # ActiveMQ
 activemq-data/
+
+# Local-disk dietitian profile photo storage (dev/test only)
+data/dietitian_photos/
 
 # SageMath parsed files
 *.sage.py

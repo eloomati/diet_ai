@@ -218,4 +218,39 @@ describe('PlanyTab', () => {
       await screen.findByText('Nie udało się wyeksportować planu. Spróbuj ponownie.'),
     ).toBeInTheDocument()
   })
+
+  it('shows a custom plan name instead of the default label when set', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(200, [{ ...PLAN_SUMMARY, name: 'Redukcja lato' }]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPlanyTab()
+
+    expect(await screen.findByText('Redukcja lato')).toBeInTheDocument()
+    expect(screen.queryByText('Budowa masy mięśniowej · Wegetariańska · 3 dni')).not.toBeInTheDocument()
+  })
+
+  it('renames a plan via the inline edit pencil (Etap 2 Stage 3)', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/diet-plans/p1') && init?.method === 'PATCH') {
+        return Promise.resolve(jsonResponse(200, { ...PLAN_DETAIL, name: 'Redukcja lato' }))
+      }
+      return Promise.resolve(jsonResponse(200, [PLAN_SUMMARY]))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderPlanyTab()
+    await screen.findByText('Budowa masy mięśniowej · Wegetariańska · 3 dni')
+
+    await user.click(screen.getByRole('button', { name: 'Zmień nazwę planu' }))
+    const input = screen.getByRole('textbox')
+    await user.type(input, 'Redukcja lato{Enter}')
+
+    expect(await screen.findByText('Redukcja lato')).toBeInTheDocument()
+    const renameCall = fetchMock.mock.calls.find(
+      ([url, init]) => (url as string).includes('/diet-plans/p1') && (init as RequestInit)?.method === 'PATCH',
+    )
+    expect(renameCall).toBeDefined()
+    expect(JSON.parse(renameCall![1].body as string)).toEqual({ name: 'Redukcja lato' })
+  })
 })

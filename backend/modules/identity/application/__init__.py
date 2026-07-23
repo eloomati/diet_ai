@@ -1,4 +1,5 @@
 from .dto import (
+    ChangeUserRoleCommand,
     ConfirmEmailVerificationCommand,
     ConfirmPasswordResetCommand,
     LoginUserCommand,
@@ -9,9 +10,11 @@ from .dto import (
     RefreshTokenCommand,
     RefreshTokenResult,
     RequestPasswordResetCommand,
+    UpdateDisplayNameCommand,
 )
 from .ports import CaptchaVerifier, EmailSender, PasswordHasher, RefreshTokenRepository, TokenService
 from .use_cases import (
+    ChangeUserRoleUseCase,
     ConfirmEmailVerificationUseCase,
     ConfirmPasswordResetUseCase,
     EmailRetryStrategy,
@@ -28,10 +31,12 @@ from .use_cases import (
     UserAlreadyExistsError,
     UserNotFoundError,
     InvalidRefreshTokenError,
-    RefreshAccessTokenUseCase
+    RefreshAccessTokenUseCase,
+    UpdateDisplayNameUseCase,
 )
 
 __all__ = [
+    "ChangeUserRoleCommand",
     "RegisterUserCommand",
     "RegisterUserResult",
     "LoginUserCommand",
@@ -42,11 +47,14 @@ __all__ = [
     "RequestPasswordResetCommand",
     "ConfirmPasswordResetCommand",
     "ConfirmEmailVerificationCommand",
+    "UpdateDisplayNameCommand",
+    "UpdateDisplayNameUseCase",
     "PasswordHasher",
     "TokenService",
     "RefreshTokenRepository",
     "EmailSender",
     "CaptchaVerifier",
+    "ChangeUserRoleUseCase",
     "RegisterUserUseCase",
     "LoginUserUseCase",
     "LogoutUseCase",

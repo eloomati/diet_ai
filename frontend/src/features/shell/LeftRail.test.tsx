@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
@@ -162,5 +163,104 @@ describe('LeftRail conversation history (Etap 3 Stage 4)', () => {
     expect(await screen.findByText('Archiwum')).toBeInTheDocument()
     const row = screen.getByText('Stara dieta').closest('button')
     expect(row).toHaveClass('opacity-60')
+  })
+
+  it('renames a conversation via the inline edit pencil (Etap 2 Stage 3)', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes('/auth/me')) {
+        return Promise.resolve(
+          jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true }),
+        )
+      }
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      if (url.includes('/conversations/c1') && init?.method === 'PATCH') {
+        return Promise.resolve(
+          jsonResponse(200, {
+            conversation_id: 'c1',
+            title: 'Nowy tytuł',
+            categories: ['DIET'],
+            status: 'ACTIVE',
+            messages: [],
+          }),
+        )
+      }
+      if (url.endsWith('/conversations')) {
+        return Promise.resolve(
+          jsonResponse(200, [
+            {
+              conversation_id: 'c1',
+              title: 'Stary tytuł',
+              categories: ['DIET'],
+              status: 'ACTIVE',
+              updated_at: '2026-01-01T10:00:00Z',
+            },
+          ]),
+        )
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderLeftRail()
+
+    await screen.findByText('Stary tytuł')
+    await user.click(screen.getByRole('button', { name: 'Zmień nazwę rozmowy' }))
+
+    const input = screen.getByDisplayValue('Stary tytuł')
+    await user.clear(input)
+    await user.type(input, 'Nowy tytuł{Enter}')
+
+    expect(await screen.findByText('Nowy tytuł')).toBeInTheDocument()
+    const renameCall = fetchMock.mock.calls.find(
+      ([url, init]) => (url as string).includes('/conversations/c1') && (init as RequestInit)?.method === 'PATCH',
+    )
+    expect(renameCall).toBeDefined()
+    expect(JSON.parse(renameCall![1].body as string)).toEqual({ title: 'Nowy tytuł' })
+  })
+
+  it.each(['ADMIN', 'SUPER_ADMIN'])(
+    'shows a link to the admin panel for a %s user',
+    async (role) => {
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/auth/me')) {
+          return Promise.resolve(
+            jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true, role }),
+          )
+        }
+        if (url.includes('/auth/login')) {
+          return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+        }
+        return Promise.resolve(jsonResponse(200, []))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderLeftRail()
+
+      const link = await screen.findByRole('link', { name: 'Panel Administratorski' })
+      expect(link).toHaveAttribute('href', 'http://localhost:5174')
+    },
+  )
+
+  it('does not show the admin panel link for a plain USER', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/me')) {
+        return Promise.resolve(
+          jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true, role: 'USER' }),
+        )
+      }
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      return Promise.resolve(jsonResponse(200, []))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderLeftRail()
+    await screen.findByText('Nowy czat')
+
+    expect(screen.queryByRole('link', { name: 'Panel Administratorski' })).not.toBeInTheDocument()
   })
 })

@@ -37,6 +37,7 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
   const [tab, setTab] = useState<'login' | 'register'>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
   const [captchaToken, setCaptchaToken] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
@@ -46,6 +47,7 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
     setTab('login')
     setEmail('')
     setPassword('')
+    setConfirmPassword('')
     setCaptchaToken('')
     setError(null)
   }
@@ -63,6 +65,10 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setError(null)
+    if (tab === 'register' && password !== confirmPassword) {
+      setError('Hasła nie są takie same.')
+      return
+    }
     setSubmitting(true)
     try {
       if (tab === 'login') {
@@ -142,6 +148,23 @@ export function AuthPopup({ open, onOpenChange }: AuthPopupProps) {
                   required
                 />
               </div>
+
+              {tab === 'register' && (
+                <div>
+                  <label htmlFor="auth-confirm-password" className="mb-1 block text-xs font-bold text-muted-foreground">
+                    Powtórz hasło
+                  </label>
+                  <Input
+                    id="auth-confirm-password"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(event) => setConfirmPassword(event.target.value)}
+                    placeholder="••••••••"
+                    minLength={8}
+                    required
+                  />
+                </div>
+              )}
 
               {tab === 'register' && <Captcha onToken={setCaptchaToken} />}
 
