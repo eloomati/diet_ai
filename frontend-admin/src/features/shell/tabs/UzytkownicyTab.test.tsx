@@ -66,7 +66,9 @@ function stubFetch(callerRole: string, users: unknown[], overrides: (url: string
     if (url.includes('/auth/login')) {
       return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
     }
-    if (url.includes('/admin/users')) return Promise.resolve(jsonResponse(200, users))
+    if (url.includes('/admin/users')) {
+      return Promise.resolve(jsonResponse(200, { items: users, total: users.length }))
+    }
     return Promise.resolve(jsonResponse(200, {}))
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -146,7 +148,7 @@ describe('UzytkownicyTab', () => {
         deleted = true
         return new Response(null, { status: 204 })
       }
-      if (deleted && url.endsWith('/admin/users')) return jsonResponse(200, [])
+      if (deleted && url.includes('/admin/users')) return jsonResponse(200, { items: [], total: 0 })
       return undefined
     })
     renderTab()
@@ -164,5 +166,60 @@ describe('UzytkownicyTab', () => {
         expect.objectContaining({ method: 'DELETE' }),
       ),
     )
+  })
+
+  it('paginates through more than one page of users', async () => {
+    const user = userEvent.setup()
+    const allUsers = Array.from({ length: 25 }, (_, i) => ({
+      ...TARGET_USER,
+      id: `target-${i}`,
+      email: `target${i}@example.com`,
+      created_at: `2026-07-${String((i % 28) + 1).padStart(2, '0')}T00:00:00Z`,
+    }))
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/me')) return Promise.resolve(jsonResponse(200, { ...CALLER, role: 'ADMIN' }))
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(
+          jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }),
+        )
+      }
+      if (url.includes('/admin/users')) {
+        const params = new URL(url, 'http://localhost').searchParams
+        const limit = Number(params.get('limit'))
+        const offset = Number(params.get('offset'))
+        return Promise.resolve(
+          jsonResponse(200, { items: allUsers.slice(offset, offset + limit), total: allUsers.length }),
+        )
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderTab()
+
+    expect(await screen.findByText('target0@example.com')).toBeInTheDocument()
+    expect(screen.getByText('1–20 z 25')).toBeInTheDocument()
+    expect(screen.queryByText('target20@example.com')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Następna strona' }))
+
+    expect(await screen.findByText('target20@example.com')).toBeInTheDocument()
+    expect(screen.getByText('21–25 z 25')).toBeInTheDocument()
+    expect(screen.queryByText('target0@example.com')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Następna strona' })).toBeDisabled()
+
+    await user.click(screen.getByRole('button', { name: 'Poprzednia strona' }))
+
+    expect(await screen.findByText('target0@example.com')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Poprzednia strona' })).toBeDisabled()
+  })
+
+  it('hides pagination controls when everything fits on one page', async () => {
+    stubFetch('ADMIN', [TARGET_USER])
+
+    renderTab()
+    await screen.findByText('target@example.com')
+
+    expect(screen.queryByRole('button', { name: 'Następna strona' })).not.toBeInTheDocument()
   })
 })

@@ -987,10 +987,44 @@ Transactions) paginate instead of rendering every row unpaginated.
     stage, no frontend change yet (Stage 2), so no live-browser
     verification this stage — matches how prior etaps' backend-only
     stages were verified via automated coverage alone.
-- [ ] **Stage 2 — Frontend-admin pagination UI**: a shared
-      pagination control wired into all three tabs.
-  - Exit criteria: live-verified paging through each of the three tabs
-    with enough seed data to span multiple pages.
+- [x] **Stage 2 — Frontend-admin pagination UI — DONE**: new shared
+      `PaginationControls` component
+      (`frontend-admin/src/components/PaginationControls.tsx`) — fixed
+      20-row page size, prev/next `Button`s (no page-number picker — not
+      asked for), an "X–Y z Z" label, and renders `null` entirely once
+      everything fits on one page so it never crowds a short list. Wired
+      into all three tabs (`UzytkownicyTab`, `DietetycyTab`,
+      `TransakcjeTab`), each now holding its own `offset` state and
+      passing `{limit: 20, offset}` into `admin.ts`'s `getUsers`/
+      `getDietitianApplications`/`getTransactions` (new `Page<T>`
+      envelope type + a `toQueryString()` helper for building the
+      `?limit&offset[&status]` query string). Changing
+      `DietetycyTab`'s existing status filter resets `offset` back to 0
+      — otherwise a filter change could land on a now out-of-range page.
+      The two side-queries that resolve `user_id` → email
+      (`DietetycyTab`/`TransakcjeTab`'s own `getUsers()` calls, reusing
+      the `['admin-users']` cache key) intentionally call `getUsers()`
+      with **no** `limit`/`offset` — they need every user for the
+      lookup map, relying on the backend's Stage-1 "omitted `limit`
+      returns everything" behavior.
+  - Exit criteria met: live-verified against a real Docker backend after
+    seeding past the 20-row page size for all three (Users already had
+    155 rows from earlier sessions; seeded 16 more dietitian
+    applications and 7 more transactions via the real
+    register/apply/purchase API flows, working around the
+    register/login rate limiter — 5 attempts/60s per IP — by clearing
+    its Redis keys between accounts). Confirmed for each tab: correct
+    "X–Y z Z" label, next/prev navigation actually changes the rows
+    shown, prev/next disable at the respective ends, and the control is
+    hidden entirely when a filter narrows the set back to ≤20 (caught
+    live: the default "Oczekujące" filter landed on exactly 20 pending
+    applications, correctly showing no pager — switching to "Wszystkie"
+    at 22 total showed it). No console errors. Tests: every existing
+    `*Tab.test.tsx` mock updated for the `{items, total}` envelope
+    (previously bare arrays); new pagination-specific tests per tab
+    (page-2 shows different rows, correct labels, filter-change resets
+    to page 1, pager hidden at ≤1 page). Full frontend-admin suite: 33
+    passed, clean `tsc -b`.
 - [ ] **Stage 3 — Tests + docs sync**: closing stage for this etap.
 
 ---

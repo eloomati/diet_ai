@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { activateUser, banUser, changeUserRole, deleteUser, getUsers } from '@/api/admin'
 import type { UserSummary } from '@/api/admin'
 import type { UserRole } from '@/api/auth'
+import { PaginationControls } from '@/components/PaginationControls'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -14,7 +15,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ApiError } from '@/lib/apiFetch'
 import { useAuth } from '@/lib/auth'
 import { notifyError, notifySuccess } from '@/lib/toast'
@@ -41,12 +48,18 @@ function errorMessage(error: unknown): string {
   return 'Coś poszło nie tak. Spróbuj ponownie.'
 }
 
+const PAGE_SIZE = 20
+
 export function UzytkownicyTab() {
   const { user: currentUser } = useAuth()
   const queryClient = useQueryClient()
   const [userPendingDelete, setUserPendingDelete] = useState<UserSummary | null>(null)
+  const [offset, setOffset] = useState(0)
 
-  const usersQuery = useQuery({ queryKey: ['admin-users'], queryFn: getUsers })
+  const usersQuery = useQuery({
+    queryKey: ['admin-users', offset],
+    queryFn: () => getUsers({ limit: PAGE_SIZE, offset }),
+  })
 
   const activateMutation = useMutation({
     mutationFn: activateUser,
@@ -71,7 +84,8 @@ export function UzytkownicyTab() {
   })
 
   const changeRoleMutation = useMutation({
-    mutationFn: ({ userId, role }: { userId: string; role: UserRole }) => changeUserRole(userId, role),
+    mutationFn: ({ userId, role }: { userId: string; role: UserRole }) =>
+      changeUserRole(userId, role),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin-users'] }),
     onError: (error) => notifyError(errorMessage(error)),
   })
@@ -100,13 +114,15 @@ export function UzytkownicyTab() {
             </tr>
           </thead>
           <tbody>
-            {usersQuery.data.map((user) => {
+            {usersQuery.data.items.map((user) => {
               const isSelf = user.id === currentUser?.user_id
               return (
                 <tr key={user.id} className="border-b border-border last:border-0">
                   <td className="px-3 py-2">{user.email}</td>
                   <td className="px-3 py-2">
-                    <Badge variant={STATUS_VARIANT[user.status] ?? 'secondary'}>{user.status}</Badge>
+                    <Badge variant={STATUS_VARIANT[user.status] ?? 'secondary'}>
+                      {user.status}
+                    </Badge>
                   </td>
                   <td className="px-3 py-2">
                     {isSuperAdmin && !isSelf ? (
@@ -173,14 +189,23 @@ export function UzytkownicyTab() {
         </table>
       </div>
 
-      <Dialog open={userPendingDelete !== null} onOpenChange={(open) => !open && setUserPendingDelete(null)}>
+      <PaginationControls
+        offset={offset}
+        limit={PAGE_SIZE}
+        total={usersQuery.data.total}
+        onOffsetChange={setOffset}
+      />
+
+      <Dialog
+        open={userPendingDelete !== null}
+        onOpenChange={(open) => !open && setUserPendingDelete(null)}
+      >
         <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>Usunąć konto?</DialogTitle>
             <DialogDescription>
-              Konto <b>{userPendingDelete?.email}</b> oraz wszystkie powiązane z nim dane
-              (rozmowy, profil żywieniowy, plany) zostaną trwale usunięte. Tej operacji nie można
-              cofnąć.
+              Konto <b>{userPendingDelete?.email}</b> oraz wszystkie powiązane z nim dane (rozmowy,
+              profil żywieniowy, plany) zostaną trwale usunięte. Tej operacji nie można cofnąć.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

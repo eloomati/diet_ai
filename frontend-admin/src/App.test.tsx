@@ -57,7 +57,7 @@ describe('App', () => {
       if (url.includes('/auth/login')) {
         return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
       }
-      if (url.includes('/admin/users')) return Promise.resolve(jsonResponse(200, []))
+      if (url.includes('/admin/users')) return Promise.resolve(jsonResponse(200, { items: [], total: 0 }))
       return Promise.resolve(jsonResponse(200, {}))
     })
     vi.stubGlobal('fetch', fetchMock)
@@ -121,7 +121,7 @@ describe('App', () => {
           }),
         )
       }
-      if (url.includes('/admin/users')) return Promise.resolve(jsonResponse(200, []))
+      if (url.includes('/admin/users')) return Promise.resolve(jsonResponse(200, { items: [], total: 0 }))
       return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
     })
     vi.stubGlobal('fetch', fetchMock)

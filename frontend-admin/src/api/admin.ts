@@ -16,8 +16,27 @@ export interface ChangeUserRoleResponse {
   role: UserRole
 }
 
-export function getUsers(): Promise<UserSummary[]> {
-  return apiFetch('/admin/users')
+export interface Page<T> {
+  items: T[]
+  total: number
+}
+
+export interface PageParams {
+  limit?: number
+  offset?: number
+}
+
+function toQueryString(params: Record<string, string | number | undefined>): string {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined) query.set(key, String(value))
+  }
+  const qs = query.toString()
+  return qs ? `?${qs}` : ''
+}
+
+export function getUsers(params: PageParams = {}): Promise<Page<UserSummary>> {
+  return apiFetch(`/admin/users${toQueryString({ ...params })}`)
 }
 
 export function activateUser(userId: string): Promise<UserSummary> {
@@ -50,9 +69,9 @@ export interface DietitianApplication {
 
 export function getDietitianApplications(
   status?: DietitianApplicationStatus,
-): Promise<DietitianApplication[]> {
-  const query = status ? `?status=${status}` : ''
-  return apiFetch(`/admin/dietitian-applications${query}`)
+  params: PageParams = {},
+): Promise<Page<DietitianApplication>> {
+  return apiFetch(`/admin/dietitian-applications${toQueryString({ status, ...params })}`)
 }
 
 export function approveDietitianApplication(applicationId: string): Promise<DietitianApplication> {
@@ -77,8 +96,8 @@ export interface Transaction {
   paid_at: string | null
 }
 
-export function getTransactions(): Promise<Transaction[]> {
-  return apiFetch('/admin/transactions')
+export function getTransactions(params: PageParams = {}): Promise<Page<Transaction>> {
+  return apiFetch(`/admin/transactions${toQueryString({ ...params })}`)
 }
 
 export function markTransactionPaid(transactionId: string): Promise<Transaction> {

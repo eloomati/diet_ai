@@ -1,12 +1,9 @@
+import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import {
-  getTransactions,
-  getUsers,
-  markTransactionPaid,
-  markTransactionUnpaid,
-} from '@/api/admin'
+import { getTransactions, getUsers, markTransactionPaid, markTransactionUnpaid } from '@/api/admin'
 import type { OfferType, TransactionStatus } from '@/api/admin'
+import { PaginationControls } from '@/components/PaginationControls'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { ApiError } from '@/lib/apiFetch'
@@ -27,15 +24,21 @@ function errorMessage(error: unknown): string {
   return 'Coś poszło nie tak. Spróbuj ponownie.'
 }
 
+const PAGE_SIZE = 20
+
 export function TransakcjeTab() {
   const queryClient = useQueryClient()
+  const [offset, setOffset] = useState(0)
 
-  const transactionsQuery = useQuery({ queryKey: ['admin-transactions'], queryFn: getTransactions })
+  const transactionsQuery = useQuery({
+    queryKey: ['admin-transactions', offset],
+    queryFn: () => getTransactions({ limit: PAGE_SIZE, offset }),
+  })
   // Same reuse as DietetycyTab — transactions only carry `user_id`/
   // `dietitian_id`, not emails; the already-cached ['admin-users'] query
   // (shared with UzytkownicyTab) resolves both into something readable.
-  const usersQuery = useQuery({ queryKey: ['admin-users'], queryFn: getUsers })
-  const emailByUserId = new Map(usersQuery.data?.map((user) => [user.id, user.email]))
+  const usersQuery = useQuery({ queryKey: ['admin-users'], queryFn: () => getUsers() })
+  const emailByUserId = new Map(usersQuery.data?.items.map((user) => [user.id, user.email]))
 
   const markPaidMutation = useMutation({
     mutationFn: markTransactionPaid,
@@ -57,70 +60,77 @@ export function TransakcjeTab() {
     return <p className="text-sm text-destructive">{errorMessage(transactionsQuery.error)}</p>
   }
 
-  if (transactionsQuery.data.length === 0) {
-    return (
-      <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-        Brak transakcji.
-      </p>
-    )
+  if (transactionsQuery.data.total === 0) {
+    return <p className="px-4 py-8 text-center text-sm text-muted-foreground">Brak transakcji.</p>
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
-      <table className="w-full text-left text-sm">
-        <thead>
-          <tr className="border-b border-border text-xs font-bold text-muted-foreground uppercase">
-            <th className="px-3 py-2">Kupujący</th>
-            <th className="px-3 py-2">Dietetyk</th>
-            <th className="px-3 py-2">Oferta</th>
-            <th className="px-3 py-2">Kwota</th>
-            <th className="px-3 py-2">Status</th>
-            <th className="px-3 py-2">Utworzono</th>
-            <th className="px-3 py-2">Akcje</th>
-          </tr>
-        </thead>
-        <tbody>
-          {transactionsQuery.data.map((transaction) => (
-            <tr key={transaction.id} className="border-b border-border last:border-0">
-              <td className="px-3 py-2">{emailByUserId.get(transaction.user_id) ?? transaction.user_id}</td>
-              <td className="px-3 py-2">
-                {transaction.dietitian_id
-                  ? (emailByUserId.get(transaction.dietitian_id) ?? transaction.dietitian_id)
-                  : '—'}
-              </td>
-              <td className="px-3 py-2">{OFFER_LABEL[transaction.offer_type]}</td>
-              <td className="px-3 py-2">{transaction.amount} zł</td>
-              <td className="px-3 py-2">
-                <Badge variant={STATUS_VARIANT[transaction.status]}>{transaction.status}</Badge>
-              </td>
-              <td className="px-3 py-2 text-muted-foreground">
-                {new Date(transaction.created_at).toLocaleDateString('pl-PL')}
-              </td>
-              <td className="px-3 py-2">
-                {transaction.status === 'UNPAID' ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={markPaidMutation.isPending}
-                    onClick={() => markPaidMutation.mutate(transaction.id)}
-                  >
-                    Oznacz jako opłacone
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={markUnpaidMutation.isPending}
-                    onClick={() => markUnpaidMutation.mutate(transaction.id)}
-                  >
-                    Oznacz jako nieopłacone
-                  </Button>
-                )}
-              </td>
+    <div className="flex flex-col gap-2">
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr className="border-b border-border text-xs font-bold text-muted-foreground uppercase">
+              <th className="px-3 py-2">Kupujący</th>
+              <th className="px-3 py-2">Dietetyk</th>
+              <th className="px-3 py-2">Oferta</th>
+              <th className="px-3 py-2">Kwota</th>
+              <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Utworzono</th>
+              <th className="px-3 py-2">Akcje</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {transactionsQuery.data.items.map((transaction) => (
+              <tr key={transaction.id} className="border-b border-border last:border-0">
+                <td className="px-3 py-2">
+                  {emailByUserId.get(transaction.user_id) ?? transaction.user_id}
+                </td>
+                <td className="px-3 py-2">
+                  {transaction.dietitian_id
+                    ? (emailByUserId.get(transaction.dietitian_id) ?? transaction.dietitian_id)
+                    : '—'}
+                </td>
+                <td className="px-3 py-2">{OFFER_LABEL[transaction.offer_type]}</td>
+                <td className="px-3 py-2">{transaction.amount} zł</td>
+                <td className="px-3 py-2">
+                  <Badge variant={STATUS_VARIANT[transaction.status]}>{transaction.status}</Badge>
+                </td>
+                <td className="px-3 py-2 text-muted-foreground">
+                  {new Date(transaction.created_at).toLocaleDateString('pl-PL')}
+                </td>
+                <td className="px-3 py-2">
+                  {transaction.status === 'UNPAID' ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={markPaidMutation.isPending}
+                      onClick={() => markPaidMutation.mutate(transaction.id)}
+                    >
+                      Oznacz jako opłacone
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={markUnpaidMutation.isPending}
+                      onClick={() => markUnpaidMutation.mutate(transaction.id)}
+                    >
+                      Oznacz jako nieopłacone
+                    </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <PaginationControls
+        offset={offset}
+        limit={PAGE_SIZE}
+        total={transactionsQuery.data.total}
+        onOffsetChange={setOffset}
+      />
     </div>
   )
 }
