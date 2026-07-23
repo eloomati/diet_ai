@@ -73,6 +73,20 @@ curl -X POST http://localhost:8000/api/v1/auth/register \
   -d '{"email": "you@example.com", "password": "StrongPass123"}'
 ```
 
+## Technical accounts
+
+A migration (`backend/alembic/version/20260723_14_technical_users.py`)
+seeds one ready-to-use account per role, so anyone running the stack
+locally can log in immediately without registering/promoting an account
+by hand. Same password for all four: **`DemoPass123!`**
+
+| Email | Role | Notes |
+|---|---|---|
+| `demo.user@example.com` | `USER` | plain account, no nutrition profile yet |
+| `demo.dietitian@example.com` | `DIET_USER` | has a `DietitianProfile` already, so it shows up in the marketplace |
+| `demo.admin@example.com` | `ADMIN` | log into the admin panel at http://localhost:5174 |
+| `demo.superadmin@example.com` | `SUPER_ADMIN` | admin panel, plus the role-change dropdown |
+
 ## 4. Try the full flow
 
 `docs/https/*.http` files (compatible with the VS Code **REST Client** extension or JetBrains' built-in HTTP client) walk through each module end-to-end with real requests:
