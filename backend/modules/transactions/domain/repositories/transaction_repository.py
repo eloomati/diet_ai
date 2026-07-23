@@ -18,7 +18,11 @@ class TransactionRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def list_all(self) -> list[Transaction]:
+    async def list_all(self, limit: int | None = None, offset: int = 0) -> list[Transaction]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def count_all(self) -> int:
         raise NotImplementedError
 
     @abstractmethod

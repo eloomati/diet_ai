@@ -1,3 +1,4 @@
+from backend.modules.admin.application.dto.pagination_dto import PageResult
 from backend.modules.dietitian.application.dto.dietitian_application_dto import (
     DietitianApplicationResult,
 )
@@ -12,7 +13,16 @@ class ListDietitianApplicationsUseCase:
         self._application_repository = application_repository
 
     async def execute(
-        self, status: ApplicationStatus | None = None
-    ) -> list[DietitianApplicationResult]:
-        applications = await self._application_repository.list_all(status)
-        return [DietitianApplicationResult.from_domain(a) for a in applications]
+        self,
+        status: ApplicationStatus | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> PageResult[DietitianApplicationResult]:
+        applications = await self._application_repository.list_all(
+            status, limit=limit, offset=offset
+        )
+        total = await self._application_repository.count_all(status)
+        return PageResult(
+            items=[DietitianApplicationResult.from_domain(a) for a in applications],
+            total=total,
+        )

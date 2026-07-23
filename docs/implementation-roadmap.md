@@ -17,12 +17,12 @@ complete stage-by-stage logs. This document picks up at Phase 13.
 
 ---
 
-## Status (as of 2026-07-22)
+## Status (as of 2026-07-23)
 
 ```
 Phase 0-12  - Foundation through Dietitian  DONE — see the two archived
               Marketplace                    roadmaps
-Phase 13    - Quality, Security &           IN PROGRESS —
+Phase 13    - Quality, Security &           DONE —
               Personalization                Etap 0 (Security & session
                                                 hardening): DONE
                                               Etap 1 (User display
@@ -32,7 +32,7 @@ Phase 13    - Quality, Security &           IN PROGRESS —
                                               Etap 3 (Multi-plan
                                                 calendar): DONE
                                               Etap 4 (Admin panel
-                                                pagination): not started
+                                                pagination): DONE
 ```
 
 ---
@@ -937,23 +937,123 @@ days, and export the combined selection directly from that view.
 
 ---
 
-### Etap 4 — Admin Panel Pagination
+### Etap 4 — Admin Panel Pagination — DONE
 
 Goal: all three `frontend-admin` tabs (Users, Dietitian Applications,
 Transactions) paginate instead of rendering every row unpaginated.
 
-- [ ] **Stage 1 — Backend pagination**: `limit`/`offset` (or
-      `page`/`page_size`) query params added to `GET /admin/users`,
-      `GET /admin/dietitian-applications`, `GET /admin/transactions`,
-      each returning a total count alongside the page of results.
-  - Exit criteria: each endpoint's existing behavior is preserved when
-    no pagination params are passed (backwards compatible), and returns
-    a correctly-sized page + accurate total when they are.
-- [ ] **Stage 2 — Frontend-admin pagination UI**: a shared
-      pagination control wired into all three tabs.
-  - Exit criteria: live-verified paging through each of the three tabs
-    with enough seed data to span multiple pages.
-- [ ] **Stage 3 — Tests + docs sync**: closing stage for this etap.
+- [x] **Stage 1 — Backend pagination — DONE**: `limit`/`offset` query
+      params (`Query(default=None, ge=1, le=200)` / `Query(default=0,
+      ge=0)`) added to `GET /admin/users`, `GET
+      /admin/dietitian-applications` (alongside its existing `status`
+      filter), `GET /admin/transactions`. All three now respond with a
+      shared generic envelope, `Page[T]` (`{"items": [...], "total": N}`,
+      `backend/modules/admin/api/schemas/pagination_schemas.py`), rather
+      than a bare array — the first pagination pattern in this codebase
+      (no prior `limit`/`offset`/`page` convention existed to mirror; the
+      only precedent was `GET /diet-plans`'s `from`/`to` date filtering,
+      a different concern). `limit=None` (the default, i.e. the param
+      omitted) returns every row with no `LIMIT` applied — the
+      "backwards compatible" half of the exit criteria — so any
+      not-yet-upgraded caller still gets everything, just now wrapped
+      with an accurate `total` alongside it.
+
+      Threaded through every layer for all three: `UserRepository`/
+      `DietitianApplicationRepository`/`TransactionRepository` each
+      gained `limit`/`offset` params on `list_all()` plus a new
+      `count_all()` method (both abstract and their `SqlAlchemy*`
+      implementations — `.offset()` always applied, `.limit()` only
+      when given, `count_all` a separate `SELECT count(*)` respecting
+      the same filters, e.g. dietitian applications' `status`).
+      `TransactionRepository.list_by_user_id`/`list_by_dietitian_id`
+      (backing the non-admin `/transactions/me*` endpoints) were left
+      untouched — only the admin-facing `list_all` gained pagination.
+      New generic `PageResult[T]` DTO
+      (`backend/modules/admin/application/dto/pagination_dto.py`) is
+      what each `List*UseCase.execute()` now returns instead of a bare
+      list — the routers wrap that into the `Page[T]` response schema.
+      Every fake repository (`InMemoryUserRepository` ×2 — one in
+      `identity/tests/fakes.py`, one duplicated locally in
+      `test_user_repository_contract.py` since it subclasses the ABC
+      directly —, `InMemoryDietitianApplicationRepository`,
+      `InMemoryTransactionRepository`) updated to match, sorting the
+      same way its real `SqlAlchemy*` counterpart orders before slicing.
+  - Exit criteria met: existing tests updated for the new `{items,
+    total}` shape, plus a new pagination-specific test per endpoint
+    (`limit`/`offset` returns the right page size, disjoint pages,
+    accurate `total` unaffected by the current page). `docs/openapi.json`
+    re-exported. Directly-affected suite: `admin`, `identity`,
+    `dietitian`, `transactions` modules — 324 passed. Backend-only
+    stage, no frontend change yet (Stage 2), so no live-browser
+    verification this stage — matches how prior etaps' backend-only
+    stages were verified via automated coverage alone.
+- [x] **Stage 2 — Frontend-admin pagination UI — DONE**: new shared
+      `PaginationControls` component
+      (`frontend-admin/src/components/PaginationControls.tsx`) — fixed
+      20-row page size, prev/next `Button`s (no page-number picker — not
+      asked for), an "X–Y z Z" label, and renders `null` entirely once
+      everything fits on one page so it never crowds a short list. Wired
+      into all three tabs (`UzytkownicyTab`, `DietetycyTab`,
+      `TransakcjeTab`), each now holding its own `offset` state and
+      passing `{limit: 20, offset}` into `admin.ts`'s `getUsers`/
+      `getDietitianApplications`/`getTransactions` (new `Page<T>`
+      envelope type + a `toQueryString()` helper for building the
+      `?limit&offset[&status]` query string). Changing
+      `DietetycyTab`'s existing status filter resets `offset` back to 0
+      — otherwise a filter change could land on a now out-of-range page.
+      The two side-queries that resolve `user_id` → email
+      (`DietetycyTab`/`TransakcjeTab`'s own `getUsers()` calls, reusing
+      the `['admin-users']` cache key) intentionally call `getUsers()`
+      with **no** `limit`/`offset` — they need every user for the
+      lookup map, relying on the backend's Stage-1 "omitted `limit`
+      returns everything" behavior.
+  - Exit criteria met: live-verified against a real Docker backend after
+    seeding past the 20-row page size for all three (Users already had
+    155 rows from earlier sessions; seeded 16 more dietitian
+    applications and 7 more transactions via the real
+    register/apply/purchase API flows, working around the
+    register/login rate limiter — 5 attempts/60s per IP — by clearing
+    its Redis keys between accounts). Confirmed for each tab: correct
+    "X–Y z Z" label, next/prev navigation actually changes the rows
+    shown, prev/next disable at the respective ends, and the control is
+    hidden entirely when a filter narrows the set back to ≤20 (caught
+    live: the default "Oczekujące" filter landed on exactly 20 pending
+    applications, correctly showing no pager — switching to "Wszystkie"
+    at 22 total showed it). No console errors. Tests: every existing
+    `*Tab.test.tsx` mock updated for the `{items, total}` envelope
+    (previously bare arrays); new pagination-specific tests per tab
+    (page-2 shows different rows, correct labels, filter-change resets
+    to page 1, pager hidden at ≤1 page). Full frontend-admin suite: 33
+    passed, clean `tsc -b`.
+- [x] **Stage 3 — Tests + docs sync — DONE**: closing stage for this
+      etap. Docs sync only — Stage 1/2 were already tested continuously
+      as they landed, so this stage ran the full suites without redoing
+      the live browser/Docker verification. `docs/api.md`: all three
+      admin list endpoints (`GET /admin/users`,
+      `/admin/dietitian-applications`, `/admin/transactions`) documented
+      with their new `limit`/`offset` query params and `{items, total}`
+      response envelope (previously undocumented as bare-array
+      responses); the four `POST .../activate|ban|approve|reject`
+      single-object responses' "same shape as ... entries" wording
+      updated to point at the `items` array specifically. `docs/
+      architecture.md` gained a "Pagination (Phase 13 / Etap 4)"
+      subsection under Admin Module: the `Page[T]`/`PageResult[T]`
+      generic envelope, the `limit=None`-means-everything backwards-
+      compatibility choice, which repository methods gained
+      `count_all()`, and the frontend `PaginationControls` component
+      plus the two intentionally-unpaginated `getUsers()` side-queries
+      (email-lookup maps need every user, not one page).
+      `docs/openapi.json` re-checked — already in sync (Stage 2 was
+      frontend-only, no schema change since Stage 1's export).
+  - Exit criteria met: full suites run clean — backend 668 passed;
+    frontend (main app) 159 passed (one `KalendarzTab.test.tsx` timeout
+    reproduced as a re-run-clean flake, unrelated to this etap — passes
+    in isolation and on a second full-suite run), clean `tsc --noEmit`;
+    frontend-admin 33 passed (one filter-reset test flaked once under
+    concurrent background test runs, passed clean on two immediate
+    reruns — not a real bug), clean `tsc -b`. No new live-browser pass
+    this stage — Stage 2 already did that against a real Docker backend
+    with seeded multi-page data for all three tabs.
 
 ---
 

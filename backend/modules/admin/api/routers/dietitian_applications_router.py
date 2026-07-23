@@ -7,6 +7,7 @@ from backend.modules.admin.api.dependencies import (
     get_list_dietitian_applications_use_case,
     get_reject_dietitian_application_use_case,
 )
+from backend.modules.admin.api.schemas import Page
 from backend.modules.admin.application.use_cases.approve_dietitian_application_use_case import (
     ApproveDietitianApplicationUseCase,
 )
@@ -33,17 +34,22 @@ router = APIRouter(prefix="/admin/dietitian-applications", tags=["admin"])
 
 
 @router.get(
-    "", response_model=list[DietitianApplicationResponse], status_code=status.HTTP_200_OK
+    "", response_model=Page[DietitianApplicationResponse], status_code=status.HTTP_200_OK
 )
 async def list_dietitian_applications(
     status_filter: ApplicationStatus | None = Query(None, alias="status"),
+    limit: int | None = Query(default=None, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     _caller: User = Depends(require_role(Role.ADMIN, Role.SUPER_ADMIN)),
     use_case: ListDietitianApplicationsUseCase = Depends(
         get_list_dietitian_applications_use_case
     ),
-) -> list[DietitianApplicationResponse]:
-    results = await use_case.execute(status_filter)
-    return [DietitianApplicationResponse.from_result(result) for result in results]
+) -> Page[DietitianApplicationResponse]:
+    page = await use_case.execute(status_filter, limit=limit, offset=offset)
+    return Page(
+        items=[DietitianApplicationResponse.from_result(result) for result in page.items],
+        total=page.total,
+    )
 
 
 @router.post(

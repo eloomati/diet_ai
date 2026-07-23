@@ -18,15 +18,37 @@ async def test_list_users_returns_all_users() -> None:
     )
     use_case = ListUsersUseCase(repo)
 
-    results = await use_case.execute()
+    page = await use_case.execute()
 
-    assert {r.email for r in results} == {"a@example.com", "b@example.com"}
-    assert all(r.role == "USER" for r in results)
+    assert {r.email for r in page.items} == {"a@example.com", "b@example.com"}
+    assert all(r.role == "USER" for r in page.items)
+    assert page.total == 2
 
 
 @pytest.mark.asyncio
-async def test_list_users_returns_empty_list_when_none() -> None:
+async def test_list_users_returns_empty_page_when_none() -> None:
     repo = InMemoryUserRepository()
     use_case = ListUsersUseCase(repo)
 
-    assert await use_case.execute() == []
+    page = await use_case.execute()
+
+    assert page.items == []
+    assert page.total == 0
+
+
+@pytest.mark.asyncio
+async def test_list_users_applies_limit_and_offset() -> None:
+    repo = InMemoryUserRepository()
+    for letter in "abc":
+        await repo.save(
+            User.create(
+                email=Email(f"{letter}@example.com"),
+                password_hash=PasswordHash("$2b$12$" + letter * 22),
+            )
+        )
+    use_case = ListUsersUseCase(repo)
+
+    page = await use_case.execute(limit=1, offset=1)
+
+    assert [r.email for r in page.items] == ["b@example.com"]
+    assert page.total == 3

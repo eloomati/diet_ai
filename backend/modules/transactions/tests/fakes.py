@@ -18,8 +18,13 @@ class InMemoryTransactionRepository:
         transactions = [t for t in self._by_id.values() if t.dietitian_id == dietitian_id]
         return sorted(transactions, key=lambda t: t.created_at, reverse=True)
 
-    async def list_all(self) -> list[Transaction]:
-        return sorted(self._by_id.values(), key=lambda t: t.created_at, reverse=True)
+    async def list_all(self, limit: int | None = None, offset: int = 0) -> list[Transaction]:
+        transactions = sorted(self._by_id.values(), key=lambda t: t.created_at, reverse=True)
+        sliced = transactions[offset:]
+        return sliced[:limit] if limit is not None else sliced
+
+    async def count_all(self) -> int:
+        return len(self._by_id)
 
     async def save(self, transaction: Transaction) -> None:
         self._by_id[transaction.id] = transaction

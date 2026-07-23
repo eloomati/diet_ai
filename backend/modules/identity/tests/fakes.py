@@ -37,8 +37,13 @@ class InMemoryUserRepository:
         self._by_id[user.id] = user
         self._by_email[user.email.value] = user
 
-    async def list_all(self) -> list[User]:
-        return list(self._by_id.values())
+    async def list_all(self, limit: int | None = None, offset: int = 0) -> list[User]:
+        users = sorted(self._by_id.values(), key=lambda u: u.created_at)
+        sliced = users[offset:]
+        return sliced[:limit] if limit is not None else sliced
+
+    async def count_all(self) -> int:
+        return len(self._by_id)
 
     async def delete(self, user_id: UUID) -> None:
         user = self._by_id.pop(user_id, None)

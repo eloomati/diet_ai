@@ -220,4 +220,47 @@ describe('LeftRail conversation history (Etap 3 Stage 4)', () => {
     expect(renameCall).toBeDefined()
     expect(JSON.parse(renameCall![1].body as string)).toEqual({ title: 'Nowy tytuł' })
   })
+
+  it.each(['ADMIN', 'SUPER_ADMIN'])(
+    'shows a link to the admin panel for a %s user',
+    async (role) => {
+      const fetchMock = vi.fn().mockImplementation((url: string) => {
+        if (url.includes('/auth/me')) {
+          return Promise.resolve(
+            jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true, role }),
+          )
+        }
+        if (url.includes('/auth/login')) {
+          return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+        }
+        return Promise.resolve(jsonResponse(200, []))
+      })
+      vi.stubGlobal('fetch', fetchMock)
+
+      renderLeftRail()
+
+      const link = await screen.findByRole('link', { name: 'Panel Administratorski' })
+      expect(link).toHaveAttribute('href', 'http://localhost:5174')
+    },
+  )
+
+  it('does not show the admin panel link for a plain USER', async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/auth/me')) {
+        return Promise.resolve(
+          jsonResponse(200, { user_id: 'u1', email: 'user@example.com', status: 'ACTIVE', email_verified: true, role: 'USER' }),
+        )
+      }
+      if (url.includes('/auth/login')) {
+        return Promise.resolve(jsonResponse(200, { access_token: 'a', refresh_token: 'r', token_type: 'bearer' }))
+      }
+      return Promise.resolve(jsonResponse(200, []))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderLeftRail()
+    await screen.findByText('Nowy czat')
+
+    expect(screen.queryByRole('link', { name: 'Panel Administratorski' })).not.toBeInTheDocument()
+  })
 })

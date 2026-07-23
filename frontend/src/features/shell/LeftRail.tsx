@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronLeft, Info, MessageSquare, Pencil } from 'lucide-react'
+import { ChevronLeft, Info, MessageSquare, Pencil, Shield } from 'lucide-react'
 import { useState, type KeyboardEvent } from 'react'
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
@@ -20,6 +20,7 @@ import { AboutDialog } from './AboutDialog'
 import { CategoryMenu } from './CategoryMenu'
 
 const MAX_VISIBLE_TAGS = 2
+const ADMIN_PANEL_URL = import.meta.env.VITE_ADMIN_PANEL_URL ?? 'http://localhost:5174'
 
 function ConversationRowTags({ conversation }: { conversation: ConversationSummary }) {
   const shown = conversation.categories.slice(0, MAX_VISIBLE_TAGS)
@@ -72,6 +73,7 @@ export function LeftRail({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const initials = user?.email.slice(0, 2).toUpperCase() ?? '?'
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'SUPER_ADMIN'
 
   const conversationsQuery = useQuery({
     queryKey: ['conversations'],
@@ -134,6 +136,18 @@ export function LeftRail({
           <ChevronLeft className="size-4" />
         </Button>
       </div>
+
+      {isAdmin && (
+        <div className="px-3.5 pb-2">
+          <a
+            href={ADMIN_PANEL_URL}
+            className="flex items-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2.5 text-[12.5px] font-bold text-foreground hover:bg-muted"
+          >
+            <Shield className="size-4 text-primary" />
+            Panel Administratorski
+          </a>
+        </div>
+      )}
 
       <div className="px-3.5 pb-3">
         <CategoryMenu onStartChat={onStartChat} />

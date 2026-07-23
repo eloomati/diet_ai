@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from backend.modules.transactions.domain.entities.transaction import Transaction
@@ -41,10 +41,21 @@ class SqlAlchemyTransactionRepository(TransactionRepository):
         result = await self._session.execute(stmt)
         return [TransactionMapper.to_domain(model) for model in result.scalars().all()]
 
-    async def list_all(self) -> list[Transaction]:
-        stmt = select(TransactionModel).order_by(TransactionModel.created_at.desc())
+    async def list_all(self, limit: int | None = None, offset: int = 0) -> list[Transaction]:
+        stmt = (
+            select(TransactionModel)
+            .order_by(TransactionModel.created_at.desc())
+            .offset(offset)
+        )
+        if limit is not None:
+            stmt = stmt.limit(limit)
         result = await self._session.execute(stmt)
         return [TransactionMapper.to_domain(model) for model in result.scalars().all()]
+
+    async def count_all(self) -> int:
+        stmt = select(func.count()).select_from(TransactionModel)
+        result = await self._session.execute(stmt)
+        return result.scalar_one()
 
     async def save(self, transaction: Transaction) -> None:
         existing = await self._session.get(TransactionModel, transaction.id)

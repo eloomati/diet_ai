@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 
 from backend.modules.admin.api.dependencies import (
     get_activate_user_use_case,
@@ -8,7 +8,7 @@ from backend.modules.admin.api.dependencies import (
     get_delete_user_use_case,
     get_list_users_use_case,
 )
-from backend.modules.admin.api.schemas import UserSummaryResponse
+from backend.modules.admin.api.schemas import Page, UserSummaryResponse
 from backend.modules.admin.application.use_cases.activate_user_use_case import ActivateUserUseCase
 from backend.modules.admin.application.use_cases.ban_user_use_case import BanUserUseCase
 from backend.modules.admin.application.use_cases.delete_user_use_case import DeleteUserUseCase
@@ -22,13 +22,18 @@ from backend.shared.exceptions import AppException, ErrorCode
 router = APIRouter(prefix="/admin/users", tags=["admin"])
 
 
-@router.get("", response_model=list[UserSummaryResponse], status_code=status.HTTP_200_OK)
+@router.get("", response_model=Page[UserSummaryResponse], status_code=status.HTTP_200_OK)
 async def list_users(
+    limit: int | None = Query(default=None, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
     _caller: User = Depends(require_role(Role.ADMIN, Role.SUPER_ADMIN)),
     use_case: ListUsersUseCase = Depends(get_list_users_use_case),
-) -> list[UserSummaryResponse]:
-    results = await use_case.execute()
-    return [UserSummaryResponse.from_result(result) for result in results]
+) -> Page[UserSummaryResponse]:
+    page = await use_case.execute(limit=limit, offset=offset)
+    return Page(
+        items=[UserSummaryResponse.from_result(result) for result in page.items],
+        total=page.total,
+    )
 
 
 @router.post(

@@ -57,8 +57,12 @@ function stubFetch(
   const fetchMock = vi.fn().mockImplementation((url: string, options?: RequestInit) => {
     const override = overrides(url, options)
     if (override) return Promise.resolve(override)
-    if (url.includes('/admin/transactions')) return Promise.resolve(jsonResponse(200, transactions))
-    if (url.includes('/admin/users')) return Promise.resolve(jsonResponse(200, [BUYER, DIETITIAN]))
+    if (url.includes('/admin/transactions')) {
+      return Promise.resolve(jsonResponse(200, { items: transactions, total: transactions.length }))
+    }
+    if (url.includes('/admin/users')) {
+      return Promise.resolve(jsonResponse(200, { items: [BUYER, DIETITIAN], total: 2 }))
+    }
     return Promise.resolve(jsonResponse(200, {}))
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -134,7 +138,7 @@ describe('TransakcjeTab', () => {
 
   it('falls back to the raw id when no matching user is found', async () => {
     stubFetch([TRANSACTION], (url) => {
-      if (url.includes('/admin/users')) return jsonResponse(200, [])
+      if (url.includes('/admin/users')) return jsonResponse(200, { items: [], total: 0 })
       return undefined
     })
 
@@ -142,5 +146,43 @@ describe('TransakcjeTab', () => {
 
     expect(await screen.findByText('buyer-1')).toBeInTheDocument()
     expect(screen.getByText('dietitian-1')).toBeInTheDocument()
+  })
+
+  it('paginates through more than one page of transactions', async () => {
+    const user = userEvent.setup()
+    const allTransactions = Array.from({ length: 21 }, (_, i) => ({
+      ...TRANSACTION,
+      id: `txn-${i}`,
+      amount: `${i}.00`,
+    }))
+    const fetchMock = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('/admin/transactions')) {
+        const params = new URL(url, 'http://localhost').searchParams
+        const limit = Number(params.get('limit'))
+        const offset = Number(params.get('offset'))
+        return Promise.resolve(
+          jsonResponse(200, {
+            items: allTransactions.slice(offset, offset + limit),
+            total: allTransactions.length,
+          }),
+        )
+      }
+      if (url.includes('/admin/users')) {
+        return Promise.resolve(jsonResponse(200, { items: [BUYER, DIETITIAN], total: 2 }))
+      }
+      return Promise.resolve(jsonResponse(200, {}))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    renderTab()
+
+    expect(await screen.findByText('0.00 zł')).toBeInTheDocument()
+    expect(screen.getByText('1–20 z 21')).toBeInTheDocument()
+    expect(screen.queryByText('20.00 zł')).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Następna strona' }))
+
+    expect(await screen.findByText('20.00 zł')).toBeInTheDocument()
+    expect(screen.getByText('21–21 z 21')).toBeInTheDocument()
   })
 })

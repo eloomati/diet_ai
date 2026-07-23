@@ -19,9 +19,10 @@ async def test_list_all_returns_every_application() -> None:
     await repo.save(b)
     use_case = ListDietitianApplicationsUseCase(repo)
 
-    results = await use_case.execute()
+    page = await use_case.execute()
 
-    assert {r.id for r in results} == {a.id, b.id}
+    assert {r.id for r in page.items} == {a.id, b.id}
+    assert page.total == 2
 
 
 @pytest.mark.asyncio
@@ -34,6 +35,24 @@ async def test_list_filters_by_status() -> None:
     await repo.save(approved)
     use_case = ListDietitianApplicationsUseCase(repo)
 
-    results = await use_case.execute(ApplicationStatus.APPROVED)
+    page = await use_case.execute(ApplicationStatus.APPROVED)
 
-    assert [r.id for r in results] == [approved.id]
+    assert [r.id for r in page.items] == [approved.id]
+    assert page.total == 1
+
+
+@pytest.mark.asyncio
+async def test_list_applies_limit_and_offset() -> None:
+    repo = InMemoryDietitianApplicationRepository()
+    applications = [
+        DietitianApplication.create(user_id=uuid4(), experience="exp", diplomas=(), description="d")
+        for _ in range(3)
+    ]
+    for application in applications:
+        await repo.save(application)
+    use_case = ListDietitianApplicationsUseCase(repo)
+
+    page = await use_case.execute(limit=1, offset=1)
+
+    assert [r.id for r in page.items] == [applications[1].id]
+    assert page.total == 3

@@ -20,6 +20,13 @@ class DietitianApplicationRepository(ABC):
 
     @abstractmethod
     async def list_all(
-        self, status: ApplicationStatus | None = None
+        self,
+        status: ApplicationStatus | None = None,
+        limit: int | None = None,
+        offset: int = 0,
     ) -> list[DietitianApplication]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def count_all(self, status: ApplicationStatus | None = None) -> int:
         raise NotImplementedError

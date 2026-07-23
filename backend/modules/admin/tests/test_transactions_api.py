@@ -41,7 +41,32 @@ def test_list_transactions_returns_all(client: TestClient) -> None:
     response = client.get("/api/v1/admin/transactions", headers=auth_headers(admin_token))
 
     assert response.status_code == 200
-    assert any(t["id"] == transaction_id for t in response.json())
+    body = response.json()
+    assert any(t["id"] == transaction_id for t in body["items"])
+    assert body["total"] == len(body["items"])
+
+
+def test_list_transactions_paginates_with_limit_and_offset(client: TestClient) -> None:
+    admin_token, admin_id = register_and_login(client, "txn.paginateadmin")
+    asyncio.run(promote_role(admin_id, Role.ADMIN))
+    buyer_token, buyer_id = register_and_login(client, "txn.paginatebuyer")
+    _, dietitian_id = register_and_login(client, "txn.paginatedietitian")
+    asyncio.run(promote_role(dietitian_id, Role.DIET_USER))
+    asyncio.run(verify_email(buyer_id))
+    for _ in range(3):
+        _create_transaction(client, buyer_token, dietitian_id)
+
+    full = client.get("/api/v1/admin/transactions", headers=auth_headers(admin_token)).json()
+    assert full["total"] >= 3
+
+    page = client.get(
+        "/api/v1/admin/transactions",
+        params={"limit": 2, "offset": 0},
+        headers=auth_headers(admin_token),
+    ).json()
+
+    assert len(page["items"]) == 2
+    assert page["total"] == full["total"]
 
 
 def test_mark_transaction_paid_requires_admin_role(client: TestClient) -> None:

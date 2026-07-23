@@ -23,7 +23,11 @@ class UserRepository(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    async def list_all(self) -> list[User]:
+    async def list_all(self, limit: int | None = None, offset: int = 0) -> list[User]:
+        raise NotImplementedError
+
+    @abstractmethod
+    async def count_all(self) -> int:
         raise NotImplementedError
 
     @abstractmethod
